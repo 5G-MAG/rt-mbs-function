@@ -1,0 +1,4 @@
+[submodule "subprojects/rt-common-shared"]
+	path = subprojects/rt-common-shared
+	url = https://github.com/5G-MAG/rt-common-shared.git
+	branch = 3GPP-Rel18

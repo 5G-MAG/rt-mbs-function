@@ -1,0 +1,4 @@
+freeDiameter/
+open5gs/
+prometheus-client-c/
+!packagefiles/*

@@ -30,3 +30,11 @@
 *.exe
 *.out
 *.app
+
+# Editor temporary files
+.*.swp
+*.bak
+
+# common build directories
+build
+install
