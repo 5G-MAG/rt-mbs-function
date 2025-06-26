@@ -37,7 +37,7 @@ scriptdir=`cd "$scriptdir"; pwd`
 
 # Command line option defaults
 default_branch='REL-18'
-default_apis="TS29580_Nmbsf_MBSUserService"
+default_apis="TS29580_Nmbsf_MBSUserService TS29580_Nmbsf_MBSUserDataIngestSession TS29581_Nmbstf_DistSession"
 default_cache_dir="${MESON_BUILD_ROOT:+$MESON_BUILD_ROOT/$MESON_SUBDIR/openapi-generator-cache}"
 
 # Parse command line arguments
@@ -181,7 +181,7 @@ if [ -x "$scriptdir/post-process.sh" ]; then
     CPP_POST_PROCESS_FILE="$scriptdir/post-process.sh" export CPP_POST_PROCESS_FILE
 fi
 
-if ! "$rt_common_shared_dir/open5gs-tools/scripts/generate_openapi" -a "${APIS}" -o "$rt_common_shared_dir/mbstf/5G_APIs-overrides" -b "${BRANCH}" -c "$templates_dir/config.yaml" -l cpp-restbed-server -d "$scriptdir/openapi" -g 6.4.0 -P "reftools.mbstf" $DEBUG_FLAG ${CACHE_DIR:+-C "$CACHE_DIR"}; then
+if ! "$rt_common_shared_dir/open5gs-tools/scripts/generate_openapi" -a "${APIS}" -o "$rt_common_shared_dir/mbsf/5G_APIs-overrides" -b "${BRANCH}" -c "$templates_dir/config.yaml" -l cpp-restbed-server -d "$scriptdir/openapi" -g 6.4.0 -P "reftools.mbsf" $DEBUG_FLAG ${CACHE_DIR:+-C "$CACHE_DIR"}; then
     echo "Error: Failed to generate OpenAPI model" 1>&2
     exit 1
 fi

@@ -22,13 +22,22 @@
 #include <stdexcept>
 
 #include "common.hh"
+#include "Context.hh"
 #include "mbsf-version.h"
+#include "MBSFEventHandler.hh"
+#include "MBSFNetworkFunction.hh"
+#include "Open5GSFSM.hh"
+#include "Open5GSEvent.hh"
+#include "Open5GSSockAddr.hh"
+#include "openapi/api/IndividualMBSUserServiceDocumentApi-info.h"
+#include "openapi/api/IndividualMBSUserDataIngestSessionDocumentApi-info.h"
 
 #include "App.hh"
 
 MBSF_NAMESPACE_USING;
 
 static App *self = nullptr;
+static EventHandler *event_handler = nullptr;
 
 extern "C" int app_initialize(const char *const argv[])
 {
@@ -36,11 +45,9 @@ extern "C" int app_initialize(const char *const argv[])
         try {
             self = new App(argv);
             self->initialise();
-#if 0
-            event_handler = new MBSTFEventHandler();
+            event_handler = new MBSFEventHandler();
             self->registerEventHandler(event_handler);
             self->startEventHandler();
-#endif
         } catch (std::exception &err) {
             ogs_error("Fatal error: %s", err.what());
             return OGS_ERROR;
@@ -55,13 +62,11 @@ extern "C" int app_initialize(const char *const argv[])
 
 extern "C" void app_terminate(void)
 {
-#if 0
     if (event_handler) {
         self->registerEventHandler(nullptr);
         delete event_handler;
         event_handler = nullptr;
     }
-#endif
 
     if (self) {
         delete self;
@@ -82,20 +87,24 @@ App::App(const char *const argv[])
     ,m_appMetadata(MBSF_NAME, MBSF_VERSION, "")
 {
     initialise_logging();
-#if 0
+
     m_app.reset(new MBSFNetworkFunction());
     m_app->initialise();
     m_context.reset(new Context());
-#endif
 
     m_app->configureLoggingDomain();
 }
 
 void App::initialise()
 {
-    static const char serviceName[] = NMBSF_DISTSESSION_API_NAME;
+    static const char serviceName[] = NMBSF_MBS_US_API_NAME;
     static const char supportedFeatures[] = "0";
-    static const char apiVersion[] = NMBSF_DISTSESSION_API_VERSION;
+    static const char apiVersion[] = NMBSF_MBS_US_API_VERSION;
+
+    static const char userDataIngestSessionServiceName[] = NMBSF_MBS_UD_INGEST_API_NAME;
+    static const char userDataIngestSessionSupportedFeatures[] = "0";
+    static const char userDataIngestSessionApiVersion[] = NMBSF_MBS_UD_INGEST_API_VERSION;
+
 
     if (!m_context->parseConfig()) {
         throw std::runtime_error("Unable to load MBSF configuration!");
@@ -104,10 +113,11 @@ void App::initialise()
         throw std::runtime_error("Open5GS parse SBI configuration failed!");
     }
 
-#if 0
-    std::shared_ptr<Open5GSSockAddr> addr(m_context->DistributionSessionServerAddress());
-    m_app->setNFServiceInfo(serviceName, supportedFeatures, apiVersion, addr);
-#endif
+    std::vector<std::shared_ptr<Open5GSSockAddr> > addrs(m_context->MBSFUserServicesAddresses());
+    m_app->addNFService(serviceName, supportedFeatures, apiVersion, addrs, std::optional<int> {m_context->capacity.activeUserServicesSoftLimit});
+
+    std::vector<std::shared_ptr<Open5GSSockAddr> > ingest_session_addrs(m_context->MBSFUserDataIngestSessionAddresses());
+    m_app->addNFService(userDataIngestSessionServiceName, userDataIngestSessionSupportedFeatures, userDataIngestSessionApiVersion, ingest_session_addrs, std::optional<int> {m_context->capacity.activeDistributionSessionsSoftLimit});
 
     std::string nf_name("MBSF-");
     nf_name += m_app->serverName();
@@ -170,7 +180,7 @@ const NfServer::AppMetadata &App::mbsfAppMetadata() const
     return m_appMetadata;
 }
 
-MBSTF_NAMESPACE_STOP
+MBSF_NAMESPACE_STOP
 
 /* vim:ts=8:sts=4:sw=4:expandtab:
  */

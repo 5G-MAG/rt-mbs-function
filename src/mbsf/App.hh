@@ -27,7 +27,7 @@
 #include "EventHandler.hh"
 #include "Open5GSEvent.hh"
 #include "Open5GSFSM.hh"
-#include "MBSTFNetworkFunction.hh"
+#include "MBSFNetworkFunction.hh"
 #include "NfServer.hh"
 #include "Open5GSNetworkFunction.hh"
 #include "Open5GSYamlDocument.hh"

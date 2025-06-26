@@ -43,6 +43,37 @@ uuid_dep = dependency('uuid')
 libmbsf_dist_sources = files('''
     common.cc
     common.hh
+    CaseInsensitiveTraits.hh
+    Context.cc
+    Context.hh
+    EventHandler.hh
+    hash.hh
+    MBSFEventHandler.cc
+    MBSFEventHandler.hh
+    MBSFNetworkFunction.hh
+    NfServer.cc
+    NfServer.hh
+    Open5GSEvent.hh
+    Open5GSFSM.hh
+    Open5GSNetworkFunction.cc
+    Open5GSNetworkFunction.hh
+    Open5GSSBIClient.cc
+    Open5GSSBIClient.hh
+    Open5GSSBIMessage.cc
+    Open5GSSBIMessage.hh
+    Open5GSSBIRequest.cc
+    Open5GSSBIRequest.hh
+    Open5GSSBIResponse.cc
+    Open5GSSBIResponse.hh
+    Open5GSSBIServer.cc
+    Open5GSSBIServer.hh
+    Open5GSSBIStream.hh
+    Open5GSSockAddr.hh
+    Open5GSTimer.hh
+    Open5GSYamlDocument.hh
+    Open5GSYamlIter.cc
+    Open5GSYamlIter.hh
+    TimerFunc.hh
 '''.split())
 
 api_tag = latest_apis?'REL-'+fiveg_api_release:'TSG'+fiveg_api_approval+'-Rel'+fiveg_api_release
