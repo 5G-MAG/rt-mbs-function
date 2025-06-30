@@ -74,6 +74,8 @@ libmbsf_dist_sources = files('''
     Open5GSYamlIter.cc
     Open5GSYamlIter.hh
     TimerFunc.hh
+    UserService.cc
+    UserService.hh
 '''.split())
 
 api_tag = latest_apis?'REL-'+fiveg_api_release:'TSG'+fiveg_api_approval+'-Rel'+fiveg_api_release

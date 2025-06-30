@@ -233,7 +233,7 @@ static Open5GSSBIResponse new_response(const NfServer::AppMetadata &app,
     }
 
     if (last_modified) {
-        std::string modified(std::format("{:%a, %d %b %Y %H:%M:%S %Z}", last_modified.value()));
+        std::string modified(std::format("{:%a, %d %b %Y %H:%M:%S %Z}", std::chrono::time_point_cast<std::chrono::seconds>(last_modified.value())));
         ogs_sbi_header_set(response->http.headers, "Last-Modified", modified.c_str());
     }
 

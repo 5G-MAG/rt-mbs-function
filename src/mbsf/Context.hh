@@ -34,6 +34,7 @@ class Open5GSSBIServer;
 class Open5GSSBIClient;
 class Open5GSSockAddr;
 class Open5GSYamlIter;
+class UserService;
 
 class Context {
 public:
@@ -48,13 +49,17 @@ public:
 
     std::vector <std::shared_ptr<Open5GSSockAddr> > MBSFUserServicesAddresses();
     std::vector <std::shared_ptr<Open5GSSockAddr> > MBSFUserDataIngestSessionAddresses();
+    
+    void addUserService(const std::shared_ptr<UserService> &userService);
+    void deleteUserService(const std::string &userServiceId);
 
     enum ServerType {
 	MBS_USER_SERVICES,
 	MBS_USER_DATA_INGEST_SESSION,
         SERVER_MAX_NUM
     };
-    
+
+    std::map<std::string, std::shared_ptr<UserService> > UserServices;
     std::vector<std::shared_ptr<Open5GSSBIServer> > servers[SERVER_MAX_NUM];
     
     struct {

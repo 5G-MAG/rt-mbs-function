@@ -32,6 +32,7 @@
 #include "Open5GSSockAddr.hh"
 #include "Open5GSYamlDocument.hh"
 #include "Open5GSYamlIter.hh"
+#include "UserService.hh"
 
 #include "Context.hh"
 
@@ -115,6 +116,23 @@ bool Context::parseConfig()
     //}
 
     return true;
+}
+
+void Context::addUserService(const std::shared_ptr<UserService> &service)
+{
+    std::shared_ptr<UserService> map_service(service);
+    UserServices.insert(std::make_pair<std::string, std::shared_ptr<UserService> >(std::string(map_service->userServiceId()), std::move(map_service)));
+}
+
+
+void Context::deleteUserService(const std::string &id)
+{
+    auto it = UserServices.find(id);
+    if (it != UserServices.end()) {
+        UserServices.erase(it);
+    } else {
+        throw std::out_of_range("MBSF: User Service not found");
+    }
 }
 
 void Context::parseCacheControl(Open5GSYamlIter &iter) {

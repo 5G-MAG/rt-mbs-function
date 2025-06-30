@@ -25,6 +25,7 @@
 
 #include "common.hh"
 #include "App.hh"
+#include "UserService.hh"
 #include "Open5GSEvent.hh"
 #include "Open5GSFSM.hh"
 #include "Open5GSSBIServer.hh"
@@ -38,6 +39,9 @@ void MBSFEventHandler::dispatch(Open5GSFSM &fsm, Open5GSEvent &event)
 {
     // Handle Open5GS FSM events here
     ogs_debug("MBSF Event: %s", ogs_event_get_name(event.ogsEvent()));
+
+    if (UserService::processEvent(event)) return;
+
 
     switch (event.id()) {
     case OGS_FSM_ENTRY_SIG:
