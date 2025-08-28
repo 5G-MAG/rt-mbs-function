@@ -73,8 +73,8 @@ public:
     Open5GSNetworkFunction &operator=(const Open5GSNetworkFunction &other) = delete;
     virtual ~Open5GSNetworkFunction();
 
-    bool noIPv4() const { return ogs_app()->parameter.no_ipv4; };
-    bool noIPv6() const { return ogs_app()->parameter.no_ipv6; };
+    bool noIPv4() const { return ogs_global_conf()->parameter.no_ipv4; };
+    bool noIPv6() const { return ogs_global_conf()->parameter.no_ipv6; };
 
     std::shared_ptr<Open5GSTimer> addTimer(TimerFunc &timer_func);
     void removeTimer(const std::shared_ptr<Open5GSTimer> &timer);

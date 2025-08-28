@@ -45,6 +45,7 @@
 #include "Open5GSYamlDocument.hh"
 #include "Open5GSNetworkFunction.hh"
 #include "openapi/model/MBSUserService.h"
+#include "openapi/model/CreateReqData.h"
 #include "openapi/model/TunnelAddress.h"
 
 #include "openapi/api/IndividualMBSUserServiceDocumentApi-info.h"

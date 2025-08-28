@@ -33,6 +33,9 @@ MBSF_NAMESPACE_START
 class Open5GSSBIStream {
 public:
     Open5GSSBIStream(ogs_sbi_stream_t *stream) :m_stream(stream) {};
+    Open5GSSBIStream(ogs_pool_id_t stream_id)
+        :m_stream(reinterpret_cast<ogs_sbi_stream_t*>(ogs_sbi_stream_find_by_id(stream_id)))
+        {};
     Open5GSSBIStream() = delete;
     Open5GSSBIStream(Open5GSSBIStream &&other) = delete;
     Open5GSSBIStream(const Open5GSSBIStream &other) = delete;

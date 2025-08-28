@@ -25,7 +25,6 @@
 
 #include <chrono>
 #include <memory>
-#include "openapi/model/MBSUserService.h"
 #include "common.hh"
 
 namespace fiveg_mag_reftools {

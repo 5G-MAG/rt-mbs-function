@@ -50,14 +50,17 @@ Open5GSSBIClient::Open5GSSBIClient(const std::string &url)
     ogs_sbi_client_t *client = NULL;
     OpenAPI_uri_scheme_e scheme = OpenAPI_uri_scheme_NULL;
     ogs_sockaddr_t *addr = NULL;
+    ogs_sockaddr_t *addr6 = NULL;
+    char *fqdn = NULL;
+    uint16_t fqdn_port = 0;
     bool rc;
 
-    rc = ogs_sbi_getaddr_from_uri(&scheme, &addr, (char *)url.c_str());
+    rc = ogs_sbi_getaddr_from_uri(&scheme, &fqdn, &fqdn_port, &addr, &addr6, (char *)url.c_str());
     if (rc == false || scheme == OpenAPI_uri_scheme_NULL) {
          ogs_error("Failed to get sockaddr from uri");
          throw std::runtime_error("Failed to get sockaddr from uri!");
      }
-     m_ogsClient = ogs_sbi_client_add(scheme, addr);
+     m_ogsClient = ogs_sbi_client_add(scheme, fqdn, fqdn_port, addr, addr6);
      ogs_assert(client);
      ogs_freeaddrinfo(addr);
 }
@@ -79,7 +82,8 @@ Open5GSSBIClient::Open5GSSBIClient(const char *hostname, int port)
 	throw std::runtime_error("Unable to get client address!");
     }
 
-    m_ogsClient = ogs_sbi_client_add(scheme, addr);
+    m_ogsClient = ogs_sbi_client_add(scheme, const_cast<char*>(hostname), port,
+                                     (addr->ogs_sa_family == AF_INET)?addr:NULL, (addr->ogs_sa_family == AF_INET6)?addr:NULL);
     ogs_assert(m_ogsClient);
 
     ogs_freeaddrinfo(addr);

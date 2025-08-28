@@ -242,18 +242,17 @@ void Context::parseConfiguration(std::string &pc_key, Open5GSYamlIter &iter)   {
     ogs_list_init(&list6);
 
     if (addr) {
-        if (ogs_app()->parameter.no_ipv4 == 0)
+        if (ogs_global_conf()->parameter.no_ipv4 == 0)
             ogs_socknode_add(&list, AF_INET, addr, NULL);
-        if (ogs_app()->parameter.no_ipv6 == 0)
+        if (ogs_global_conf()->parameter.no_ipv6 == 0)
             ogs_socknode_add(&list6, AF_INET6, addr, NULL);
 	ogs_freeaddrinfo(addr);
     }
 
     if (dev) {
-        rv = ogs_socknode_probe(
-			ogs_app()->parameter.no_ipv4 ? NULL : &list,
-                                    ogs_app()->parameter.no_ipv6 ? NULL : &list6,
-                                    dev, port, NULL);
+        rv = ogs_socknode_probe(ogs_global_conf()->parameter.no_ipv4 ? NULL : &list,
+                                ogs_global_conf()->parameter.no_ipv6 ? NULL : &list6,
+                                dev, port, NULL);
         ogs_assert(rv == OGS_OK);
     }
 

@@ -26,6 +26,10 @@
 
 #include "common.hh"
 
+namespace fiveg_mag_reftools {
+    class ProblemCause;
+}
+
 MBSF_NAMESPACE_START
 
 class Open5GSSBIStream;
@@ -46,7 +50,8 @@ public:
     void ogsSBIServerAdvertise(ogs_sockaddr_t *addr);
     ogs_sbi_server_t *ogsSBIServer() { return m_ogsServer; };
 
-    static bool sendError(Open5GSSBIStream &stream, int status_code, std::optional<Open5GSSBIMessage> message, const char *reason, const char *value);
+    static bool sendError(Open5GSSBIStream &stream, std::optional<Open5GSSBIMessage> message, const fiveg_mag_reftools::ProblemCause &cause, const char *reason);
+    static bool sendError(Open5GSSBIStream &stream, int status_code, std::optional<Open5GSSBIMessage> message, const char *title, const char *reason, const char *cause);
     static bool sendResponse(Open5GSSBIStream &stream, Open5GSSBIResponse &response);
 
     operator bool() const { return !!m_ogsServer; };

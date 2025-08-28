@@ -214,7 +214,7 @@ int Open5GSNetworkFunction::setNFServices(const char *serviceName, const char *s
     ogs_info("NF UUID: %s", id);
 
     nf_service = ogs_sbi_nf_service_add(ogs_sbi_self()->nf_instance, id, serviceName,
-                                        ogs_app()->sbi.server.no_tls == false ? OpenAPI_uri_scheme_https : OpenAPI_uri_scheme_http);
+                                        ogs_sbi_self()->tls.server.scheme);
     ogs_assert(nf_service);
 
     addAddressesToNFService(nf_service, addrs);
@@ -280,9 +280,8 @@ bool Open5GSNetworkFunction::sbiOpen()
             services_capacity += nfservice.capacity().value();
         }
     
-        int ret;
-	if(setNFServices(nfservice.serviceName(), nfservice.supportedFeatures(), nfservice.apiVersion(), nfservice.sockAddrs(), nfservice.capacity()) != OGS_OK)
-	{
+	if(setNFServices(nfservice.serviceName(), nfservice.supportedFeatures(), nfservice.apiVersion(), nfservice.sockAddrs(),
+                         nfservice.capacity()) != OGS_OK) {
 	    return OGS_ERROR;	
 	}
 	
