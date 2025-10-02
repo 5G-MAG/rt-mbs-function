@@ -78,16 +78,9 @@ bool MBSMFMBSSession::processEvent(Open5GSEvent &MBSMFEvent)
                              mbsf_event->mbs_session);
                     if (mbsf_event->mbs_session->tmgi_req) {
                         if (mbsf_event->mbs_session->tmgi) {
-                            char buf[OGS_PLMNIDSTRLEN];
                             mb_smf_sc_tmgi_t *tmgi = mbsf_event->mbs_session->tmgi;
 
-			    char *plmn_id = ogs_plmn_id_to_string(&tmgi->plmn, buf);
-			    char *mcc = ogs_plmn_id_mcc_string(&tmgi->plmn);
-			    char *mnc = ogs_plmn_id_mnc_string(&tmgi->plmn);
-
-                            UserDataIngSession::tmgi(std::string(tmgi->mbs_service_id), std::string(mcc), std::string(mnc), event->sbi.data);
-			    ogs_free(mcc);
-			    ogs_free(mnc);
+                            UserDataIngSession::tmgi(tmgi, event->sbi.data);
                         
 			} else {
                             ogs_error("TMGI request failed");
@@ -130,19 +123,21 @@ bool MBSMFMBSSession::processEvent(Open5GSEvent &MBSMFEvent)
 			              const std::string &reason = cause_val.reason();
 			              const std::string &cause_str = cause_val.cause();
 				  }
-                                  UserDataIngSession::handleMBSSessionError(event->sbi.data, cause.value(), problem_detail);
+                                  //UserDataIngSession::handleMBSSessionError(event->sbi.data, cause.value(), problem_detail);
+				  UserDataIngSession::setMBSSessionFailureFlag(event->sbi.data, cause.value(), problem_detail);
                                   return true;
                               }
                          } else {
-                             UserDataIngSession::handleMBSSessionError(event->sbi.data, ProblemCause::INBOUND_SERVER_ERROR, problem_detail);
+			    UserDataIngSession::setMBSSessionFailureFlag(event->sbi.data, ProblemCause::INBOUND_SERVER_ERROR, problem_detail);
                          }
                          return true;
                     }
 
-                    UserDataIngSession::handleMBSSessionError(event->sbi.data, ProblemCause::INBOUND_SERVER_ERROR);
+                    //UserDataIngSession::handleMBSSessionError(event->sbi.data, ProblemCause::INBOUND_SERVER_ERROR);
+                    UserDataIngSession::setMBSSessionFailureFlag(event->sbi.data, ProblemCause::INBOUND_SERVER_ERROR);
 
                 } else {
-                    UserDataIngSession::handleMBSSessionError(event->sbi.data, ProblemCause::INBOUND_SERVER_ERROR);
+                   UserDataIngSession::setMBSSessionFailureFlag(event->sbi.data, ProblemCause::INBOUND_SERVER_ERROR);
                 }
                 return true;
             default:

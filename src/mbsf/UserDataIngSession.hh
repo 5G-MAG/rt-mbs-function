@@ -67,6 +67,12 @@ public:
     //Pair containing Distribution Session ID sent to the MBSTF and the above UserDataIngDistSessId
     using SessionIdContainer = std::pair<std::string, std::shared_ptr< UserDataIngDistSessId >>;
 
+     enum class MBSSessionState {
+        NO = 0,       // no session
+        CREATED = 1,  // session successfully created
+        FAILED    // session creation failed
+    };
+
     struct ContextData {
         std::string ingSessionId;
         std::string distSessionInfoKey;
@@ -75,11 +81,15 @@ public:
 	std::shared_ptr<Open5GSSBIRequest> request;
         ogs_pool_id_t streamId;
         std::shared_ptr<MBSMFMBSSession> MBSSession;
-        bool hasMBSSession;
+	MBSSessionState MBSSessionStatus = MBSSessionState::NO;
+	std::optional<fiveg_mag_reftools::ProblemCause> mbsmfProblemCause = std::nullopt;
+       	std::optional<CJson> mbsmfProblemDetailJson = std::nullopt;
+        //bool hasMBSSession;
         bool receivedMBSTFResponse;
         std::string distSessionId;
 	bool MBSTFDistSessionDeleted;
 	std::string mbstfNFInstanceId;
+	std::string tmgi; 
         /*	
         ~ContextData() {
             MBSSession.reset();
@@ -128,7 +138,7 @@ public:
     bool sendNmbsfMbsUserDataIngestResponse(std::shared_ptr<UserDataIngSession::UserDataIngDistSessId> &ids);
     
     bool checkIfAllMBSTFDistSessionDeleted();
-    void checkIfAllMBSSessionCreated();
+    bool checkIfAllMBSSessionCreated();
     bool checkIfAllMBSTFResponsesReceived();
 
     static const char *localEventGetName( ogs_event_t *event);
@@ -147,12 +157,16 @@ public:
     static std::optional<std::string> getObjectDistributionUrl(std::shared_ptr<MBSDistributionSessionInfo> &info);
     static std::list<std::optional<std::string >, fiveg_mag_reftools::OgsAllocator<std::optional<std::string > > > getObjectAcquisitionIds(std::shared_ptr<MBSDistributionSessionInfo> &info);
     static std::string maxContBitRate(std::shared_ptr<MBSDistributionSessionInfo> &info);
-    static bool tmgi(std::string mbs_service_id, std::string mcc, std::string mnc, void *data);
+    static bool tmgi(mb_smf_sc_tmgi_t *tmgi, void *data);
 
     static void removeDistributionSessionInfos(void *data);
 
     static std::shared_ptr< ContextData > getContextData(std::shared_ptr<UserDataIngDistSessId> &ids);
 
+    bool checkIfAllMBSSessionResponsesReceived();
+    void handleFailedMBSSession();
+
+    static void setMBSSessionFailureFlag(void *data, const std::optional<fiveg_mag_reftools::ProblemCause> &cause = std::nullopt, const std::optional<CJson> &problem_detail_json = std::nullopt);
     static void handleMBSSessionError(void *data, const std::optional<fiveg_mag_reftools::ProblemCause> &cause = std::nullopt, 
 		    const std::optional<CJson> &problem_detail_json = std::nullopt);
     static void populateAndSendError(void *data, const std::optional<fiveg_mag_reftools::ProblemCause> &cause = std::nullopt, 

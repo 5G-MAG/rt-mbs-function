@@ -55,7 +55,7 @@ const fiveg_mag_reftools::ProblemCause MBSProblemCause::MBS_SERVICE_AREA_NOT_SUP
 
 const fiveg_mag_reftools::ProblemCause MBSProblemCause::MBS_SERVICE_INFO_NOT_AUTHORIZED(fiveg_mag_reftools::ProblemCause::registerCause("MBS_SERVICE_INFO_NOT_AUTHORIZED", OGS_SBI_HTTP_STATUS_FORBIDDEN, "Forbidden", "The provided MBS Service Information is rejected."));
 
-const fiveg_mag_reftools::ProblemCause MBSProblemCause::MBS_DIST_SESSION_ALREADY_CREATED(fiveg_mag_reftools::ProblemCause::registerCause("MBS_DIST_SESSION_ALREADY_CREATED", OGS_SBI_HTTP_STATUS_FORBIDDEN, "Forbidden", "The requested MBS Distribution Session has already been created"));
+const fiveg_mag_reftools::ProblemCause MBSProblemCause::MBS_DIST_SESSION_ALREADY_CREATED(fiveg_mag_reftools::ProblemCause::registerCause("MBS_DIST_SESSION_ALREADY_CREATED", OGS_SBI_HTTP_STATUS_FORBIDDEN, "Duplicate MBS Session ID", "The requested MBS Distribution Session has already been created"));
 
 const fiveg_mag_reftools::ProblemCause MBSProblemCause::OVERLAPPING_MBS_SERVICE_AREA(fiveg_mag_reftools::ProblemCause::registerCause("OVERLAPPING_MBS_SERVICE_AREA", OGS_SBI_HTTP_STATUS_FORBIDDEN, "Forbidden", "The provided MBS service area overlaps with the MBS service area of an existing MBS Distribution Session that shares the same MBS session Identifier"));
 

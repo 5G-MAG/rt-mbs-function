@@ -81,6 +81,7 @@
 using fiveg_mag_reftools::CJson;
 using reftools::mbsf::MBSUserDataIngSession;
 using reftools::mbsf::MBSDistributionSessionInfo;
+using fiveg_mag_reftools::ModelException;
 using reftools::mbsf::ObjDistributionData;
 using reftools::mbsf::TunnelAddress;
 using reftools::mbsf::Ssm;
@@ -106,7 +107,7 @@ static bool resolve_src_dest_addr(const std::string &src_ipv4_addr, const std::s
 static bool get_src_dest_of_same_addr_family(int family, struct addrinfo *src_addrinfo, struct addrinfo *dest_addrinfo, void **src_addr, void **dest_addr);
 static void process_mbs_distribution_session_info(std::shared_ptr< UserDataIngSession::ContextData > context_data, std::shared_ptr< DistSession > dist_session);
 static bool check_for_atleast_one_mbs_dis_sess_info(std::shared_ptr<UserDataIngSession> user_data_ing_session);
-
+static std::string print_mbs_session_error(std::shared_ptr< UserDataIngSession::ContextData > context_data);
 
 std::recursive_mutex UserDataIngSession::m_mutex;
 std::map<ogs_sbi_xact_t *, std::shared_ptr< UserDataIngSession::UserDataIngDistSessId >> UserDataIngSession::m_xactRegistry;
@@ -251,23 +252,16 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
                         try {
 
                             user_data_ing_session.reset(new UserDataIngSession(user_data_ing_sess, true));
-                        } catch (std::exception &err) {
-                            ogs_error("Error while populating MBSF Session: %s", err.what());
-                            char *error = ogs_msprintf("%s", err.what());
-                            ogs_error("%s", error);
-                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 0, message,
-                                                                            app_meta, api, "Bad Request", error));
-                            ogs_free(error);
-                            return true;
+                        } catch (ModelException &ex) {
+                            if (ex.cause) {
+                                  ogs_assert(true == NfServer::sendError(stream, ex.cause.value(), 3, message, app_meta,
+                                                    api, /*ex.cause.value().reason() */ "Mandatory information element missing", ex.what(), std::nullopt, std::nullopt));
+                             } else {
+                                 ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 3, message,
+                                                   app_meta, api, "Mandatory information element missing", ex.what(), std::nullopt, std::nullopt));
+                             }
+                             return true;
                         }
-
-			if(!check_for_atleast_one_mbs_dis_sess_info(user_data_ing_session)) {
-			
-			    ogs_assert(true == NfServer::sendError(stream, ProblemCause::MANDATORY_IE_MISSING, 0, message,
-                                                            app_meta, api));
-			}
-
-
 
                         App::self().context()->addUserDataIngSession(user_data_ing_session);
                         user_data_ing_session->processDistributionSessionInfo(stream_id, request_ctx);
@@ -591,7 +585,7 @@ void UserDataIngSession::processDistributionSessionInfo( ogs_pool_id_t stream_id
                         ssm_data.reset(new Ssm(*ssm_val));
                         if (dest_ipv4_addr.has_value() || dest_ipv6_addr.has_value()) {
                             ctx_data.reset(new UserDataIngSession::ContextData{std::string(m_UserDataIngSessionId), std::string(key), info, ssm_data, request, stream_id, nullptr});
-                            addToDistributionSessionInfos(key, ctx_data);
+                            addToDistributionSessionInfos(std::string(key), ctx_data);
                             xact = nmbstfDiscoverOnly(ctx_data);
 
                         } else {
@@ -845,7 +839,8 @@ bool UserDataIngSession::handleMbstfDiscover(ogs_sbi_nf_instance_t *nf_instance,
 
         mb_smf_mbs_session->setServiceType(MBS_SERVICE_TYPE_MULTICAST);
         if(!context_data->MBSSession) context_data->MBSSession = mb_smf_mbs_session;
-        mb_smf_mbs_session->setCreatedCallback(reinterpret_cast<void*>(context_data.get()));
+	UserDataIngDistSessId *ids = new UserDataIngDistSessId(context_data->ingSessionId, context_data->distSessionInfoKey);
+        mb_smf_mbs_session->setCreatedCallback(reinterpret_cast<void*>(ids) /*(context_data.get()*/);
 
         context_data->MBSSession = mb_smf_mbs_session;
 
@@ -926,12 +921,12 @@ void UserDataIngSession::clearDistributionSessionInfos()
     m_distributionSessionInfos.clear();
 }
 
-void UserDataIngSession::checkIfAllMBSSessionCreated()
+bool UserDataIngSession::checkIfAllMBSSessionCreated()
 {
     bool all_mbs_sessions_created = true;
 
     for (const auto &dist_sess_info : m_distributionSessionInfos) {
-        if (!dist_sess_info.second->hasMBSSession) {
+        if (dist_sess_info.second->MBSSessionStatus != MBSSessionState::CREATED) {
             all_mbs_sessions_created = false;
             break;
         }
@@ -940,6 +935,7 @@ void UserDataIngSession::checkIfAllMBSSessionCreated()
         sendMbstfRequests();
 
     }
+    return all_mbs_sessions_created;
 
 }
 
@@ -1041,14 +1037,67 @@ void UserDataIngSession::setMBSSessionFlag(void *data)
     try {
         std::shared_ptr<UserDataIngSession> ing_sess = UserDataIngSession::find(ids->first);
         std::shared_ptr< UserDataIngSession::ContextData > context_data = ing_sess->getDistributionSessionInfoData(ids->second);
-        context_data->hasMBSSession = true;
-        ing_sess->checkIfAllMBSSessionCreated();
+        context_data->MBSSessionStatus = MBSSessionState::CREATED;
+	if(ing_sess->checkIfAllMBSSessionResponsesReceived()) {
+	    bool rv = ing_sess->checkIfAllMBSSessionCreated();
+	    if(!rv) {
+	        ing_sess->handleFailedMBSSession();     
+	    }
+ 
+	}
+        //ing_sess->checkIfAllMBSSessionCreated();
     } catch (const std::out_of_range &e) {
         std::ostringstream err;
         err << "MBS User Data Ingest Session [" << ids->first << "] does not exist.";
         ogs_error("%s", err.str().c_str());
     }
 
+}
+
+void UserDataIngSession::setMBSSessionFailureFlag(void *data, const std::optional<fiveg_mag_reftools::ProblemCause> &cause, const std::optional<CJson> &problem_detail_json)
+{
+    UserDataIngDistSessId *ids = reinterpret_cast<UserDataIngDistSessId*>(data);
+
+    try {
+        std::shared_ptr<UserDataIngSession> ing_sess = UserDataIngSession::find(ids->first);
+        std::shared_ptr< UserDataIngSession::ContextData > context_data = ing_sess->getDistributionSessionInfoData(ids->second);
+        context_data->MBSSessionStatus = MBSSessionState::FAILED;
+        //context_data->hasMBSSession = true;
+        if(ing_sess->checkIfAllMBSSessionResponsesReceived()) {
+            std::string user_data_ingest_session_id(ids->first);
+            populateAndSendError(data, cause, problem_detail_json);
+            App::self().context()->deleteUserDataIngSession(user_data_ingest_session_id);
+        }
+    } catch (const std::out_of_range &e) {
+        std::ostringstream err;
+        err << "MBS User Data Ingest Session [" << ids->first << "] does not exist.";
+        ogs_error("%s", err.str().c_str());
+    }
+
+
+}
+
+void UserDataIngSession::handleFailedMBSSession()
+{
+    for (const auto &dist_sess_info : m_distributionSessionInfos) {
+        if (dist_sess_info.second->MBSSessionStatus == MBSSessionState::FAILED) {
+            UserDataIngDistSessId *ids = new UserDataIngDistSessId(dist_sess_info.second->ingSessionId, dist_sess_info.second->distSessionInfoKey);
+            populateAndSendError(reinterpret_cast<void*>(ids), dist_sess_info.second->mbsmfProblemCause, dist_sess_info.second->mbsmfProblemDetailJson);
+        }
+    }
+}
+
+
+bool UserDataIngSession::checkIfAllMBSSessionResponsesReceived()
+{
+    bool all_mbs_sessions_responses_received = true;
+
+    for (const auto &dist_sess_info : m_distributionSessionInfos) {
+        if (!((dist_sess_info.second->MBSSessionStatus == MBSSessionState::CREATED) || (dist_sess_info.second->MBSSessionStatus == MBSSessionState::FAILED))) {
+            all_mbs_sessions_responses_received = false;
+        }
+    }
+    return all_mbs_sessions_responses_received;
 
 }
 
@@ -1100,53 +1149,61 @@ void UserDataIngSession::populateAndSendError(void *data, const std::optional<fi
 
     std::ostringstream err;
 
-    err << "Failed to create MBS Session in MB-SMF '"
-    << ids->second
-    << "' of UserDataIngSession '"
-    << ids->first
-    << "'.";
-
-    ogs_error("%s", err.str().c_str());
+    std::string error = print_mbs_session_error(context_data);
 
     if(cause.has_value()) {
-        ogs_assert(true == Open5GSSBIServer::sendError(stream, std::nullopt, cause.value(),
-                                                                      "Failed to create MBS Session in MB-SMF"));
+        ogs_assert(true == Open5GSSBIServer::sendError(stream, std::nullopt, cause.value(), error.c_str()));
 	
     } else {
 
-	ogs_assert(true == Open5GSSBIServer::sendError(stream, std::nullopt, ProblemCause::INBOUND_SERVER_ERROR,
-                                                                      "Failed to create MBS Session in MB-SMF"));
+	ogs_assert(true == Open5GSSBIServer::sendError(stream, std::nullopt, ProblemCause::INBOUND_SERVER_ERROR, error.c_str()));
 
     }
 }
 
-bool UserDataIngSession::tmgi(std::string mbs_service_id, std::string mcc, std::string mnc, void *data)
+
+bool UserDataIngSession::tmgi(mb_smf_sc_tmgi_t *tmgi, void *data)
 {
+    bool tmgi_set = false;
+    char buf[OGS_PLMNIDSTRLEN];
+
+    const char *tmgi_repr = mb_smf_sc_tmgi_repr(tmgi);
+    char *plmn_id = ogs_plmn_id_to_string(&tmgi->plmn, buf);
+    char *mcc = ogs_plmn_id_mcc_string(&tmgi->plmn);
+    char *mnc = ogs_plmn_id_mnc_string(&tmgi->plmn);
+
     UserDataIngDistSessId *ids = reinterpret_cast<UserDataIngDistSessId*>(data);
     std::shared_ptr<UserDataIngSession> ing_sess = UserDataIngSession::find(ids->first);
     std::shared_ptr< UserDataIngSession::ContextData > context_data = ing_sess->getDistributionSessionInfoData(ids->second);
     if(context_data && context_data->info) {
+	context_data->tmgi = std::string(mb_smf_sc_tmgi_repr(tmgi));    
         std::shared_ptr<Tmgi> mgi = nullptr;
         std::shared_ptr<PlmnId> plmn_id = nullptr;
 
         plmn_id.reset(new PlmnId());
-        plmn_id->setMcc(mcc);
-        plmn_id->setMnc(mnc);
+        plmn_id->setMcc(std::string(mcc));
+        plmn_id->setMnc(std::string(mnc));
 
         mgi.reset(new Tmgi());
-        mgi->setMbsServiceId(mbs_service_id);
+        mgi->setMbsServiceId(std::string(tmgi->mbs_service_id));
         mgi->setPlmnId(plmn_id);
 
         std::optional<std::shared_ptr< MbsSessionId > > mbs_sess_id = context_data->info->getMbsSessionId();
         if(mbs_sess_id.has_value()) {
             std::shared_ptr< MbsSessionId > sess_id = mbs_sess_id.value();
             sess_id->setTmgi(mgi);
-            return true;
+            tmgi_set = true;
         }
     }
-    return false;
+
+    ogs_info(" TMGI [%s], SERVICE ID [%s], PLMN [%s], MCC [%s], MNC [%s]", tmgi_repr, tmgi->mbs_service_id, ogs_plmn_id_to_string(&tmgi->plmn, buf), ogs_plmn_id_mcc_string(&tmgi->plmn), ogs_plmn_id_mnc_string(&tmgi->plmn));
+    ogs_free(mcc);
+    ogs_free(mnc);
+
+    return tmgi_set;
 
 }
+
 
 std::shared_ptr< ObjDistributionOperatingMode > UserDataIngSession::getOperatingMode(std::shared_ptr<MBSDistributionSessionInfo> &info)
 {
@@ -1354,6 +1411,61 @@ static bool get_src_dest_of_same_addr_family(int family, struct addrinfo *src_ad
         *dest_addr = NULL;
     }
     return true;
+}
+
+
+static std::string print_mbs_session_error(std::shared_ptr<UserDataIngSession::ContextData> context_data)
+{
+    auto ssm_val      = context_data->ssm;
+    auto src_ip_addr  = ssm_val->getSourceIpAddr();
+    auto dest_ip_addr = ssm_val->getDestIpAddr();
+
+    std::optional<std::string> src_ipv4_addr  = src_ip_addr->getIpv4Addr();
+    std::optional<std::string> dest_ipv4_addr = dest_ip_addr->getIpv4Addr();
+
+    std::optional<std::shared_ptr<std::string>> src_ipv6_ptr  = src_ip_addr->getIpv6Addr();
+    std::optional<std::shared_ptr<std::string>> dest_ipv6_ptr = dest_ip_addr->getIpv6Addr();
+
+    std::optional<std::string> src_ipv6_addr;
+    if (src_ipv6_ptr && *src_ipv6_ptr) {
+        src_ipv6_addr = **src_ipv6_ptr;
+    }
+
+    std::optional<std::string> dest_ipv6_addr;
+    if (dest_ipv6_ptr && *dest_ipv6_ptr) {
+        dest_ipv6_addr = **dest_ipv6_ptr;
+    }
+
+    std::string tmgi_cstr = context_data->tmgi;
+    ogs_info("TMGI ERROR: %s", tmgi_cstr.c_str());
+
+    std::optional<std::string> tmgi_opt;
+    if (!tmgi_cstr.empty()) {
+        tmgi_opt = tmgi_cstr;
+    }
+
+    // Build a single array of label→optional<string> pointers
+    std::vector<std::pair<const char*, const std::optional<std::string>*>> fields = {
+        { "tmgi",            &tmgi_opt      },
+        { "sourceIpAddr",    &src_ipv4_addr },
+        { "destIpAddr",      &dest_ipv4_addr},
+        { "sourceIpv6Addr",  &src_ipv6_addr },
+    };
+
+    // Assemble the message
+    std::ostringstream oss;
+    oss << "MBS Session ID [";
+
+    bool first = true;
+    for (auto const& [label, optPtr] : fields) {
+        if (!*optPtr) continue;               // skip empty
+        if (!first)   oss << ", ";
+        oss << label << ": " << **optPtr;
+        first = false;
+    }
+
+    oss << "] already exists in the MBS System\n";
+    return oss.str();
 }
  
 MBSF_NAMESPACE_STOP
