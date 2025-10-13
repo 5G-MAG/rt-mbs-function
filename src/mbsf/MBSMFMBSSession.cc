@@ -55,6 +55,13 @@ void MBSMFMBSSession::deleteSession()
     mb_smf_sc_mbs_session_push_changes(m_session);	
 }
 
+const char *MBSMFMBSSession::tmgi() {
+    const char *tmgi_repr = mb_smf_sc_tmgi_repr(m_session->tmgi);
+    const char *tmgi_rep = mb_smf_sc_tmgi_repr(m_session->tmgi);
+    return mb_smf_sc_tmgi_repr(m_session->tmgi);
+};
+
+
 MBSMFMBSSession &MBSMFMBSSession::setSession(mb_smf_sc_mbs_session_t *session)
 {
     if(!m_session) {

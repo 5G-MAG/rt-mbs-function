@@ -30,6 +30,7 @@
 #include <mutex>
 #include "openapi/model/MBSUserDataIngSession.h"
 #include "common.hh"
+#include "ActivePeriods.hh"
 
 
 namespace fiveg_mag_reftools {
@@ -43,18 +44,24 @@ namespace reftools::mbsf {
 }
 
 using fiveg_mag_reftools::CJson;
+using reftools::mbsf::DistSessionState;
 using reftools::mbsf::DistSession;
+using reftools::mbsf::DistSessionState;
 using reftools::mbsf::MBSUserDataIngSession;
 using reftools::mbsf::MBSDistributionSessionInfo;
 using reftools::mbsf::Ssm;
 using reftools::mbsf::ObjDistributionOperatingMode;
 using reftools::mbsf::ObjAcquisitionMethod;
 
+using ActPeriodsType = MBSUserDataIngSession::ActPeriodsType;
+using ActPeriodsRepRuleType = MBSUserDataIngSession::ActPeriodsRepRuleType;
+
 MBSF_NAMESPACE_START
 
 class Open5GSEvent;
 class Open5GSSBIRequest;
 class Open5GSSBIObject;
+class ActivePeriods;
 class MBSMFMBSSession;
 
 class UserDataIngSession {
@@ -85,13 +92,18 @@ public:
 	std::optional<fiveg_mag_reftools::ProblemCause> mbsmfProblemCause = std::nullopt;
        	std::optional<CJson> mbsmfProblemDetailJson = std::nullopt;
         //bool hasMBSSession;
-        bool receivedMBSTFResponse;
+        bool receivedMBSTFResponse = false;
+        bool receivedMBSTFPatchResponse = false;
+        bool patchUpdateSucceded = false;
         std::string distSessionId;
 	bool MBSTFDistSessionDeleted;
 	std::string mbstfNFInstanceId;
-	std::string tmgi; 
+	bool distSessionState;
+	mb_smf_sc_tmgi_t *tmgi = nullptr;
+
         /*	
         ~ContextData() {
+	    ogs_timer_stop(activePeriodsTimer);
             MBSSession.reset();
         }
 	*/
@@ -111,18 +123,28 @@ public:
 
     enum OgsExtendedEventId : int {
         MBSF_LOCAL_SEND_MBSTF_REQ_BUILD = OGS_MAX_NUM_OF_PROTO_EVENT + 1600,
-        MBSF_LOCAL_SEND_MBSTF_DELETE_SESSION
+        MBSF_LOCAL_SEND_MBSTF_DELETE_SESSION,
+	MBSF_LOCAL_SEND_MBSTF_PATCH_ROLLBACK
     };
 
     const std::string &userDataIngSessionId() const { return m_UserDataIngSessionId; };
     const std::shared_ptr<MBSUserDataIngSession> &getMBSUserIngSession() const {return m_MBSUserDataIngSession;};
     const SysTimeMS &generated() const {return m_generated;};
     const std::string &hash() const {return m_hash;};
+    const std::string &distSessionState() const ;
 
     ogs_sbi_xact_t *nmbstfDiscoverOnly(std::shared_ptr< ContextData > data);
     ogs_sbi_xact_t *nmbstfDiscoverAndSend( std::shared_ptr< UserDataIngSession::UserDataIngDistSessId> ids, ogs_sbi_build_f build, void *context, void *data);
     UserDataIngSession &setNFInstance(ogs_sbi_service_type_e service_type, ogs_sbi_nf_instance_t *nf_instance);
+     
+    UserDataIngSession &activePeriods(const ActPeriodsType &act_periods) {m_activePeriods.reset(new ActivePeriods(act_periods)); return *this;};
+    UserDataIngSession &activePeriods(std::shared_ptr<ActivePeriods> active_periods) {m_activePeriods = active_periods; return *this;};
+    UserDataIngSession &createTimer();
+    UserDataIngSession &createCurrentStateTimer();
+    bool startTimer();
+    std::shared_ptr< DistSessionState > getDistSessionState();
 
+     
     void processDistributionSessionInfo( ogs_pool_id_t stream_id, std::shared_ptr<Open5GSSBIRequest> &request);
     const std::shared_ptr<UserDataIngSession> &findSessionBySbiObject(const std::shared_ptr<Open5GSSBIObject>& sbi_obj);
     void addToDistributionSessionInfos(const std::string &key, const std::shared_ptr< ContextData > context);
@@ -134,12 +156,17 @@ public:
 
     void sendMbstfRequests();
     void sendMbstfDelRequests();
+    void sendMbstfPatchRollbackRequests();
+
     void sendLocalEvent(OgsExtendedEventId event_id, void *data);
     bool sendNmbsfMbsUserDataIngestResponse(std::shared_ptr<UserDataIngSession::UserDataIngDistSessId> &ids);
     
     bool checkIfAllMBSTFDistSessionDeleted();
     bool checkIfAllMBSSessionCreated();
     bool checkIfAllMBSTFResponsesReceived();
+    bool resetReceivedMBSTFResponseFlags();
+    bool checkIfAllMBSTFPatchResponsesReceived();
+
 
     static const char *localEventGetName( ogs_event_t *event);
 
@@ -166,12 +193,18 @@ public:
     bool checkIfAllMBSSessionResponsesReceived();
     void handleFailedMBSSession();
 
+    static void changeDistSessionState(void *data);
+    static void currentDistSessionState(void *data);
+
     static void setMBSSessionFailureFlag(void *data, const std::optional<fiveg_mag_reftools::ProblemCause> &cause = std::nullopt, const std::optional<CJson> &problem_detail_json = std::nullopt);
     static void handleMBSSessionError(void *data, const std::optional<fiveg_mag_reftools::ProblemCause> &cause = std::nullopt, 
 		    const std::optional<CJson> &problem_detail_json = std::nullopt);
     static void populateAndSendError(void *data, const std::optional<fiveg_mag_reftools::ProblemCause> &cause = std::nullopt, 
 		    const std::optional<CJson> &problem_detail_json = std::nullopt);
     static void deleteMBSTFSession(ogs_sbi_xact_t *xact);
+    static void handlePatchUpdateResponse(ogs_sbi_xact_t *xact);
+    static void rollbackMBSTFDistSessionState(ogs_sbi_xact_t *xact);
+
 
     static void addToRegistry(ogs_sbi_xact_t* xact, std::shared_ptr< UserDataIngDistSessId > &ids);
     static void removeFromRegistry(ogs_sbi_xact_t* xact);
@@ -196,6 +229,10 @@ private:
     std::string m_hash;
     std::string m_UserDataIngSessionId;
     std::recursive_mutex m_rmutex;
+    std::shared_ptr<ActivePeriods> m_activePeriods;
+    ogs_timer_t *m_activePeriodsTimer;
+    DistSessionState m_distSessionState;
+
 
     //key: Dist Session Infos present in this User Data Ingest Session
     std::map<std::string, std::shared_ptr< ContextData >> m_distributionSessionInfos;

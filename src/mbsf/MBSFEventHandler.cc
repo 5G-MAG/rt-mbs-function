@@ -278,6 +278,12 @@ void MBSFEventHandler::dispatch(Open5GSFSM &fsm, Open5GSEvent &event)
                           break;
                     }
 
+		    ogs_sbi_stream_t *ogs_stream = reinterpret_cast<ogs_sbi_stream_t*>(ogs_sbi_stream_find_by_id(sbi_xact->assoc_stream_id));
+                    if(!ogs_stream) {
+                        if(sbi_xact) UserDataIngSession::removeXact(sbi_xact);
+                        return;
+                     }
+
 		    Open5GSSBIStream stream(sbi_xact->assoc_stream_id);
                     if(sbi_xact) UserDataIngSession::removeXact(sbi_xact);
                     ogs_error("Cannot receive SBI message");
@@ -329,7 +335,6 @@ static void mbsf_nnrf_handle_nf_discover(ogs_sbi_xact_t *xact, ogs_sbi_message_t
     SearchResult = recvmsg->SearchResult;
     if (!SearchResult) {
         ogs_error("No SearchResult");
-        if(xact) UserDataIngSession::removeXact(xact);
         return;
     }
 
@@ -341,8 +346,7 @@ static void mbsf_nnrf_handle_nf_discover(ogs_sbi_xact_t *xact, ogs_sbi_message_t
         ogs_error("(NF discover) No [%s:%s]",
                     ogs_sbi_service_type_to_name(service_type),
                     OpenAPI_nf_type_ToString(requester_nf_type));
-        if(xact) UserDataIngSession::removeXact(xact);
-        return;
+        //return;
     }
     ogs_expect(true == UserDataIngSession::handleMbstfDiscover(nf_instance, xact));
 }

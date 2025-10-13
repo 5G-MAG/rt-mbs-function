@@ -43,6 +43,11 @@ uuid_dep = dependency('uuid')
 #  '''.split())
 
 libmbsf_dist_sources = files('''
+    AlwaysActive.cc
+    AlwaysActive.hh
+    ActivePeriods.cc
+    ActivePeriods.hh
+    ActivePeriodsBase.hh
     common.cc
     common.hh
     CaseInsensitiveTraits.hh

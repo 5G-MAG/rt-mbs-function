@@ -155,7 +155,35 @@ bool Nmb2Handler::processEvent(Open5GSEvent &event)
 		    }
 
 
-	        } else {
+	        } else if (method == OGS_SBI_HTTP_METHOD_PATCH) {
+                    ogs_info("PATCH MESSAGE STATUS: %d %lu CT:[%s]", message.resStatus(), response.contentLength(), message.contentType());
+		     if (message.resStatus() == OGS_SBI_HTTP_STATUS_OK)
+                    {
+                        if( response.contentLength() && valid_content_type(message))
+                        {
+			    CJson patch_response_from_mbstf(CJson::Null);
+                            try {
+                                patch_response_from_mbstf = CJson::parse(response.content());
+                            } catch (std::exception &ex) {
+                                ogs_info("PROBLEM IN PARSING PATCH RESPONSE FROM MBSTF");
+                            }
+
+                            {
+                                std::string txt(patch_response_from_mbstf.serialise());
+                                ogs_debug("PATCH RESPONSE Parsed JSON: %s", txt.c_str());
+                            }
+			    UserDataIngSession::handlePatchUpdateResponse(sbi_xact);
+
+
+
+                        }
+                     } else {
+                         ogs_error("MBSTF Patch Update failed");
+                         UserDataIngSession::rollbackMBSTFDistSessionState(sbi_xact);
+                     }
+
+
+                } else {
 		    ogs_error("Invalid HTTP method [%s]", method.c_str());
 		}
 		if(sbi_xact) {

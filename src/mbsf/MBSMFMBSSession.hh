@@ -81,6 +81,7 @@ public:
     mb_smf_sc_mbs_session_t *mbsmfMBSSession() { return m_session; };
     ogs_sockaddr_t *tunnelAddr() {return m_session->mb_upf_udp_tunnel;};
     mb_smf_sc_ssm_addr_t *ssm() { return m_session->ssm;};
+    const char *tmgi();
 
     operator bool() const { return !!m_session; };
     static const char *mbsfEventGetName(ogs_event_t *event);

@@ -1,7 +1,7 @@
-#ifndef _MBSF_NMB2_BUILD_HH_
-#define _MBSF_NMB2_BUILD_HH_
+#ifndef _MBSF_ALWAYS_ACTIVE_HH_
+#define _MBSF_ALWAYS_ACTIVE_HH
 /******************************************************************************
- * 5G-MAG Reference Tools: MBS Function: Nmb2 DistSession Build class
+ * 5G-MAG Reference Tools: MBS Function: MBS AlwaysActive class
  ******************************************************************************
  * Copyright: (C)2025 British Broadcasting Corporation
  * Author(s): Dev Audsin <dev.audsin@bbc.co.uk>
@@ -23,51 +23,44 @@
 #include "ogs-proto.h"
 #include "ogs-sbi.h"
 
-#include <any>
 #include <chrono>
-#include <memory>
-#include <tuple>
-#include <mutex>
+
 #include "openapi/model/MBSUserDataIngSession.h"
+#include "openapi/model/TimeWindow.h"
+#include "openapi/model/DistSessionState.h"
+#include "openapi/model/MBSDistributionSessionInfo.h"
+
 #include "common.hh"
 
-
-namespace fiveg_mag_reftools {
-    class CJson;
-}
+#include "ActivePeriodsBase.hh"
 
 namespace reftools::mbsf {
+    class TimeWindow;
     class MBSUserDataIngSession;
-    class Ssm;
+    class MBSDistributionSessionInfo;
+    class DistSessionState;
 }
 
-using fiveg_mag_reftools::CJson;
-using reftools::mbsf::MBSUserDataIngSession;
-using reftools::mbsf::MBSDistributionSessionInfo;
-using reftools::mbsf::Ssm;
 
 MBSF_NAMESPACE_START
 
-class Open5GSEvent;
-class Open5GSSBIRequest;
-class Open5GSSBIObject;
-class DistributionSession;
-class MBSMFMBSSession;
+class AlwaysActive: public ActivePeriodsBase {
 
-class Nmb2Build {
 public:
-    Nmb2Build();
-    Nmb2Build(Nmb2Build &&other) = delete;
-    Nmb2Build(const Nmb2Build &other) = delete;
-    Nmb2Build &operator=(Nmb2Build &&other) = delete;
-    Nmb2Build &operator=(const Nmb2Build &other) = delete;
 
-    static ogs_sbi_request_t *buildNmb2DistSession(void *context, void *data);
-    static ogs_sbi_request_t *buildNmb2DistSessionDelete(void *context, void *data);
-    static ogs_sbi_request_t *buildNmb2DistSessionStatePatch(void *context, void *data);
+    using TimestampAndActiveFlag = ActivePeriodsBase::TimestampAndActiveFlag;
+    using DistSessionState = ActivePeriodsBase::DistSessionState;
+    using ActPeriodsType = reftools::mbsf::MBSUserDataIngSession::ActPeriodsType;
+    using MbsDistSessStateType = reftools::mbsf::MBSDistributionSessionInfo::MbsDistSessStateType;
+	
+    AlwaysActive() {};    
+    virtual ~AlwaysActive() {};
+
+    virtual const DistSessionState &currentState(const MbsDistSessStateType &dist_session_state) const;
+    virtual TimestampAndActiveFlag nextTransition() const;
 
 private:
-    ogs_sbi_request_t *m_request;
+
 };
 
 MBSF_NAMESPACE_STOP
@@ -75,4 +68,4 @@ MBSF_NAMESPACE_STOP
 
 /* vim:ts=8:sts=4:sw=4:expandtab:
  */
-#endif /* _MBSF_NMB2_BUILD_HH_ */
+#endif /* _MBSF_ALWAYS_ACTIVE_HH */

@@ -85,6 +85,8 @@ public:
         int activeUserServicesSoftLimit;
     } capacity;
 
+    std::int64_t actPeriodEstablishedStateDuration = 60;
+
     std::optional<std::string> allowedMulticastRange;
 
 

@@ -158,7 +158,7 @@ ogs_sbi_request_t *Nmb2Build::buildNmb2DistSession(void *context, void *data) {
         dist_session->setObjDistributionData(mbstf_obj_distribution_data);
         dist_session->setUpTrafficFlowInfo(mbstf_up_traffic_flow_info);
         dist_session->setMbUpfTunAddr(mbstf_mb_upf_tunnel_addr);
-        dist_session->setDistSessionState(dist_session_state);
+        dist_session->setDistSessionState(ing_session->getDistSessionState());
         dist_session->setMbr(mbr);
 
         std::string session_id = generate_uuid();
@@ -208,6 +208,60 @@ ogs_sbi_request_t *Nmb2Build::buildNmb2DistSessionDelete(void *context, void *da
     delete session_ids;
     return req; 
 
+}
+
+
+ogs_sbi_request_t *Nmb2Build::buildNmb2DistSessionStatePatch(void *context, void *data)
+{
+    ogs_sbi_message_t message;
+    ogs_sbi_request_t *request = NULL;
+    char *state = nullptr;
+
+    OpenAPI_list_t *patch_item_list = NULL;
+    OpenAPI_patch_item_t status_item;
+
+    memset(&status_item, 0, sizeof(status_item));
+
+    memset(&message, 0, sizeof(message));
+    message.h.method = (char *)OGS_SBI_HTTP_METHOD_PATCH;
+    message.h.service.name = (char *)OGS_SBI_SERVICE_NAME_NMBSTF_DISTSESSION;
+    message.h.api.version = (char *)OGS_SBI_API_V1;
+    message.h.resource.component[0] = (char *)"dist-sessions";
+
+    auto *session_ids = reinterpret_cast<UserDataIngSession::SessionIdContainer*>(data);
+    const std::string &dist_session_id = std::string(session_ids->first);
+
+    message.h.resource.component[1] = const_cast<char*>(dist_session_id.c_str());
+
+    message.http.content_type = (char *)OGS_SBI_CONTENT_PATCH_TYPE;
+
+    std::shared_ptr<UserDataIngSession> ing_session = UserDataIngSession::find(session_ids->second->first);
+    std::shared_ptr< UserDataIngSession::ContextData > context_data_ptr(ing_session->getDistributionSessionInfoData(session_ids->second->second));
+
+    patch_item_list = OpenAPI_list_create();
+    if (!patch_item_list) {
+        ogs_error("No patch_item_list");
+    }
+
+    status_item.op = OpenAPI_patch_operation_replace;
+    status_item.path = (char *)"/distSession/distSessionState";
+    status_item.value = OpenAPI_any_type_create_string(ing_session->distSessionState().c_str());
+    if (!status_item.value) {
+        ogs_error("No status item.value");
+    }
+
+    OpenAPI_list_add(patch_item_list, &status_item);
+
+    message.PatchItemList = patch_item_list;
+
+    request = ogs_sbi_build_request(&message);
+    ogs_expect(request);
+
+    if (status_item.value)
+        OpenAPI_any_type_free(status_item.value);
+    if (patch_item_list)
+        OpenAPI_list_free(patch_item_list);
+    return request;
 }
 
 std::shared_ptr< UpTrafficFlowInfo > populate_mbstf_up_traffic_flow_info(std::shared_ptr< IpAddr > dest_addr)
