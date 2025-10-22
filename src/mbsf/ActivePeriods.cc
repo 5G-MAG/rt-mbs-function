@@ -95,7 +95,7 @@ const DistSessionState &ActivePeriods::currentState(const MbsDistSessStateType &
 
 
     }
-    dist_session_state = DistSessionState::NO_VAL;
+    dist_session_state = DistSessionState::VAL_INACTIVE;
     return dist_session_state;
 }
 
@@ -169,15 +169,39 @@ static void convert_act_periods(const ActPeriodsType& act_periods, std::list<Act
 }
 
 static std::optional<std::chrono::system_clock::time_point> parse_date_time(const std::string& date_time) {
+    std::string dt = date_time;
+
+    // Remove trailing 'Z' if present
+    if (!dt.empty() && dt.back() == 'Z') {
+        dt.pop_back();
+    }
+
+    // Split into main time and milliseconds
+    std::string main_time;
+    int milliseconds = 0;
+    size_t dot_pos = dt.find('.');
+    if (dot_pos != std::string::npos) {
+        main_time = dt.substr(0, dot_pos);
+        std::string msec_str = dt.substr(dot_pos + 1);
+        if (msec_str.size() > 3) msec_str = msec_str.substr(0, 3); // trim to 3 digits
+        while (msec_str.size() < 3) msec_str += '0'; // pad if needed
+        milliseconds = std::stoi(msec_str);
+    } else {
+        main_time = dt;
+    }
+
+    // Parse main time
     std::tm tm = {};
-    std::istringstream ss(date_time);
+    std::istringstream ss(main_time);
     ss >> std::get_time(&tm, "%Y-%m-%dT%H:%M:%S");
     if (ss.fail()) return std::nullopt;
 
     std::time_t time = std::mktime(&tm);
     if (time == -1) return std::nullopt;
 
-    return std::chrono::system_clock::from_time_t(time);
+    auto tp = std::chrono::system_clock::from_time_t(time);
+    tp += std::chrono::milliseconds(milliseconds);
+    return tp;
 }
 
 // conversion function

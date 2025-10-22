@@ -230,7 +230,8 @@ private:
     std::string m_UserDataIngSessionId;
     std::recursive_mutex m_rmutex;
     std::shared_ptr<ActivePeriods> m_activePeriods;
-    ogs_timer_t *m_activePeriodsTimer;
+    //ogs_timer_t *m_activePeriodsTimer;
+    std::unique_ptr<Open5GSTimer> m_activePeriodsTimer;
     DistSessionState m_distSessionState;
 
 

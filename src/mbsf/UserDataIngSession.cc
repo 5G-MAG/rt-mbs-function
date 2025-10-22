@@ -500,7 +500,7 @@ UserDataIngSession &UserDataIngSession::setNFInstance(ogs_sbi_service_type_e ser
 
 UserDataIngSession &UserDataIngSession::createTimer() {
 
-   m_activePeriodsTimer = ogs_timer_add(ogs_app()->timer_mgr, UserDataIngSession::changeDistSessionState, (void *)m_UserDataIngSessionId.c_str());
+   m_activePeriodsTimer.reset(new Open5GSTimer(ogs_timer_add(ogs_app()->timer_mgr, UserDataIngSession::changeDistSessionState, (void *)m_UserDataIngSessionId.c_str())));
    if (!m_activePeriodsTimer) {
        ogs_error("ogs_timer_add() failed");
    }
@@ -512,10 +512,12 @@ std::shared_ptr< DistSessionState > UserDataIngSession::getDistSessionState()
    std::shared_ptr< DistSessionState > dist_session_state(new DistSessionState());
    DistSessionState dist_sess_state = m_activePeriods->currentState(std::nullopt);
    *dist_session_state = dist_sess_state.getValue();
+   /*
    {
        std::lock_guard<std::recursive_mutex> lock(m_mutex);
        m_distSessionState = *dist_session_state;
    } 
+   */
    return dist_session_state;
 
 }
@@ -540,7 +542,8 @@ bool UserDataIngSession::startTimer()
 	//m_distSessionState = transition.second;    
         std::int64_t dur = duration_timer(transition.first.value());
         ogs_time_t duration = dur;
-        ogs_timer_start(m_activePeriodsTimer, ogs_time_from_sec(duration));
+	m_activePeriodsTimer->start(duration);
+        //ogs_timer_start(m_activePeriodsTimer, ogs_time_from_msec(duration));
 	return true;
     }
     return false;
@@ -662,9 +665,7 @@ void UserDataIngSession::changeDistSessionState(void *data)
             it++;
 
         }
-	if( user_data_ing_sess->m_activePeriods->currentState(std::nullopt) != DistSessionState::NO_VAL) {
-            user_data_ing_sess->startTimer();
-        }
+        user_data_ing_sess->startTimer();
     }  catch (const std::out_of_range &e) {
         std::ostringstream err;
         err << "MBS User Data Ingest Session [" << user_data_ing_session_id << "] does not exist.";
@@ -1731,7 +1732,7 @@ static void handle_failed_mbstf_nf_instance_discover(ogs_sbi_xact_t *xact)
 
 static std::int64_t duration_timer(const std::chrono::system_clock::time_point  &tp) {
     const std::chrono::system_clock::time_point now = std::chrono::system_clock::now();
-    auto diff = std::chrono::duration_cast<std::chrono::seconds>(tp - now).count();
+    auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(tp - now).count();
     if (diff <= 0) return static_cast<std::int64_t>(1);
     return static_cast<std::int64_t>(diff);
 }

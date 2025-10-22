@@ -184,6 +184,7 @@ ogs_sbi_request_t *Nmb2Build::buildNmb2DistSession(void *context, void *data) {
         err << "MBS User Data Ingest Session [" << ids_ptr->first << "] does not exist.";
         ogs_error("%s", err.str().c_str());
     }
+    return nullptr;
 
 }
 

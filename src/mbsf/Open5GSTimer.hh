@@ -37,7 +37,7 @@ public:
     Open5GSTimer(const Open5GSTimer &other) = delete;
     Open5GSTimer &operator=(Open5GSTimer &&other) = delete;
     Open5GSTimer &operator=(const Open5GSTimer &other) = delete;
-    virtual ~Open5GSTimer() {};
+    virtual ~Open5GSTimer() {if (!m_ogsTimer) return; ogs_timer_stop(m_ogsTimer); ogs_timer_delete(m_ogsTimer);};
 
     ogs_timer_t *ogsTimer() { return m_ogsTimer; };
     const ogs_timer_t *ogsTimer() const { return m_ogsTimer; };
