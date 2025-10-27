@@ -1,5 +1,5 @@
 /******************************************************************************
- * 5G-MAG Reference Tools: MBS Function: Always Active
+ * 5G-MAG Reference Tools: MBS Function: Active Periods
  ******************************************************************************
  * Copyright: (C)2024 British Broadcasting Corporation
  * Author(s): David Waring <david.waring2@bbc.co.uk>

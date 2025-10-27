@@ -31,6 +31,7 @@
 #include "openapi/model/MBSUserDataIngSession.h"
 #include "common.hh"
 #include "ActivePeriods.hh"
+#include "ActivePeriodsRepRule.hh"
 
 
 namespace fiveg_mag_reftools {
@@ -139,6 +140,9 @@ public:
      
     UserDataIngSession &activePeriods(const ActPeriodsType &act_periods) {m_activePeriods.reset(new ActivePeriods(act_periods)); return *this;};
     UserDataIngSession &activePeriods(std::shared_ptr<ActivePeriods> active_periods) {m_activePeriods = active_periods; return *this;};
+    UserDataIngSession &activePeriodsRepRule(const ActPeriodsRepRuleType &act_periods_rep_rule) {m_activePeriodsRepRule.reset(new ActivePeriodsRepRule(act_periods_rep_rule)); return *this;};
+    UserDataIngSession &activePeriodsRepRule(std::shared_ptr<ActivePeriodsRepRule> active_periods_rep_rule) {m_activePeriodsRepRule = active_periods_rep_rule; return *this;};
+
     UserDataIngSession &createTimer();
     UserDataIngSession &createCurrentStateTimer();
     bool startTimer();
@@ -230,6 +234,7 @@ private:
     std::string m_UserDataIngSessionId;
     std::recursive_mutex m_rmutex;
     std::shared_ptr<ActivePeriods> m_activePeriods;
+    std::shared_ptr<ActivePeriodsRepRule> m_activePeriodsRepRule;
     //ogs_timer_t *m_activePeriodsTimer;
     std::unique_ptr<Open5GSTimer> m_activePeriodsTimer;
     DistSessionState m_distSessionState;

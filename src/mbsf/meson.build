@@ -48,6 +48,8 @@ libmbsf_dist_sources = files('''
     ActivePeriods.cc
     ActivePeriods.hh
     ActivePeriodsBase.hh
+    ActivePeriodsRepRule.cc
+    ActivePeriodsRepRule.hh
     common.cc
     common.hh
     CaseInsensitiveTraits.hh

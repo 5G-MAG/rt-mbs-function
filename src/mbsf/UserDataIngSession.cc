@@ -41,6 +41,7 @@
 #include "AlwaysActive.hh"
 #include "ActivePeriods.hh"
 #include "ActivePeriodsBase.hh"
+#include "ActivePeriodsRepRule.hh"
 #include "App.hh"
 #include "Context.hh"
 #include "hash.hh"
@@ -129,7 +130,8 @@ UserDataIngSession::UserDataIngSession(CJson &json, bool as_request)
     ,m_UserDataIngSessionId()	
     ,m_sbiObject(new Open5GSSBIObject)
     ,m_rmutex()
-    ,m_activePeriods()
+    ,m_activePeriods(nullptr)
+    ,m_activePeriodsRepRule(nullptr)
     ,m_activePeriodsTimer(nullptr)
     ,m_distSessionState()
     ,m_distributionSessionInfos()	
@@ -510,8 +512,17 @@ UserDataIngSession &UserDataIngSession::createTimer() {
 std::shared_ptr< DistSessionState > UserDataIngSession::getDistSessionState()
 {
    std::shared_ptr< DistSessionState > dist_session_state(new DistSessionState());
-   DistSessionState dist_sess_state = m_activePeriods->currentState(std::nullopt);
-   *dist_session_state = dist_sess_state.getValue();
+   if(m_activePeriods) {
+
+       DistSessionState dist_sess_state = m_activePeriods->currentState(std::nullopt);
+       *dist_session_state = dist_sess_state.getValue();
+   }
+
+   if(m_activePeriodsRepRule) {
+       DistSessionState dist_sess_state = m_activePeriodsRepRule->currentState(std::nullopt);
+       *dist_session_state = dist_sess_state.getValue();
+   }
+
    /*
    {
        std::lock_guard<std::recursive_mutex> lock(m_mutex);
@@ -533,7 +544,13 @@ std::shared_ptr< DistSessionState > UserDataIngSession::getDistSessionState()
 
 bool UserDataIngSession::startTimer()
 {
-    ActivePeriodsBase::TimestampAndActiveFlag transition = m_activePeriods->nextTransition();
+    ActivePeriodsBase::TimestampAndActiveFlag transition;
+    if(m_activePeriods) {
+        transition = m_activePeriods->nextTransition();
+    } else if(m_activePeriodsRepRule) {
+        transition = m_activePeriodsRepRule->nextTransition();
+    }
+
     if (transition.first.has_value()) {
 	{
             std::lock_guard<std::recursive_mutex> lock(m_mutex);
@@ -691,8 +708,11 @@ void UserDataIngSession::processDistributionSessionInfo( ogs_pool_id_t stream_id
         createTimer();
     }
 
-    if(!act_periods_rep_rule.has_value() || !*act_periods_rep_rule) {
+    if(act_periods_rep_rule.has_value()) {
         always_active = false;
+        activePeriodsRepRule(act_periods_rep_rule);
+        dist_sess_state = getDistSessionState();
+        createTimer();
     }
 
     const MBSUserDataIngSession::MbsDisSessInfosType &dist_sess_infos = m_MBSUserDataIngSession->getMbsDisSessInfos();
