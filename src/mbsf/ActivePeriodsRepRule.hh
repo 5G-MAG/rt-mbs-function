@@ -44,7 +44,6 @@ namespace reftools::mbsf {
 
 MBSF_NAMESPACE_START
 
-
 class ActivePeriodsRepRule: public ActivePeriodsBase {
 public:
 

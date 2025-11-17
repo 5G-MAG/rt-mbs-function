@@ -48,7 +48,6 @@ using reftools::mbsf::DistSessionState;
 
 #include "ActivePeriodsRepRule.hh"
 
-
 MBSF_NAMESPACE_START
 
 using TimestampAndActiveFlag = ActivePeriodsBase::TimestampAndActiveFlag;   
@@ -131,7 +130,6 @@ TimestampAndActiveFlag ActivePeriodsRepRule::nextTransition () const
 
     std::chrono::seconds dur{duration};
     std::chrono::seconds rep_interval{repetition_interval};
-    //std::chrono::milliseconds establish_pre_start_ms = std::chrono::milliseconds(establish_pre_start_seconds);
 
     if(!start.has_value()) {
          dist_session_state = DistSessionState::NO_VAL;
@@ -160,7 +158,6 @@ TimestampAndActiveFlag ActivePeriodsRepRule::nextTransition () const
 	    dist_session_state = DistSessionState::VAL_ESTABLISHED;
             return {active_start + rep_interval - establish_pre_start_seconds, dist_session_state};
         } else {
-	    // next transition = active at active_start + rule.repetition_period
             dist_session_state = DistSessionState::VAL_ACTIVE;
             return {active_start + rep_interval, dist_session_state};
          }
@@ -190,7 +187,6 @@ static std::optional<std::chrono::system_clock::time_point> parse_date_time(cons
         main_time = dt;
     }
 
-    // Parse main time
     std::tm tm = {};
     std::istringstream ss(main_time);
     ss >> std::get_time(&tm, "%Y-%m-%dT%H:%M:%S");
