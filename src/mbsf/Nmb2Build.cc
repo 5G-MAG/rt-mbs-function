@@ -106,15 +106,11 @@ using reftools::mbsf::PktDistributionData;
 
 MBSF_NAMESPACE_START
 
-static ogs_sbi_request_t *nmbstf_build_request(void *data);
-static std::optional<std::shared_ptr< Ssm > > ssm(CJson &json, bool as_request);
-
 static std::shared_ptr< ObjDistributionData > populate_mbstf_obj_distribution_data(std::shared_ptr<MBSDistributionSessionInfo> mbs_dist_session_info);
 static std::shared_ptr< TunnelAddress > populate_mbstf_mb_upf_tunnel_addr(ogs_sockaddr_t *tunnel_addr);
 static std::shared_ptr< UpTrafficFlowInfo > populate_mbstf_up_traffic_flow_info(std::shared_ptr< IpAddr > dest_addr);
 static std::shared_ptr< DistSessionState > populate_mbstf_dist_session_state(std::shared_ptr<UserDataIngSession> ing_session, std::shared_ptr< UserDataIngSession::ContextData > context_data_ptr);
 static std::optional<std::shared_ptr< PktDistributionData > >  populate_mbstf_pkt_distribution_data(std::shared_ptr<MBSDistributionSessionInfo> mbs_dist_session_info);
-static /*std::string*/ CJson build_nmb2_dist_session(void *context);
 static std::shared_ptr< DistSession > build_nmb2_create_dist_session(std::shared_ptr<UserDataIngSession> ing_session, std::shared_ptr< UserDataIngSession::ContextData > context_data_ptr);
 static std::string generate_uuid();
 
@@ -132,10 +128,10 @@ ogs_sbi_request_t *Nmb2Build::buildNmb2DistSession(void *context, void *data) {
 
     std::shared_ptr< CreateReqData > create_req_data = nullptr;
     memset(&msg, 0, sizeof(msg));
-    msg.h.method = OGS_SBI_HTTP_METHOD_POST;
-    msg.h.service.name = (char*)"nmbstf-distsession";
-    msg.h.api.version = (char *)"v1";
-    msg.h.resource.component[0] = (char *)"dist-sessions";
+    msg.h.method = const_cast<char*>(OGS_SBI_HTTP_METHOD_POST);
+    msg.h.service.name = const_cast<char*>("nmbstf-distsession");
+    msg.h.api.version = const_cast<char*>("v1");
+    msg.h.resource.component[0] = const_cast<char*>("dist-sessions");
 
     UserDataIngSession::UserDataIngDistSessId *ids = reinterpret_cast<UserDataIngSession::UserDataIngDistSessId*>(context);
     std::shared_ptr< UserDataIngSession::UserDataIngDistSessId> ids_ptr(ids);
@@ -163,7 +159,7 @@ ogs_sbi_request_t *Nmb2Build::buildNmb2DistSession(void *context, void *data) {
 
         ogs_sbi_request_t *req = ogs_sbi_build_request(&msg);
         ogs_sbi_header_set(req->http.headers, OGS_SBI_CONTENT_TYPE, OGS_SBI_CONTENT_JSON_TYPE);
-        req->http.content = ogs_strdup(const_cast<char*>(body.c_str()));
+        req->http.content = ogs_strdup(body.c_str());
         req->http.content_length = body.size();
 
         return req;
@@ -204,8 +200,7 @@ ogs_sbi_request_t *Nmb2Build::buildNmb2DistSessionPatch(void *context, void *dat
 {
     ogs_sbi_message_t message;
     ogs_sbi_request_t *request = NULL;
-    char *state = nullptr;
-    /*std::string*/ CJson patch_val(CJson::Null);
+    CJson patch_val(CJson::Null);
 
     OpenAPI_list_t *patch_item_list = NULL;
     OpenAPI_patch_item_t status_item;
@@ -236,7 +231,7 @@ ogs_sbi_request_t *Nmb2Build::buildNmb2DistSessionPatch(void *context, void *dat
         dist_session->setDistSessionId(sess_id);
         UserDataIngSession::addToRegistry(sess_id, session_ids->second);
 
-        patch_val = dist_session->toJSON(true) /*build_nmb2_dist_session(data)*/;
+        patch_val = dist_session->toJSON(true);
     } else if(context_data_ptr->stateUpdate) {
         //patch_val = ing_session->distSessionState();
         patch_val = ing_session->getdistSessState().toJSON();
@@ -376,50 +371,6 @@ static std::optional<std::shared_ptr< PktDistributionData > >  populate_mbstf_pk
     mbstf_pkt_dist_data->setPktIngestMethod(pkt_ingest_method);
     mbstf_pkt_dist_data->setMbStfIngestAddr(ingest_addr);
     return mbstf_pkt_dist_data;
-
-}
-
-static /*std::string*/ CJson build_nmb2_dist_session(void *data)
-{
-    std::shared_ptr< ObjDistributionData > mbstf_obj_distribution_data = nullptr;
-    std::optional<std::shared_ptr< PktDistributionData > > mbstf_pkt_distribution_data = std::nullopt;
-    std::shared_ptr< UpTrafficFlowInfo > mbstf_up_traffic_flow_info = nullptr;
-    std::shared_ptr< TunnelAddress > mbstf_mb_upf_tunnel_addr = nullptr;
-    std::shared_ptr< DistSessionState > dist_session_state = nullptr;
-    CJson json(CJson::Null);
-    std::shared_ptr< DistSession > dist_session = nullptr;
-
-    std::shared_ptr< CreateReqData > create_req_data = nullptr;
-
-    auto *session_ids = reinterpret_cast<UserDataIngSession::SessionIdContainer*>(data);
-
-    try {
-
-        std::shared_ptr<UserDataIngSession> ing_session = UserDataIngSession::find(session_ids->second->first);
-        std::shared_ptr< UserDataIngSession::ContextData > context_data_ptr(ing_session->getDistributionSessionInfoData(session_ids->second->second));
-
-        create_req_data.reset(new CreateReqData());
-
-        std::shared_ptr< DistSession > dist_session = build_nmb2_create_dist_session(ing_session, context_data_ptr);
-
-        std::string sess_id(context_data_ptr->mbstfDistSessionId);
-
-        dist_session->setDistSessionId(sess_id);
-
-        create_req_data->setDistSession(std::move(dist_session));
-
-        UserDataIngSession::addToRegistry(sess_id, session_ids->second);
-
-        /*CJson json =*/ json = create_req_data->toJSON(true);
-        //return std::string(json.serialise());
-
-    } catch (const std::out_of_range &e) {
-        std::ostringstream err;
-        err << "MBS User Data Ingest Session [" << session_ids->second->first << "] does not exist.";
-        ogs_error("%s", err.str().c_str());
-    }
-    return json;
-
 
 }
 

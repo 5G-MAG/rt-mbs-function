@@ -60,8 +60,6 @@ void MBSMFMBSSession::deleteSession()
 }
 
 const char *MBSMFMBSSession::tmgi() {
-    const char *tmgi_repr = mb_smf_sc_tmgi_repr(m_session->tmgi);
-    const char *tmgi_rep = mb_smf_sc_tmgi_repr(m_session->tmgi);
     return mb_smf_sc_tmgi_repr(m_session->tmgi);
 };
 
@@ -163,30 +161,21 @@ bool MBSMFMBSSession::processEvent(Open5GSEvent &MBSMFEvent)
                     }
                     UserDataIngSession::setMBSSessionFlag(event->sbi.data);
                 } else if (mbsf_event->result == OGS_ERROR) {
-                      if (mbsf_event->problem_details) {
+                    if (mbsf_event->problem_details) {
 
-                          cJSON *problem = OpenAPI_problem_details_convertToJSON((OpenAPI_problem_details_t*)mbsf_event->problem_details);
-                          CJson problem_detail(problem, true);
-                          {
-                              char *txt = cJSON_Print(problem);
-                          }
-                          if(mbsf_event->problem_details->cause) {
-                              std::optional<fiveg_mag_reftools::ProblemCause> cause = MBSProblemCause::lookup(std::string(mbsf_event->problem_details->cause));
-                              if(cause.has_value()) {
-                                  {
-                                      fiveg_mag_reftools::ProblemCause &cause_val = cause.value();
-                                      int status_code = cause_val.statusCode();
-                                      const std::string &reason = cause_val.reason();
-                                      const std::string &cause_str = cause_val.cause();
-                                  }
-                                  //UserDataIngSession::handleMBSSessionError(event->sbi.data, cause.value(), problem_detail);
-                                  UserDataIngSession::setMBSSessionFailureFlag(event->sbi.data, cause.value(), problem_detail);
-                                  return true;
-                              }
-                         } else {
+                        cJSON *problem = OpenAPI_problem_details_convertToJSON((OpenAPI_problem_details_t*)mbsf_event->problem_details);
+                        CJson problem_detail(problem, true);
+                        if(mbsf_event->problem_details->cause) {
+                            std::optional<fiveg_mag_reftools::ProblemCause> cause =
+                                        MBSProblemCause::lookup(std::string(mbsf_event->problem_details->cause));
+                            if(cause.has_value()) {
+                                UserDataIngSession::setMBSSessionFailureFlag(event->sbi.data, cause.value(), problem_detail);
+                                return true;
+                            }
+                        } else {
                             UserDataIngSession::setMBSSessionFailureFlag(event->sbi.data, ProblemCause::INBOUND_SERVER_ERROR, problem_detail);
-                         }
-                         return true;
+                        }
+                        return true;
                     }
 
                     //UserDataIngSession::handleMBSSessionError(event->sbi.data, ProblemCause::INBOUND_SERVER_ERROR);

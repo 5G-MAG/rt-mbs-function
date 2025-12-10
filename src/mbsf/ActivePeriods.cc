@@ -54,15 +54,23 @@ using TimestampAndActiveFlag = ActivePeriodsBase::TimestampAndActiveFlag;
 using ActPeriodsType = MBSUserDataIngSession::ActPeriodsType;
 
 static std::optional<std::chrono::system_clock::time_point> parse_date_time(const std::string& date_time);
-static std::list<std::optional<std::shared_ptr<TimeWindow>>> extract_time_windows(const ActPeriodsType &actPeriods);
-static std::list<std::optional<std::shared_ptr<TimeWindow>>> extract_time_windows(const ActPeriodsType &&actPeriods);
+static fiveg_mag_reftools::remove_std_optional<ActPeriodsType>::type extract_time_windows(const ActPeriodsType &actPeriods);
+static fiveg_mag_reftools::remove_std_optional<ActPeriodsType>::type extract_time_windows(ActPeriodsType &&actPeriods);
 static void convert_act_periods(const ActPeriodsType& act_periods, std::list<ActivePeriods::TimeWindowTP> &act_periods_tp);
+static void convert_act_periods(ActPeriodsType&& act_periods, std::list<ActivePeriods::TimeWindowTP> &act_periods_tp);
+static void convert_act_periods(const fiveg_mag_reftools::remove_std_optional<ActPeriodsType>::type& act_periods_list,
+                                  std::list<ActivePeriods::TimeWindowTP> &act_periods_tp);
 
 ActivePeriods::ActivePeriods(const ActPeriodsType &act_periods)
 {
     convert_act_periods(act_periods, m_actPeriodsTP);
-
 }
+
+ActivePeriods::ActivePeriods(ActPeriodsType &&act_periods)
+{
+    convert_act_periods(std::move(act_periods), m_actPeriodsTP);
+}
+
 
 const DistSessionState &ActivePeriods::currentState(const MbsDistSessStateType &dist_sess_state) const
 {
@@ -134,11 +142,22 @@ TimestampAndActiveFlag ActivePeriods::nextTransition () const
     return {std::nullopt, dist_session_state};
 }
 
-
 static void convert_act_periods(const ActPeriodsType& act_periods, std::list<ActivePeriods::TimeWindowTP> &act_periods_tp)
 {
-    static std::list<std::optional<std::shared_ptr<TimeWindow>>> act_periods_list = extract_time_windows(act_periods);
+    auto act_periods_list = extract_time_windows(act_periods);
+    return convert_act_periods(act_periods_list, act_periods_tp);
+}
 
+static void convert_act_periods(ActPeriodsType&& act_periods, std::list<ActivePeriods::TimeWindowTP> &act_periods_tp)
+{
+    auto act_periods_list = extract_time_windows(std::move(act_periods));
+
+    return convert_act_periods(act_periods_list, act_periods_tp);
+}
+
+static void convert_act_periods(const fiveg_mag_reftools::remove_std_optional<ActPeriodsType>::type& act_periods_list,
+                                std::list<ActivePeriods::TimeWindowTP> &act_periods_tp)
+{
     act_periods_tp.clear();
     for (const auto &time_window : act_periods_list)
     {
@@ -205,22 +224,19 @@ static std::optional<std::chrono::system_clock::time_point> parse_date_time(cons
 }
 
 // conversion function
-static std::list<std::optional<std::shared_ptr<TimeWindow>>> extract_time_windows(const ActPeriodsType &actPeriods) {
+static fiveg_mag_reftools::remove_std_optional<ActPeriodsType>::type extract_time_windows(const ActPeriodsType &actPeriods) {
     if (!actPeriods.has_value()) {
         return {}; // empty list when optional is empty
     }
-    const std::list<std::optional<std::shared_ptr<TimeWindow>>, fiveg_mag_reftools::OgsAllocator<std::optional<std::shared_ptr<TimeWindow>>>> &src = *actPeriods;
-    return std::list<std::optional<std::shared_ptr<TimeWindow>>>(src.begin(), src.end());
+    return fiveg_mag_reftools::remove_std_optional<ActPeriodsType>::type(actPeriods.value());
 }
 
 // move-aware overload to avoid copies when you can move
-static std::list<std::optional<std::shared_ptr<TimeWindow>>> extract_time_windows(const ActPeriodsType &&actPeriods) {
+static fiveg_mag_reftools::remove_std_optional<ActPeriodsType>::type extract_time_windows(ActPeriodsType &&actPeriods) {
     if (!actPeriods.has_value()) {
         return {};
     }
-    std::list<std::optional<std::shared_ptr<TimeWindow>>, fiveg_mag_reftools::OgsAllocator<std::optional<std::shared_ptr<TimeWindow>>>> src = std::move(*actPeriods);
-    return std::list<std::optional<std::shared_ptr<TimeWindow>>>(std::make_move_iterator(src.begin()),
-                                  std::make_move_iterator(src.end()));
+    return fiveg_mag_reftools::remove_std_optional<ActPeriodsType>::type(std::move(*actPeriods));
 }
 
 

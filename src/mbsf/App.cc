@@ -105,12 +105,12 @@ void App::initialise()
     static const char userDataIngestSessionSupportedFeatures[] = "3";
     static const char userDataIngestSessionApiVersion[] = NMBSF_MBS_UD_INGEST_API_VERSION;
 
+    if (!m_app->sbiParseConfig("mbsf")) {
+        throw std::runtime_error("Open5GS parse SBI configuration failed!");
+    }
 
     if (!m_context->parseConfig()) {
         throw std::runtime_error("Unable to load MBSF configuration!");
-    }
-    if (!m_app->sbiParseConfig("mbsf")) {
-        throw std::runtime_error("Open5GS parse SBI configuration failed!");
     }
 
     std::vector<std::shared_ptr<Open5GSSockAddr> > addrs(m_context->MBSFUserServicesAddresses());

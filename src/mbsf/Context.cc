@@ -62,6 +62,11 @@ Context::~Context()
 
 bool Context::parseConfig()
 {
+    ogs_sbi_server_t *server;
+    ogs_list_t *sbi_servers = &ogs_sbi_self()->server_list;
+    ogs_list_for_each(sbi_servers, server) {
+        servers[OPEN5GS_SBI_SERVER].emplace_back(new Open5GSSBIServer(server));
+    }
     Open5GSYamlDocument doc(App::self().configDocument());
     Open5GSYamlIter root_iter(doc);
     while (root_iter.next()) {
@@ -293,43 +298,38 @@ void Context::parseConfiguration(std::string &pc_key, Open5GSYamlIter &iter)   {
 
     addr = NULL;
     for (i = 0; i < num_of_advertise; i++) {
-        rv = ogs_addaddrinfo(&addr,
-                                    family, advertise[i], port, 0);
+        rv = ogs_addaddrinfo(&addr, family, advertise[i], port, 0);
         ogs_assert(rv == OGS_OK);
     }
-    node = (ogs_socknode_t *)ogs_list_first(&list);
-    if (node) {
-        int matches = 0;
+    ogs_list_for_each(&list, node) {
+        if (node) {
+            std::shared_ptr<Open5GSSBIServer> new_server = findServerForAddr(node);
 
-        matches = checkForAddr(node);
-
-        if(!matches) {
-            std::shared_ptr<Open5GSSBIServer> new_server;
-            new_server.reset(new Open5GSSBIServer(node, is_option ? &option : nullptr));
-            new_server->ogsSBIServerAdvertise(addr);
+            if (!new_server) {
+                new_server.reset(new Open5GSSBIServer(node, is_option ? &option : nullptr));
+                new_server->ogsSBIServerAdvertise(addr);
+            }
 
             if (pc_key == "mbsUserServices") {
                 servers[MBS_USER_SERVICES].push_back(new_server);
             } else if (pc_key == "mbsUserDataIngestSession") {
-                 servers[MBS_USER_DATA_INGEST_SESSION].push_back(new_server);
+                servers[MBS_USER_DATA_INGEST_SESSION].push_back(new_server);
             }
         }
     }
-    node6 = (ogs_socknode_t *)ogs_list_first(&list6);
-    if (node6) {
-        int matches = 0;
+    ogs_list_for_each(&list6, node6) {
+        if (node6) {
+            std::shared_ptr<Open5GSSBIServer> new_server = findServerForAddr(node);
 
-        matches = checkForAddr(node);
-
-        if(!matches) {
-            std::shared_ptr<Open5GSSBIServer> new_server;
-            new_server.reset(new Open5GSSBIServer(node, is_option ? &option : nullptr));
-            new_server->ogsSBIServerAdvertise(addr);
+            if(!new_server) {
+                new_server.reset(new Open5GSSBIServer(node, is_option ? &option : nullptr));
+                new_server->ogsSBIServerAdvertise(addr);
+            }
 
             if (pc_key == "mbsUserServices") {
                 servers[MBS_USER_SERVICES].push_back(new_server);
             } else if (pc_key == "mbsUserDataIngestSession") {
-                 servers[MBS_USER_DATA_INGEST_SESSION].push_back(new_server);
+                servers[MBS_USER_DATA_INGEST_SESSION].push_back(new_server);
             }
         }
     }
@@ -344,10 +344,10 @@ std::vector <std::shared_ptr<Open5GSSockAddr> > Context::MBSFUserServicesAddress
     std::vector<std::shared_ptr<Open5GSSBIServer>> srvs = servers[MBS_USER_SERVICES];
     if(!srvs.empty()) {
         for (const auto &srv: srvs) {
-            std::shared_ptr<Open5GSSockAddr> sockAddr;
-            sockAddr.reset(new Open5GSSockAddr(srv->ogsSBIServer()->node.addr));
-            sockAddrs.push_back(sockAddr);
+            sockAddrs.emplace_back(new Open5GSSockAddr(srv->ogsSBIServer()->node.addr));
         }
+    } else {
+        ogs_warn("No MBS User Services API servers configured");
     }
     return sockAddrs;
 }
@@ -358,10 +358,10 @@ std::vector <std::shared_ptr<Open5GSSockAddr> > Context::MBSFUserDataIngestSessi
     std::vector<std::shared_ptr<Open5GSSBIServer>> srvs = servers[MBS_USER_DATA_INGEST_SESSION];
     if(!srvs.empty()) {
         for (const auto &srv: srvs) {
-            std::shared_ptr<Open5GSSockAddr> sockAddr;
-            sockAddr.reset(new Open5GSSockAddr(srv->ogsSBIServer()->node.addr));
-            sockAddrs.push_back(sockAddr);
+            sockAddrs.emplace_back(new Open5GSSockAddr(srv->ogsSBIServer()->node.addr));
         }
+    } else {
+        ogs_warn("No MBS User Data Ingest Session API servers configured");
     }
     return sockAddrs;
 }
@@ -371,18 +371,19 @@ int Context::load()
     return UserDataIngSession::numberOfDistributionSessions();
 }
 
-int Context::checkForAddr(ogs_socknode_t *node)
+const std::shared_ptr<Open5GSSBIServer> &Context::findServerForAddr(ogs_socknode_t *node)
 {
     int i = 0;
     for (i=0; i<SERVER_MAX_NUM; i++) {
         std::vector<std::shared_ptr<Open5GSSBIServer>> srvs = servers[i];
         for (const auto &srv: srvs) {
-            if( srv && ogs_sockaddr_is_equal(node->addr, srv->ogsSBIServer()->node.addr)) {
-                return 1;
+            if (srv && ogs_sockaddr_is_equal(node->addr, srv->ogsSBIServer()->node.addr)) {
+                return srv;
             }
         }
     }
-    return 0;
+    static const std::shared_ptr<Open5GSSBIServer>null_svr(nullptr);
+    return null_svr;
 }
 
 MBSF_NAMESPACE_STOP

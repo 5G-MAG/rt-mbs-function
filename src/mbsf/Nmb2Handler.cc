@@ -205,14 +205,11 @@ bool Nmb2Handler::processEvent(Open5GSEvent &event)
 
 static bool handle_mbstf_dist_session_response(ogs_sbi_xact_t *xact, Open5GSSBIResponse &response)
 {
-    ogs_sbi_nf_instance_t *nf_instance = NULL;
     ogs_sbi_object_t *sbi_object = NULL;
     ogs_sbi_service_type_e service_type = OGS_SBI_SERVICE_TYPE_NULL;
-    ogs_sbi_discovery_option_t *discovery_option = NULL;
 
     OpenAPI_nf_type_e target_nf_type = OpenAPI_nf_type_NULL;
     OpenAPI_nf_type_e requester_nf_type = OpenAPI_nf_type_NULL;
-    OpenAPI_search_result_t *SearchResult = NULL;
 
     ogs_assert(xact);
     sbi_object = xact->sbi_object;

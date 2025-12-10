@@ -124,12 +124,9 @@ static const NfServer::InterfaceMetadata g_nmbsf_userdataingsession_api_metadata
 using ActPeriodsType = MBSUserDataIngSession::ActPeriodsType;
 using ActPeriodsRepRuleType = MBSUserDataIngSession::ActPeriodsRepRuleType;
 
-static std::optional<std::shared_ptr< Ssm > > ssm(CJson &json, bool as_request);
-static bool validate_user_data_ing_session(CJson &json, bool as_request);
 static bool resolve_src_dest_addr(const std::string &src_ipv4_addr, const std::string &dest_ipv4_addr, struct addrinfo **ai_src, struct addrinfo **ai_dest);
 static bool get_src_dest_of_same_addr_family(int family, struct addrinfo *src_addrinfo, struct addrinfo *dest_addrinfo, void **src_addr, void **dest_addr);
 static void process_mbs_distribution_session_info(std::shared_ptr< UserDataIngSession::ContextData > context_data, std::shared_ptr< DistSession > dist_session);
-static bool check_for_atleast_one_mbs_dis_sess_info(std::shared_ptr<UserDataIngSession> user_data_ing_session);
 static std::string print_mbs_session_error(std::shared_ptr< UserDataIngSession::ContextData > context_data);
 static void handle_failed_mbstf_nf_instance_discover(ogs_sbi_xact_t *xact);
 static bool validate_state_setting_options(std::shared_ptr<UserDataIngSession> user_data_ing_session, Open5GSSBIStream &stream, Open5GSSBIMessage &message, const NfServer::AppMetadata &app_meta, std::optional<NfServer::InterfaceMetadata> api);
@@ -865,11 +862,7 @@ void UserDataIngSession::handleUserDataIngSessionUpdate(ogs_pool_id_t stream_id,
     std::shared_ptr< UserDataIngSession::ContextData > ctx_data = nullptr;
     std::shared_ptr< DistSessionState > dist_sess_state = nullptr;
 
-    const ActPeriodsType &act_periods =  m_MBSUserDataIngSession->getActPeriods();
-    const ActPeriodsRepRuleType &act_periods_rep_rule = m_MBSUserDataIngSession->getActPeriodsRepRule();
-
     const MBSUserDataIngSession::MbsDisSessInfosType &dist_sess_infos = m_MBSUserDataIngSession->getMbsDisSessInfos();
-    mb_smf_sc_mbs_session_t *session = NULL;
 
     setMbstfsInDesiredState();
 
@@ -907,14 +900,13 @@ void UserDataIngSession::handleUserDataIngSessionUpdate(ogs_pool_id_t stream_id,
                             std::optional<std::shared_ptr< std::string > > src_ipv6_addr = src_ip_addr->getIpv6Addr();
                             std::optional<std::shared_ptr< std::string > > dest_ipv6_addr = dest_ip_addr->getIpv6Addr();
                             std::shared_ptr< Ssm > ssm_data = nullptr;
-                            ogs_sbi_xact_t *xact = nullptr;
 
                             ssm_data.reset(new Ssm(*ssm_val));
                             if (dest_ipv4_addr.has_value() || dest_ipv6_addr.has_value()) {
                                 distribution_session_info.reset(new DistributionSessionInfo(info));
                                 ctx_data.reset(new UserDataIngSession::ContextData{std::string(m_UserDataIngSessionId), std::string(key), distribution_session_info, info, ssm_data, request, stream_id, nullptr});
                                 addToDistributionSessionInfos(std::string(key), ctx_data);
-                                xact = nmbstfDiscoverOnly(ctx_data);
+                                nmbstfDiscoverOnly(ctx_data);
 
                             } else {
                                 ogs_error("Unable to resolve SSM addresses");
@@ -1093,7 +1085,6 @@ void UserDataIngSession::processDistributionSessionInfo( ogs_pool_id_t stream_id
     }
 
     const MBSUserDataIngSession::MbsDisSessInfosType &dist_sess_infos = m_MBSUserDataIngSession->getMbsDisSessInfos();
-    mb_smf_sc_mbs_session_t *session = NULL;
 
     for(const auto &[key, sess_info]: dist_sess_infos) {
         if(sess_info.has_value())
@@ -1115,14 +1106,13 @@ void UserDataIngSession::processDistributionSessionInfo( ogs_pool_id_t stream_id
                         std::optional<std::shared_ptr< std::string > > src_ipv6_addr = src_ip_addr->getIpv6Addr();
                         std::optional<std::shared_ptr< std::string > > dest_ipv6_addr = dest_ip_addr->getIpv6Addr();
                         std::shared_ptr< Ssm > ssm_data = nullptr;
-                        ogs_sbi_xact_t *xact = nullptr;
 
                         ssm_data.reset(new Ssm(*ssm_val));
                         if (dest_ipv4_addr.has_value() || dest_ipv6_addr.has_value()) {
                             distribution_session_info.reset(new DistributionSessionInfo(info));
                             ctx_data.reset(new UserDataIngSession::ContextData{std::string(m_UserDataIngSessionId), std::string(key), distribution_session_info, info, ssm_data, request, stream_id, nullptr});
                             addToDistributionSessionInfos(std::string(key), ctx_data);
-                            xact = nmbstfDiscoverOnly(ctx_data);
+                            nmbstfDiscoverOnly(ctx_data);
 
                         } else {
                             ogs_error("Unable to resolve SSM addresses");
@@ -1266,7 +1256,6 @@ bool UserDataIngSession::sendNmbsfMbsUserDataIngestResponse(std::shared_ptr<User
 
     try {
         std::shared_ptr<UserDataIngSession> ing_sess = UserDataIngSession::find(ids->first);
-        const std::shared_ptr<MBSUserDataIngSession> &user_data_ing_session = ing_sess->getMBSUserIngSession();
 
         std::shared_ptr<Open5GSSBIRequest> request = context_data->request;
         Open5GSSBIMessage message;
@@ -1914,7 +1903,6 @@ void UserDataIngSession::populateAndSendError(void *data, const std::optional<fi
     std::shared_ptr< UserDataIngSession::ContextData > context_data = getContextData(ids_ptr);
 
     std::optional<NfServer::InterfaceMetadata> api(std::nullopt);
-    const NfServer::AppMetadata &app_meta = App::self().mbsfAppMetadata();
 
     std::shared_ptr<Open5GSSBIRequest> request = context_data->request;
     ogs_sbi_stream_t *ogs_stream = reinterpret_cast<ogs_sbi_stream_t*>(ogs_sbi_stream_find_by_id(context_data->streamId));
@@ -1950,7 +1938,6 @@ void UserDataIngSession::populateAndSendError(void *data, const std::optional<fi
 bool UserDataIngSession::tmgi(mb_smf_sc_tmgi_t *tmgi, void *data)
 {
     bool tmgi_set = false;
-    char buf[OGS_PLMNIDSTRLEN];
 
     //const char *tmgi_repr = mb_smf_sc_tmgi_repr(tmgi);
     //char *plmn_id = ogs_plmn_id_to_string(&tmgi->plmn, buf);
@@ -2106,81 +2093,6 @@ static void process_mbs_distribution_session_info(std::shared_ptr< UserDataIngSe
         }
 
     }
-}
-
-static bool check_for_atleast_one_mbs_dis_sess_info(std::shared_ptr<UserDataIngSession> user_data_ing_session)
-{
-    if(!user_data_ing_session) return false;
-    const std::shared_ptr<MBSUserDataIngSession> ing_session = user_data_ing_session->getMBSUserIngSession();
-    const auto &dist_sess_infos = ing_session->getMbsDisSessInfos();
-
-    if (dist_sess_infos.empty()) return false;
-
-    for (const auto& [key, sess_info] : dist_sess_infos)
-    {
-        if (sess_info && *sess_info)
-        {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-
-static std::optional<std::shared_ptr< Ssm > > ssm(CJson &json, bool as_request)
-{
-    MBSUserDataIngSession user_data_ing_session(json, as_request);
-    std::string mbs_user_service_id(user_data_ing_session.getMbsUserServId());
-    const MBSUserDataIngSession::MbsDisSessInfosType &dist_sess_infos = user_data_ing_session.getMbsDisSessInfos();
-    for(const auto &[key, sess_info]: dist_sess_infos) {
-        if(sess_info.has_value())
-        {
-            std::shared_ptr<MBSDistributionSessionInfo> info = *sess_info;
-            if(info) {
-                std::optional<std::shared_ptr< MbsSessionId > > mbs_session_id = info->getMbsSessionId();
-                if(mbs_session_id.has_value()) {
-                    std::shared_ptr<MbsSessionId > mbs_sess_id = *mbs_session_id;
-                    return mbs_sess_id->getSsm();
-                }
-            }
-        }
-    }
-    return std::nullopt;
-
-}
-
-static bool validate_user_data_ing_session(CJson &json, bool as_request)
-{
-    MBSUserDataIngSession user_data_ing_session(json, as_request);
-    std::string mbs_user_service_id(user_data_ing_session.getMbsUserServId());
-    const std::shared_ptr<UserService> user_service = UserService::find(mbs_user_service_id);
-    std::string user_service_type(user_service->getMBSUserServiceType());
-    const MBSUserDataIngSession::MbsDisSessInfosType &distSessInfos = user_data_ing_session.getMbsDisSessInfos();
-    for(const auto &[key, sess_info]: distSessInfos) {
-        if(sess_info.has_value())
-        {
-            std::shared_ptr<MBSDistributionSessionInfo> info = *sess_info;
-            if(info) {
-                std::optional<std::shared_ptr< MbsSessionId > > mbs_session_id = info->getMbsSessionId();
-                if(mbs_session_id.has_value()) {
-                    std::shared_ptr<MbsSessionId > mbs_sess_id = *mbs_session_id;
-                    std::optional<std::shared_ptr< Ssm > > ssm = mbs_sess_id->getSsm();
-                    if (ssm.has_value()) {
-                        std::shared_ptr< Ssm > ssm_val = ssm.value();
-                        std::shared_ptr< IpAddr > dest_ip_addr = ssm_val->getDestIpAddr();
-                        std::optional<std::string > dest_ipv4_addr = dest_ip_addr->getIpv4Addr();
-
-                        if((user_service_type == "BROADCAST")) {
-                            throw std::logic_error("Invalid Source-Specific Multicast (SSM) User Plane address for Broadcast Service Type");
-                        }
-
-                    }
-                }
-            }
-        }
-    }
-    return true;
 }
 
 static bool resolve_src_dest_addr(const std::string &src_addr, const std::string &dest_addr, struct addrinfo **src_addrinfo, struct addrinfo **dest_addrinfo)

@@ -63,6 +63,7 @@ public:
     int load();
 
     enum ServerType {
+        OPEN5GS_SBI_SERVER,
         MBS_USER_SERVICES,
         MBS_USER_DATA_INGEST_SESSION,
         SERVER_MAX_NUM
@@ -93,7 +94,7 @@ public:
 private:
     void parseCacheControl(Open5GSYamlIter &iter);
     void parseConfiguration(std::string &pc_key, Open5GSYamlIter &iter);
-    int checkForAddr(ogs_socknode_t *node);
+    const std::shared_ptr<Open5GSSBIServer> &findServerForAddr(ogs_socknode_t *node);
 
 };
 

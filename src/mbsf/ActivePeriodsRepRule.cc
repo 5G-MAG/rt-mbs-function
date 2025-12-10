@@ -95,7 +95,6 @@ const DistSessionState &ActivePeriodsRepRule::currentState(const MbsDistSessStat
     } else {
 
         auto offset = std::chrono::duration_cast<std::chrono::seconds>(diff % rep_interval);
-        auto active_start = now - offset;
 
         if (offset < dur) {
             dist_session_state = DistSessionState::VAL_ACTIVE;
