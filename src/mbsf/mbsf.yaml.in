@@ -5,7 +5,7 @@ logger:
 
 global:
   max:
-    ue: 128
+    ue: 128  # The number of UE can be increased depending on memory size.
 
 mbsf:
   sbi:
@@ -19,15 +19,15 @@ mbsf:
         - uri: http://127.0.0.10:7777
 
   mbsUserServices:
-    - addr: 127.0.0.68
+    - addr: 127.0.0.67
       port: 7777
 
   mbsUserDataIngestSession:
-    - addr: 127.0.0.69
+    - addr: 127.0.0.67
       port: 7777
 
   serverResponseCacheControl:
-    - maxAge: 60
+    - defaultMaxAge: 60
       mbsUserServiceMaxAge: 60
       mbsUserDataIngestSessionMaxAge: 60
 
@@ -208,7 +208,7 @@ mbsf:
 #  o Server response cache control tuning
 #  mbsf:
 #    serverResponseCacheControl:
-#      - maxAge: 120
+#      - defaultMaxAge: 120
 #        mbsUserServiceMaxAge: 60
 #        mbsUserDataIngestSessionMaxAge: 30
 #

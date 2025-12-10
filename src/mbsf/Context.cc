@@ -42,7 +42,7 @@ MBSF_NAMESPACE_START
 
 Context::Context()
     :servers()
-    ,cacheControl({60, 60})
+    ,cacheControl({60, 60, 60})
     ,capacity({100,100})
     ,allowedMulticastRange()
 {
@@ -187,7 +187,7 @@ void Context::parseCacheControl(Open5GSYamlIter &iter) {
         std::string cc_key(iter.key());
         std::string cc_val(iter.value());
         try {
-            if (cc_key == "maxAge") {
+            if (cc_key == "defaultMaxAge") {
                 cacheControl.defaultMaxAge = std::stol(cc_val);
             } else if (cc_key == "mbsUserServiceMaxAge") {
                 cacheControl.MBSUserServiceMaxAge = std::stol(cc_val);
