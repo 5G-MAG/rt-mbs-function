@@ -73,9 +73,6 @@ mb_smf_sc_ncgi_t *MBSNcgi::populateNcgi() {
     std::shared_ptr< MBSPlmnId > mbs_plmn_id = nullptr;
     uint16_t mcc;
     uint16_t mnc;
-    uint32_t tracking_area;
-    uint64_t *n_id = nullptr;
-
 
     const std::shared_ptr< PlmnId > &plmn_id = getPlmnId();
     mbs_plmn_id.reset(new MBSPlmnId(plmn_id));
@@ -94,19 +91,20 @@ mb_smf_sc_ncgi_t *MBSNcgi::populateNcgi() {
 
 uint64_t MBSNcgi::nrCellId() {
     const std::string &nr_cell_id = getNrCellId();
-    static uint64_t cell_id;
-    cell_id = std::stoull(nr_cell_id);
+    uint64_t cell_id = std::stoull(nr_cell_id, nullptr, 16);
     return cell_id;
 }
 
 uint64_t *MBSNcgi::nid() {
     const std::optional<std::string > &nid = getNid();
     if(!nid.has_value()) return nullptr;
-    static uint64_t id;
-    id = std::stoull(nid.value());
-    return &id;
+    uint64_t value = std::stoull(nid.value(), nullptr, 16);
+    uint64_t *result = static_cast<uint64_t*>(std::malloc(sizeof(uint64_t)));
+    if (result != nullptr) {
+        *result = value;
+    }
+    return result;
 }
-
 
 MBSF_NAMESPACE_STOP
 

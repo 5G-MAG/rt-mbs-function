@@ -100,8 +100,7 @@ MBSMFMBSSession &MBSMFMBSSession::setExternalServiceArea(std::shared_ptr< Extern
 
 MBSMFMBSSession &MBSMFMBSSession::setFsaId(const std::string &mbs_fsa_id) {
     mb_smf_sc_mbs_fsa_id_t *fsa_id = mb_smf_sc_mbs_fsa_id_new();
-    unsigned long id = std::stoul(mbs_fsa_id);
-    fsa_id->id = static_cast<uint32_t>(id);
+    fsa_id->id = static_cast<uint32_t>(std::stoul(mbs_fsa_id, nullptr, 16));
     ogs_list_init(&m_session->mbs_fsa_ids);
     ogs_list_add(&m_session->mbs_fsa_ids, fsa_id);
     return *this;
@@ -290,7 +289,8 @@ MBSMFMBSSession &MBSMFMBSSession::setTmgiRequest(bool tmgi_req)
 
 MBSMFMBSSession &MBSMFMBSSession::setAnyUeInd(bool any_ue_ind)
 {
-    m_session->any_ue_ind = any_ue_ind;
+    m_session->any_ue_ind = !any_ue_ind;
+    ogs_info("ANY UE ID: IN PARAM: %d, IN MBS SESSION STRUCT: %d", any_ue_ind, m_session->any_ue_ind);
     return *this;
 
 }

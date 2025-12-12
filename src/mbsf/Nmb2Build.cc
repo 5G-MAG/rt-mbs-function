@@ -86,6 +86,7 @@
 
 using fiveg_mag_reftools::CJson;
 using reftools::mbsf::CreateReqData;
+using reftools::mbsf::DistributionMethod;
 using reftools::mbsf::DistSession;
 using reftools::mbsf::DistSessionState;
 using reftools::mbsf::MBSUserDataIngSession;
@@ -337,11 +338,13 @@ static std::shared_ptr< ObjDistributionData > populate_mbstf_obj_distribution_da
     mbstf_obj_dist_data->setObjAcquisitionMethod(acquisition_method);
     mbstf_obj_dist_data->setObjIngestBaseUrl(obj_ingest_url);
     mbstf_obj_dist_data->setObjDistributionBaseUrl(obj_disribution_url);
-    if(acquisition_method->getString() == "PULL") {
-        mbstf_obj_dist_data->setObjAcquisitionIdsPull(obj_acquisition_ids);
-    } else if(acquisition_method->getString() == "PUSH") {
-        if (!obj_acquisition_ids.empty()) {
-            mbstf_obj_dist_data->setObjAcquisitionIdPush(obj_acquisition_ids.front());
+    if(acquisition_method) { 
+        if(acquisition_method->getString() == "PULL") {
+            mbstf_obj_dist_data->setObjAcquisitionIdsPull(obj_acquisition_ids);
+        } else if(acquisition_method->getString() == "PUSH") {
+            if (!obj_acquisition_ids.empty()) {
+                mbstf_obj_dist_data->setObjAcquisitionIdPush(obj_acquisition_ids.front());
+            }
         }
     }
 
@@ -432,8 +435,13 @@ static std::shared_ptr< DistSession > build_nmb2_create_dist_session(std::shared
 
     std::shared_ptr< CreateReqData > create_req_data = nullptr;
 
-    mbstf_obj_distribution_data = populate_mbstf_obj_distribution_data(context_data_ptr->info);
-    mbstf_pkt_distribution_data = populate_mbstf_pkt_distribution_data(context_data_ptr->info);
+    std::shared_ptr< DistributionMethod > distribution_method = context_data_ptr->distributionSessionInfo->getDistributionMethod();
+    if(distribution_method && distribution_method->getString() == "OBJECT") {
+        mbstf_obj_distribution_data = populate_mbstf_obj_distribution_data(context_data_ptr->info);
+    }
+    if(distribution_method && distribution_method->getString() == "PACKET") {
+        mbstf_pkt_distribution_data = populate_mbstf_pkt_distribution_data(context_data_ptr->info);
+    }
     std::shared_ptr< IpAddr  > dest_addr = context_data_ptr->ssm->getDestIpAddr();
     mbstf_up_traffic_flow_info = populate_mbstf_up_traffic_flow_info(dest_addr);
 
@@ -446,8 +454,8 @@ static std::shared_ptr< DistSession > build_nmb2_create_dist_session(std::shared
     //std::shared_ptr< DistSessionState > dist_sess_state = ing_session->getDistSessionState();
 
     dist_session.reset(new DistSession());
-    dist_session->setObjDistributionData(mbstf_obj_distribution_data);
-    dist_session->setPktDistributionData(mbstf_pkt_distribution_data);
+    if(mbstf_obj_distribution_data) dist_session->setObjDistributionData(mbstf_obj_distribution_data);
+    if(mbstf_pkt_distribution_data) dist_session->setPktDistributionData(mbstf_pkt_distribution_data);
     dist_session->setUpTrafficFlowInfo(mbstf_up_traffic_flow_info);
     dist_session->setMbUpfTunAddr(mbstf_mb_upf_tunnel_addr);
     dist_session->setDistSessionState(dist_session_state);

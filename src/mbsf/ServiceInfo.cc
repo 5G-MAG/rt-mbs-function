@@ -183,15 +183,6 @@ mb_smf_sc_mbs_service_info_t *ServiceInfo::populateServiceInfo()
     return service_info;
 }
 
-#if 0
-typedef struct mb_smf_sc_mbs_service_info_s {
-    ogs_hash_t *mbs_media_comps; /**< Media Components, must be at least one entry */
-    char *af_app_id;
-    uint64_t *mbs_session_ambr; /**< NULL or pointer to MBS Service Info AMBR as a bitrate */
-    uint8_t mbs_sdf_reserve_priority; /**< MBS SDF Reserve Priority (1-16 inclusive or 0 to unset) */
-} mb_smf_sc_mbs_service_info_t;
-#endif 
-
 MBSF_NAMESPACE_STOP
 
 /* vim:ts=8:sts=4:sw=4:expandtab:

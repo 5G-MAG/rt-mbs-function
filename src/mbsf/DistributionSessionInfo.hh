@@ -40,6 +40,7 @@ namespace reftools::mbsf {
 }
 
 using fiveg_mag_reftools::CJson;
+using reftools::mbsf::DistributionMethod;
 using reftools::mbsf::DistSessionState;
 using reftools::mbsf::DistSession;
 using reftools::mbsf::DistSessionState;
@@ -77,16 +78,8 @@ public:
 
     const std::shared_ptr<MBSDistributionSessionInfo> &getMBSDistributionSessionInfo() const {return m_mbsDistributionSessionInfo;};
     std::shared_ptr<MBSDistributionSessionInfo> &updateMBSDistributionSessionInfo(std::shared_ptr<MBSDistributionSessionInfo> new_mbs_dist_session_infos);
-
-    /*
-    void processServiceInfo();
-    void processServiceInfoUpdate();
-    void addToDistributionSessionInfos(const std::string &key, const std::shared_ptr< ContextData > context);
-    std::shared_ptr< UserDataIngSession::ContextData > getServiceInfoData(const std::string &key);
-    void removeServiceInfo(std::string &key);
-    void deleteServiceInfo(std::string &key);
-    void clearServiceInfo();
-*/
+    const std::shared_ptr< DistributionMethod > &getDistributionMethod() const { return m_mbsDistributionSessionInfo->getDistrMethod();}; 
+      
 private:
     std::shared_ptr<MBSDistributionSessionInfo> m_mbsDistributionSessionInfo;
 
