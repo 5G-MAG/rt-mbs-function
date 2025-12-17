@@ -102,7 +102,7 @@ void App::initialise()
     static const char apiVersion[] = NMBSF_MBS_US_API_VERSION;
 
     static const char userDataIngestSessionServiceName[] = NMBSF_MBS_UD_INGEST_API_NAME;
-    static const char userDataIngestSessionSupportedFeatures[] = "3";
+    static const char userDataIngestSessionSupportedFeatures[] = "1";
     static const char userDataIngestSessionApiVersion[] = NMBSF_MBS_UD_INGEST_API_VERSION;
 
     if (!m_app->sbiParseConfig("mbsf")) {
