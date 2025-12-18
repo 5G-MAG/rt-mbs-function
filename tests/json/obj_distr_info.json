@@ -18,9 +18,9 @@
       "objDistrInfo": {
         "operatingMode": "STREAMING",
         "objAcqMethod": "PULL",
-        "objIngUri": "http://media-origin-server:8080/",
-        "objAcqIds": ["pc_hd_abr_v2_http.mpd"],
-        "objDistUri": "http://localhost:8081/"
+        "objIngUri": "https://livesim2.dashif.org/livesim2/WAVE/vectors/cfhd_sets/12.5_25_50/t1/2022-10-17/",
+        "objAcqIds": ["stream.mpd"],
+        "objDistUri": "http://127.0.0.2/"
       }
     }
   }
