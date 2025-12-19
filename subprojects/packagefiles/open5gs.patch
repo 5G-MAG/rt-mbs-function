@@ -1,0 +1,380 @@
+diff --git a/lib/app/meson.build b/lib/app/meson.build
+index 6d6e0d4d8..cbc34dc0c 100644
+--- a/lib/app/meson.build
++++ b/lib/app/meson.build
+@@ -36,6 +36,7 @@ libapp_inc = include_directories('.')
+ libapp = library('ogsapp',
+     sources : libapp_sources,
+     version : libogslib_version,
++    soversion: libogslib_soversion,
+     c_args : '-DOGS_APP_COMPILATION',
+     include_directories : [libapp_inc, libinc],
+     dependencies : [libproto_dep, yaml_dep],
+diff --git a/lib/asn1c/common/meson.build b/lib/asn1c/common/meson.build
+index a695df678..5c576422b 100644
+--- a/lib/asn1c/common/meson.build
++++ b/lib/asn1c/common/meson.build
+@@ -159,6 +159,7 @@ libasn1c_common_inc = include_directories('.')
+ libasn1c_common = library('ogsasn1c-common',
+     sources : libasn1c_common_sources,
+     version : libogslib_version,
++    soversion : libogslib_soversion,
+     c_args : libasn1c_common_cc_flags,
+     include_directories : libasn1c_common_inc,
+     dependencies : libcore_dep,
+diff --git a/lib/asn1c/ngap/meson.build b/lib/asn1c/ngap/meson.build
+index 8c0139b84..b2f998a56 100644
+--- a/lib/asn1c/ngap/meson.build
++++ b/lib/asn1c/ngap/meson.build
+@@ -1085,6 +1085,7 @@ libasn1c_ngap_inc = include_directories('.')
+ libasn1c_ngap = library('ogsasn1c-ngap',
+     sources : libasn1c_ngap_sources,
+     version : libogslib_version,
++    soversion : libogslib_soversion,
+     c_args : libasn1c_common_cc_flags,
+     include_directories : libasn1c_ngap_inc,
+     dependencies : [libasn1c_common_dep, libasn1c_util_dep],
+diff --git a/lib/asn1c/s1ap/meson.build b/lib/asn1c/s1ap/meson.build
+index 9baf80c12..48175aebd 100644
+--- a/lib/asn1c/s1ap/meson.build
++++ b/lib/asn1c/s1ap/meson.build
+@@ -686,6 +686,7 @@ libasn1c_s1ap_inc = include_directories('.')
+ libasn1c_s1ap = library('ogsasn1c-s1ap',
+     sources : libasn1c_s1ap_sources,
+     version : libogslib_version,
++    soversion : libogslib_soversion,
+     c_args : libasn1c_common_cc_flags,
+     include_directories : libasn1c_s1ap_inc,
+     dependencies : [libasn1c_common_dep, libasn1c_util_dep],
+diff --git a/lib/asn1c/util/meson.build b/lib/asn1c/util/meson.build
+index 3752ec2e3..b9c058cc0 100644
+--- a/lib/asn1c/util/meson.build
++++ b/lib/asn1c/util/meson.build
+@@ -25,6 +25,7 @@ libasn1c_util_inc = include_directories('.')
+ libasn1c_util = library('ogsasn1c-util',
+     sources : libasn1c_util_sources,
+     version : libogslib_version,
++    soversion : libogslib_soversion,
+     c_args : libasn1c_common_cc_flags,
+     include_directories : libasn1c_util_inc,
+     dependencies : libasn1c_common_dep,
+diff --git a/lib/core/meson.build b/lib/core/meson.build
+index ac82bcd2c..251661e05 100644
+--- a/lib/core/meson.build
++++ b/lib/core/meson.build
+@@ -316,6 +316,7 @@ libtalloc_dep = dependency('talloc')
+ libcore = library('ogscore',
+     sources : libcore_sources,
+     version : libogslib_version,
++    soversion: libogslib_soversion,
+     c_args : '-DOGS_CORE_COMPILATION',
+     include_directories : [libcore_inc, libinc],
+     dependencies : [threads, librt, libexecinfo, libsocket, libtalloc_dep],
+diff --git a/lib/crypt/meson.build b/lib/crypt/meson.build
+index 2d42d1393..8c4244650 100644
+--- a/lib/crypt/meson.build
++++ b/lib/crypt/meson.build
+@@ -57,6 +57,7 @@ libcrypt_inc = include_directories('.')
+ libcrypt = library('ogscrypt',
+     sources : libcrypt_sources,
+     version : libogslib_version,
++    soversion : libogslib_soversion,
+     c_args : '-DOGS_CRYPT_COMPILATION',
+     include_directories : [libcrypt_inc, libinc],
+     dependencies : libproto_dep,
+diff --git a/lib/dbi/meson.build b/lib/dbi/meson.build
+index a94613846..3b66531b0 100644
+--- a/lib/dbi/meson.build
++++ b/lib/dbi/meson.build
+@@ -33,6 +33,7 @@ libdbi_inc = include_directories('.')
+ libdbi = library('ogsdbi',
+     sources : libdbi_sources,
+     version : libogslib_version,
++    soversion : libogslib_soversion,
+     c_args : '-DOGS_DBI_COMPILATION',
+     include_directories : [libdbi_inc, libinc],
+     dependencies : [libproto_dep, libmongoc_dep],
+diff --git a/lib/diameter/common/meson.build b/lib/diameter/common/meson.build
+index 10925c9e2..c2c973288 100644
+--- a/lib/diameter/common/meson.build
++++ b/lib/diameter/common/meson.build
+@@ -51,6 +51,7 @@ libdiameter_common_cc_flags += cc.get_supported_arguments([
+ libdiameter_common = library('ogsdiameter-common',
+     sources : libdiameter_common_sources,
+     version : libogslib_version,
++    soversion : libogslib_soversion,
+     c_args : libdiameter_common_cc_flags,
+     include_directories : [libdiameter_common_inc, libinc],
+     dependencies : [libcore_dep, libfdcore_dep, libapp_dep],
+diff --git a/lib/diameter/cx/meson.build b/lib/diameter/cx/meson.build
+index dda225549..16a496683 100644
+--- a/lib/diameter/cx/meson.build
++++ b/lib/diameter/cx/meson.build
+@@ -28,6 +28,7 @@ libdiameter_cx_inc = include_directories('.')
+ libdiameter_cx = library('ogsdiameter-cx',
+     sources : libdiameter_cx_sources,
+     version : libogslib_version,
++    soversion : libogslib_soversion,
+     c_args : libdiameter_common_cc_flags,
+     include_directories : libdiameter_cx_inc,
+     dependencies : libdiameter_common_dep,
+diff --git a/lib/diameter/gx/meson.build b/lib/diameter/gx/meson.build
+index 0ca7ac740..3b183d96d 100644
+--- a/lib/diameter/gx/meson.build
++++ b/lib/diameter/gx/meson.build
+@@ -29,6 +29,7 @@ libdiameter_gx_inc = include_directories('.')
+ libdiameter_gx = library('ogsdiameter-gx',
+     sources : libdiameter_gx_sources,
+     version : libogslib_version,
++    soversion : libogslib_soversion,
+     c_args : libdiameter_common_cc_flags,
+     include_directories : libdiameter_gx_inc,
+     dependencies : libdiameter_common_dep,
+diff --git a/lib/diameter/gy/meson.build b/lib/diameter/gy/meson.build
+index 84f7d244e..61541adab 100644
+--- a/lib/diameter/gy/meson.build
++++ b/lib/diameter/gy/meson.build
+@@ -30,6 +30,7 @@ libdiameter_gy_inc = include_directories('.')
+ libdiameter_gy = library('ogsdiameter-gy',
+     sources : libdiameter_gy_sources,
+     version : libogslib_version,
++    soversion : libogslib_soversion,
+     c_args : libdiameter_common_cc_flags,
+     include_directories : libdiameter_gy_inc,
+     dependencies : libdiameter_common_dep,
+diff --git a/lib/diameter/rx/meson.build b/lib/diameter/rx/meson.build
+index 54074d05b..014dc13d4 100644
+--- a/lib/diameter/rx/meson.build
++++ b/lib/diameter/rx/meson.build
+@@ -29,6 +29,7 @@ libdiameter_rx_inc = include_directories('.')
+ libdiameter_rx = library('ogsdiameter-rx',
+     sources : libdiameter_rx_sources,
+     version : libogslib_version,
++    soversion : libogslib_soversion,
+     c_args : libdiameter_common_cc_flags,
+     include_directories : libdiameter_rx_inc,
+     dependencies : libdiameter_common_dep,
+diff --git a/lib/diameter/s6a/meson.build b/lib/diameter/s6a/meson.build
+index af77e0dee..9d10a8196 100644
+--- a/lib/diameter/s6a/meson.build
++++ b/lib/diameter/s6a/meson.build
+@@ -29,6 +29,7 @@ libdiameter_s6a_inc = include_directories('.')
+ libdiameter_s6a = library('ogsdiameter-s6a',
+     sources : libdiameter_s6a_sources,
+     version : libogslib_version,
++    soversion : libogslib_soversion,
+     c_args : libdiameter_common_cc_flags,
+     include_directories : [libdiameter_s6a_inc, libcrypt_inc],
+     dependencies : libdiameter_common_dep,
+diff --git a/lib/diameter/s6b/meson.build b/lib/diameter/s6b/meson.build
+index 611353be5..a4b5580a4 100644
+--- a/lib/diameter/s6b/meson.build
++++ b/lib/diameter/s6b/meson.build
+@@ -27,6 +27,7 @@ libdiameter_s6b_inc = include_directories('.')
+ libdiameter_s6b = library('ogsdiameter-s6b',
+     sources : libdiameter_s6b_sources,
+     version : libogslib_version,
++    soversion : libogslib_soversion,
+     c_args : libdiameter_common_cc_flags,
+     include_directories : libdiameter_s6b_inc,
+     dependencies : libdiameter_rx_dep,
+diff --git a/lib/diameter/swx/meson.build b/lib/diameter/swx/meson.build
+index 629d56a1b..c81dd7a4f 100644
+--- a/lib/diameter/swx/meson.build
++++ b/lib/diameter/swx/meson.build
+@@ -27,6 +27,7 @@ libdiameter_swx_inc = include_directories('.')
+ libdiameter_swx = library('ogsdiameter-swx',
+     sources : libdiameter_swx_sources,
+     version : libogslib_version,
++    soversion : libogslib_soversion,
+     c_args : libdiameter_common_cc_flags,
+     include_directories : libdiameter_swx_inc,
+     dependencies : [libdiameter_cx_dep, libdiameter_s6a_dep],
+diff --git a/lib/gtp/meson.build b/lib/gtp/meson.build
+index c4d98cde7..b4bf4f60d 100644
+--- a/lib/gtp/meson.build
++++ b/lib/gtp/meson.build
+@@ -54,6 +54,7 @@ libgtp_inc = include_directories('.')
+ libgtp = library('ogsgtp',
+     sources : libgtp_sources,
+     version : libogslib_version,
++    soversion : libogslib_soversion,
+     c_args : '-DOGS_GTP_COMPILATION',
+     include_directories : [libgtp_inc, libinc],
+     dependencies : [libproto_dep, libipfw_dep, libapp_dep],
+diff --git a/lib/ipfw/meson.build b/lib/ipfw/meson.build
+index 990972764..558a3098b 100644
+--- a/lib/ipfw/meson.build
++++ b/lib/ipfw/meson.build
+@@ -78,6 +78,7 @@ endif
+ libipfw = library('ogsipfw',
+     sources : libipfw_sources,
+     version : libogslib_version,
++    soversion : libogslib_soversion,
+     c_args : ['-include', 'glue.h', ipfw_cc_flags],
+     include_directories : libipfw_inc,
+     dependencies : libcore_dep,
+diff --git a/lib/metrics/meson.build b/lib/metrics/meson.build
+index e5dd3af1b..ea08e7be1 100644
+--- a/lib/metrics/meson.build
++++ b/lib/metrics/meson.build
+@@ -80,6 +80,7 @@ else
+     libprom = library('void_prom',
+         sources : libprom_sources,
+         version : libogslib_version,
++        soversion : libogslib_soversion,
+         include_directories : [libprom_inc, libinc],
+         dependencies : libapp_dep,
+         install : true)
+@@ -99,6 +100,7 @@ libmetrics_inc = include_directories('.')
+ libmetrics = library('ogsmetrics',
+     sources : libmetrics_sources,
+     version : libogslib_version,
++    soversion : libogslib_soversion,
+     c_args : '-DOGS_METRICS_COMPILATION',
+     include_directories : [libmetrics_inc, libinc],
+     dependencies : libmetrics_dependencies,
+diff --git a/lib/nas/5gs/meson.build b/lib/nas/5gs/meson.build
+index bc5a78de0..b27ec6c02 100644
+--- a/lib/nas/5gs/meson.build
++++ b/lib/nas/5gs/meson.build
+@@ -28,6 +28,7 @@ libnas_5gs_inc = include_directories('.')
+ libnas_5gs = library('ogsnas-5gs',
+     sources : libnas_5gs_sources,
+     version : libogslib_version,
++    soversion : libogslib_soversion,
+     c_args : '-DOGS_NAS_COMPILATION',
+     include_directories : libnas_5gs_inc,
+     dependencies : libnas_common_dep,
+diff --git a/lib/nas/common/meson.build b/lib/nas/common/meson.build
+index 46781fa8b..00f383df6 100644
+--- a/lib/nas/common/meson.build
++++ b/lib/nas/common/meson.build
+@@ -26,6 +26,7 @@ libnas_common_inc = include_directories('.')
+ libnas_common = library('ogsnas-common',
+     sources : libnas_common_sources,
+     version : libogslib_version,
++    soversion : libogslib_soversion,
+     c_args : '-DOGS_NAS_COMPILATION',
+     include_directories : [libnas_common_inc, libcrypt_inc, libinc],
+     dependencies : libcrypt_dep,
+diff --git a/lib/nas/eps/meson.build b/lib/nas/eps/meson.build
+index ad33781a5..bbedf3bef 100644
+--- a/lib/nas/eps/meson.build
++++ b/lib/nas/eps/meson.build
+@@ -28,6 +28,7 @@ libnas_eps_inc = include_directories('.')
+ libnas_eps = library('ogsnas-eps',
+     sources : libnas_eps_sources,
+     version : libogslib_version,
++    soversion : libogslib_soversion,
+     c_args : '-DOGS_NAS_COMPILATION',
+     include_directories : libnas_eps_inc,
+     dependencies : libnas_common_dep,
+diff --git a/lib/ngap/meson.build b/lib/ngap/meson.build
+index 1854ffd58..d2472be60 100644
+--- a/lib/ngap/meson.build
++++ b/lib/ngap/meson.build
+@@ -26,6 +26,7 @@ libngap_inc = include_directories('.')
+ libngap = library('ogsngap',
+     sources : libngap_sources,
+     version : libogslib_version,
++    soversion : libogslib_soversion,
+     c_args : '-DOGS_NGAP_COMPILATION',
+     include_directories : [libngap_inc, libinc],
+     dependencies : libasn1c_ngap_dep,
+diff --git a/lib/pfcp/meson.build b/lib/pfcp/meson.build
+index 910b50828..f652151d1 100644
+--- a/lib/pfcp/meson.build
++++ b/lib/pfcp/meson.build
+@@ -62,6 +62,7 @@ libpfcp_inc = include_directories('.')
+ libpfcp = library('ogspfcp',
+     sources : libpfcp_sources,
+     version : libogslib_version,
++    soversion : libogslib_soversion,
+     c_args : '-DOGS_PFCP_COMPILATION',
+     include_directories : [libpfcp_inc, libinc],
+     dependencies : libgtp_dep,
+diff --git a/lib/proto/meson.build b/lib/proto/meson.build
+index 533d0aa07..6c01bf75c 100644
+--- a/lib/proto/meson.build
++++ b/lib/proto/meson.build
+@@ -34,6 +34,7 @@ libproto_inc = include_directories('.')
+ libproto = library('ogsproto',
+     sources : libproto_sources,
+     version : libogslib_version,
++    soversion : libogslib_soversion,
+     c_args : '-DOGS_PROTO_COMPILATION',
+     include_directories : [libproto_inc, libinc],
+     dependencies : libcore_dep,
+diff --git a/lib/s1ap/meson.build b/lib/s1ap/meson.build
+index 128fefc60..efe71f05d 100644
+--- a/lib/s1ap/meson.build
++++ b/lib/s1ap/meson.build
+@@ -32,6 +32,7 @@ libs1ap_inc = include_directories('.')
+ libs1ap = library('ogss1ap',
+     sources : libs1ap_sources,
+     version : libogslib_version,
++    soversion : libogslib_soversion,
+     c_args : '-DOGS_S1AP_COMPILATION',
+     include_directories : [libs1ap_inc, libinc],
+     dependencies : libasn1c_s1ap_dep,
+diff --git a/lib/sbi/meson.build b/lib/sbi/meson.build
+index 67a1badc7..e2b649195 100644
+--- a/lib/sbi/meson.build
++++ b/lib/sbi/meson.build
+@@ -57,6 +57,7 @@ libcurl_dep = dependency('libcurl', version: '>=7.52.1')
+ libsbi = library('ogssbi',
+     sources : libsbi_sources,
+     version : libogslib_version,
++    soversion : libogslib_soversion,
+     c_args : sbi_cc_flags,
+     include_directories : [libsbi_inc, libinc],
+     dependencies : [libcrypt_dep,
+diff --git a/lib/sbi/openapi/meson.build b/lib/sbi/openapi/meson.build
+index ef1acbc29..427f699a8 100644
+--- a/lib/sbi/openapi/meson.build
++++ b/lib/sbi/openapi/meson.build
+@@ -1413,6 +1413,7 @@ endif
+ libsbi_openapi = library('ogssbi-openapi',
+     sources : libsbi_openapi_sources,
+     version : libogslib_version,
++    soversion : libogslib_soversion,
+     c_args : sbi_openapi_cc_flags,
+     include_directories : [libsbi_openapi_inc, libinc],
+     dependencies : libcore_dep,
+diff --git a/lib/sctp/meson.build b/lib/sctp/meson.build
+index fdbecfc02..1d2daaa14 100644
+--- a/lib/sctp/meson.build
++++ b/lib/sctp/meson.build
+@@ -57,6 +57,7 @@ libsctp_inc = include_directories('.')
+ libsctp = library('ogssctp',
+     sources : libsctp_sources,
+     version : libogslib_version,
++    soversion : libogslib_soversion,
+     c_args : '-DOGS_SCTP_COMPILATION',
+     include_directories : [libsctp_inc, libinc],
+     dependencies : [libapp_dep, sctp_dep],
+diff --git a/lib/tun/meson.build b/lib/tun/meson.build
+index c12eb2569..3243d3b2d 100644
+--- a/lib/tun/meson.build
++++ b/lib/tun/meson.build
+@@ -34,6 +34,7 @@ libtun_inc = include_directories('.')
+ libtun = library('ogstun',
+     sources : libtun_sources,
+     version : libogslib_version,
++    soversion : libogslib_soversion,
+     c_args : '-DOGS_TUN_COMPILATION',
+     include_directories : [libtun_inc, libinc],
+     dependencies : libipfw_dep,
+diff --git a/meson.build b/meson.build
+index b3befad2b..80e888706 100644
+--- a/meson.build
++++ b/meson.build
+@@ -26,6 +26,7 @@ project('open5gs', 'c', 'cpp',
+ )
+ 
+ libogslib_version = '2.7.2'
++libogslib_soversion = '2.7'
+ 
+ prefix = get_option('prefix')
+ bindir = join_paths(prefix, get_option('bindir'))

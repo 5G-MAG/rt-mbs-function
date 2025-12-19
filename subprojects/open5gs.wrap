@@ -2,3 +2,4 @@
 directory = open5gs
 url = https://github.com/5G-MAG/open5gs.git
 revision = 5mbs
+diff_files = open5gs.patch
