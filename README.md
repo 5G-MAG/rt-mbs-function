@@ -39,7 +39,7 @@ git clone --recurse-submodules https://github.com/5G-MAG/rt-mbs-function.git
 
 The build process requires a working Internet connection as the API files are retrieved at build time.
 
-To build the 5G Data Collection Application Function from the source:
+To build the 5G MBS Function from the source:
 
 ```bash
 cd ~/rt-mbs-function
