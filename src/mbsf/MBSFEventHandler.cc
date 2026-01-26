@@ -46,13 +46,14 @@ static void mbsf_nnrf_handle_nf_discover(ogs_sbi_xact_t *xact, ogs_sbi_message_t
 void MBSFEventHandler::dispatch(Open5GSFSM &fsm, Open5GSEvent &event)
 {
     // Handle Open5GS FSM events here
-    ogs_debug("MBSF Event: %s", ogs_event_get_name(event.ogsEvent()));
 
     if (UserService::processEvent(event)) return;
     if (UserDataIngSession::processEvent(event)) return;
     if (Nmb2Handler::processEvent(event)) return;
     if (MBSMFMBSSession::processEvent(event)) return;
     if (mb_smf_sc_process_event(event.ogsEvent())) return;
+
+    ogs_debug("MBSF Event: %s", ogs_event_get_name(event.ogsEvent()));
 
     switch (event.id()) {
     case OGS_FSM_ENTRY_SIG:

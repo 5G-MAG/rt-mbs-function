@@ -170,11 +170,13 @@ MBSMFMBSSession &MBSMFMBSSession::setLocationDependent(bool location_dependent)
 bool MBSMFMBSSession::processEvent(Open5GSEvent &MBSMFEvent)
 {
     ogs_event_t *event = MBSMFEvent.ogsEvent();
+
     switch (event->id) {
     case MBSF_LOCAL:
         {
             LocalEvent *mbsf_event = ogs_container_of(event, LocalEvent, event);
 
+            ogs_debug("MBSMF Event: %s", MBSMFMBSSession::mbsfLocalGetName(mbsf_event));
             switch (mbsf_event->id) {
             case MBSF_LOCAL_EVENT_MBS_SESSION_CREATE_RESULT:
                 if (mbsf_event->result == OGS_OK) {
