@@ -36,24 +36,13 @@ namespace fiveg_mag_reftools {
     class CJson;
 }
 
-namespace reftools::mbsf {
-    class AssociatedSessionId;
-    class IpAddr;
-}
-
-using fiveg_mag_reftools::CJson;
-using reftools::mbsf::AssociatedSessionId;
-using reftools::mbsf::IpAddr;
-using reftools::mbsf::Ssm;
-
-
 MBSF_NAMESPACE_START
 
 class AssociatedSessId {
 public:
 
-    AssociatedSessId(CJson &json, bool as_request);
-    AssociatedSessId(const std::shared_ptr<AssociatedSessionId> &associated_session_id);
+    AssociatedSessId(fiveg_mag_reftools::CJson &json, bool as_request);
+    AssociatedSessId(const std::shared_ptr<reftools::mbsf::AssociatedSessionId> &associated_session_id);
     AssociatedSessId() = delete;
     AssociatedSessId(AssociatedSessId &&other) = delete;
     AssociatedSessId(const AssociatedSessId &other) = delete;
@@ -62,21 +51,20 @@ public:
 
     virtual ~AssociatedSessId();
 
-    CJson json(bool as_request) const;
+    fiveg_mag_reftools::CJson json(bool as_request) const;
 
-    const std::shared_ptr<AssociatedSessionId> &getAssociatedSessionId() const {return m_associatedSessionId;};
-    const std::shared_ptr< IpAddr > &getSourceIpAddr() const {return m_associatedSessionId->getSourceIpAddr();};
-    const std::shared_ptr< IpAddr > &getDestIpAddr() const {return m_associatedSessionId->getDestIpAddr();};
+    const std::shared_ptr<reftools::mbsf::AssociatedSessionId> &getAssociatedSessionId() const {return m_associatedSessionId;};
+    const std::shared_ptr<reftools::mbsf::IpAddr> &getSourceIpAddr() const {return m_associatedSessionId->getSourceIpAddr();};
+    const std::shared_ptr<reftools::mbsf::IpAddr> &getDestIpAddr() const {return m_associatedSessionId->getDestIpAddr();};
 
     mb_smf_sc_associated_session_id_t *populateAssociatedSessionId();
     void populateSsm(mb_smf_sc_associated_session_id_t *session_id);
 
 private:
-    std::shared_ptr<AssociatedSessionId> m_associatedSessionId;
+    std::shared_ptr<reftools::mbsf::AssociatedSessionId> m_associatedSessionId;
 };
 
 MBSF_NAMESPACE_STOP
-
 
 /* vim:ts=8:sts=4:sw=4:expandtab:
  */

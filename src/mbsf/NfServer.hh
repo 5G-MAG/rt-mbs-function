@@ -27,8 +27,6 @@
 #include "openapi/model/CJson.hh"
 #include "openapi/model/ProblemCause.hh"
 
-using fiveg_mag_reftools::CJson;
-
 MBSF_NAMESPACE_START
 
 class Open5GSSBIMessage;
@@ -103,7 +101,7 @@ public:
                           const std::optional<InterfaceMetadata> &interface = std::nullopt,
                           const std::optional<std::string> &title = std::nullopt,
                           const std::optional<std::string> &detail = std::nullopt,
-                          const std::optional<CJson> &problem_detail_json = std::nullopt,
+                          const std::optional<fiveg_mag_reftools::CJson> &problem_detail_json = std::nullopt,
                           const std::optional<std::map<std::string,std::string> > &invalid_params = std::nullopt,
                           const std::optional<std::string> &problem_type = std::nullopt);
 
@@ -112,7 +110,7 @@ public:
                           const std::optional<InterfaceMetadata> &interface = std::nullopt,
                           const std::optional<std::string> &title = std::nullopt,
                           const std::optional<std::string> &detail = std::nullopt,
-                          const std::optional<CJson> &problem_detail_json = std::nullopt,
+                          const std::optional<fiveg_mag_reftools::CJson> &problem_detail_json = std::nullopt,
                           const std::optional<std::map<std::string,std::string> > &invalid_params = std::nullopt,
                           const std::optional<std::string> &problem_type = std::nullopt);
 
@@ -135,7 +133,7 @@ private:
                             const std::optional<InterfaceMetadata> &interface = std::nullopt,
                             const std::optional<std::string> &title = std::nullopt,
                             const std::optional<std::string> &detail = std::nullopt,
-                            const std::optional<CJson> &problem_detail_json = std::nullopt,
+                            const std::optional<fiveg_mag_reftools::CJson> &problem_detail_json = std::nullopt,
                             const std::optional<std::map<std::string,std::string> > &invalid_params = std::nullopt,
                             const std::optional<std::string> &problem_type = std::nullopt);
 };

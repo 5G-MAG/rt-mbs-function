@@ -36,21 +36,16 @@ namespace fiveg_mag_reftools {
 }
 
 namespace reftools::mbsf {
-    class Ncgi;
     class PlmnId;
 }
-
-using fiveg_mag_reftools::CJson;
-using reftools::mbsf::Ncgi;
-using reftools::mbsf::PlmnId;
 
 MBSF_NAMESPACE_START
 
 class MBSNcgi {
 public:
 
-    MBSNcgi(CJson &json, bool as_request);
-    MBSNcgi(const std::shared_ptr<Ncgi> &ncgi);
+    MBSNcgi(fiveg_mag_reftools::CJson &json, bool as_request);
+    MBSNcgi(const std::shared_ptr<reftools::mbsf::Ncgi> &ncgi);
     MBSNcgi() = delete;
     MBSNcgi(MBSNcgi &&other) = delete;
     MBSNcgi(const MBSNcgi &other) = delete;
@@ -59,10 +54,10 @@ public:
 
     virtual ~MBSNcgi();
 
-    CJson json(bool as_request) const;
+    fiveg_mag_reftools::CJson json(bool as_request) const;
 
-    const std::shared_ptr<Ncgi> &getNcgi() const {return m_ncgi;};
-    const std::shared_ptr< PlmnId > &getPlmnId() const {return m_ncgi->getPlmnId();};
+    const std::shared_ptr<reftools::mbsf::Ncgi> &getNcgi() const {return m_ncgi;};
+    const std::shared_ptr<reftools::mbsf::PlmnId> &getPlmnId() const {return m_ncgi->getPlmnId();};
     const std::string &getNrCellId() const {return m_ncgi->getNrCellId();};
     const std::optional<std::string > &getNid() const {return m_ncgi->getNid();};
 
@@ -71,7 +66,7 @@ public:
     mb_smf_sc_ncgi_t *populateNcgi();
 
 private:
-    std::shared_ptr<Ncgi> m_ncgi;
+    std::shared_ptr<reftools::mbsf::Ncgi> m_ncgi;
 
 };
 

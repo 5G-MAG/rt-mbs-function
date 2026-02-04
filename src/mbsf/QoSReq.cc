@@ -39,6 +39,7 @@
 #include "App.hh"
 #include "Context.hh"
 #include "AllocationRetentionPriority.hh"
+#include "openapi/model/Arp.h"
 #include "openapi/model/MBSDistributionSessionInfo.h"
 #include "openapi/model/MbsServiceInfo.h"
 #include "openapi/model/FECConfig.h"
@@ -59,10 +60,11 @@
 #include "QoSReq.hh"
 
 using fiveg_mag_reftools::CJson;
+using fiveg_mag_reftools::ModelException;
+using reftools::mbsf::Arp;
 using reftools::mbsf::DistSessionState;
 using reftools::mbsf::MBSDistributionSessionInfo;
 using reftools::mbsf::MbsServiceInfo;
-using fiveg_mag_reftools::ModelException;
 using reftools::mbsf::MbsSessionId;
 using reftools::mbsf::MbsQoSReq;
 

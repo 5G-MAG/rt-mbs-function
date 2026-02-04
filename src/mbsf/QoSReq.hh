@@ -18,44 +18,20 @@
  * See the License for the specific language governing permissions and limitations
  * under the License.
  */
-
-#include "ogs-app.h"
-#include "ogs-proto.h"
-#include "ogs-sbi.h"
-
 #include "mb-smf-service-consumer.h"
 
+#include <chrono>
 #include <memory>
-#include <tuple>
-#include <mutex>
-#include "openapi/model/Arp.h"
-#include "openapi/model/MBSDistributionSessionInfo.h"
-#include "openapi/model/MbsServiceInfo.h"
-#include "openapi/model/MbsQoSReq.h"
+#include <optional>
+#include <string>
+
 #include "common.hh"
+#include "openapi/model/Arp.h"
+#include "openapi/model/MbsQoSReq.h"
 
 namespace fiveg_mag_reftools {
     class CJson;
 }
-
-namespace reftools::mbsf {
-    class Arp;
-    class MBSDistributionSessionInfo;
-    class MbsQoSReq;
-}
-
-using fiveg_mag_reftools::CJson;
-using reftools::mbsf::Arp;
-using reftools::mbsf::DistSessionState;
-using reftools::mbsf::MBSDistributionSessionInfo;
-using reftools::mbsf::MbsQoSReq;
-using reftools::mbsf::Ssm;
-using reftools::mbsf::ObjDistributionOperatingMode;
-using reftools::mbsf::ObjAcquisitionMethod;
-using reftools::mbsf::PacketDistrMethInfo;
-using reftools::mbsf::PktDistributionOperatingMode;
-using reftools::mbsf::PktIngestMethod;
-using reftools::mbsf::MbStfIngestAddr;
 
 MBSF_NAMESPACE_START
 
@@ -63,8 +39,8 @@ class QoSReq {
 public:
     using SysTimeMS = std::chrono::system_clock::time_point;
 
-    QoSReq(CJson &json, bool as_request);
-    QoSReq(const std::shared_ptr<MbsQoSReq> &mbs_qos_req);
+    QoSReq(fiveg_mag_reftools::CJson &json, bool as_request);
+    QoSReq(const std::shared_ptr<reftools::mbsf::MbsQoSReq> &mbs_qos_req);
     QoSReq() = delete;
     QoSReq(QoSReq &&other) = delete;
     QoSReq(const QoSReq &other) = delete;
@@ -73,26 +49,24 @@ public:
 
     virtual ~QoSReq();
 
-    CJson json(bool as_request) const;
+    fiveg_mag_reftools::CJson json(bool as_request) const;
 
-    const std::shared_ptr<MbsQoSReq> &getMBSQoSReq() const {return m_mbsQoSReq;};
+    const std::shared_ptr<reftools::mbsf::MbsQoSReq> &getMBSQoSReq() const {return m_mbsQoSReq;};
     const int32_t getQosReqR5qi() const {return m_mbsQoSReq->getR5qi();};
-    const std::optional<std::string > &getGuardBitRate() const { return m_mbsQoSReq->getGuarBitRate();};
-    const std::optional<std::string > &getMaxBitRate() const { return m_mbsQoSReq->getMaxBitRate();};
-    const std::optional<int32_t > getAverageWindow() const { return m_mbsQoSReq->getAverWindow();};
-    const std::optional<std::shared_ptr< Arp > > &getReqMbsArp() const { return m_mbsQoSReq->getReqMbsArp();};
+    const std::optional<std::string> &getGuardBitRate() const { return m_mbsQoSReq->getGuarBitRate();};
+    const std::optional<std::string> &getMaxBitRate() const { return m_mbsQoSReq->getMaxBitRate();};
+    const std::optional<int32_t> getAverageWindow() const { return m_mbsQoSReq->getAverWindow();};
+    const std::optional<std::shared_ptr<reftools::mbsf::Arp> > &getReqMbsArp() const { return m_mbsQoSReq->getReqMbsArp();};
 
     mb_smf_sc_mbs_qos_req_t *populateQoSReq();
-    uint64_t *bitrate(const std::optional<std::string > &bit_rate);
+    uint64_t *bitrate(const std::optional<std::string> &bit_rate);
     uint16_t *averagingWindow();
 
 private:
-    std::shared_ptr<MbsQoSReq> m_mbsQoSReq;
-
+    std::shared_ptr<reftools::mbsf::MbsQoSReq> m_mbsQoSReq;
 };
 
 MBSF_NAMESPACE_STOP
-
 
 /* vim:ts=8:sts=4:sw=4:expandtab:
  */

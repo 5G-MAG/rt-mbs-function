@@ -19,39 +19,11 @@
  * under the License.
  */
 
-#include "ogs-app.h"
-#include "ogs-proto.h"
-#include "ogs-sbi.h"
-
-#include <any>
-#include <chrono>
-#include <memory>
-#include <tuple>
-#include <mutex>
-#include "openapi/model/MBSUserDataIngSession.h"
 #include "common.hh"
-
-
-namespace fiveg_mag_reftools {
-    class CJson;
-}
-
-namespace reftools::mbsf {
-    class MBSUserDataIngSession;
-    class Ssm;
-}
-
-using fiveg_mag_reftools::CJson;
-using reftools::mbsf::MBSUserDataIngSession;
-using reftools::mbsf::MBSDistributionSessionInfo;
-using reftools::mbsf::Ssm;
 
 MBSF_NAMESPACE_START
 
 class Open5GSEvent;
-class Open5GSSBIRequest;
-class Open5GSSBIObject;
-class DistributionSession;
 
 class Nmb2Handler {
 public:
@@ -68,7 +40,6 @@ private:
 };
 
 MBSF_NAMESPACE_STOP
-
 
 /* vim:ts=8:sts=4:sw=4:expandtab:
  */

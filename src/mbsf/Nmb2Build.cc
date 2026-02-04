@@ -102,7 +102,10 @@ using reftools::mbsf::ObjDistributionData;
 using reftools::mbsf::UpTrafficFlowInfo;
 using reftools::mbsf::Ipv6Addr;
 using reftools::mbsf::PktDistributionData;
-
+using reftools::mbsf::PktDistributionOperatingMode;
+using reftools::mbsf::PacketDistrMethInfo;
+using reftools::mbsf::PktIngestMethod;
+using reftools::mbsf::MbStfIngestAddr;
 
 MBSF_NAMESPACE_START
 

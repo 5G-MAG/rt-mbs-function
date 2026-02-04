@@ -32,13 +32,6 @@ namespace fiveg_mag_reftools {
     class CJson;
 }
 
-namespace reftools::mbsf {
-    class MBSUserService;
-}
-
-using fiveg_mag_reftools::CJson;
-using reftools::mbsf::MBSUserService;
-
 MBSF_NAMESPACE_START
 
 class Open5GSEvent;
@@ -46,8 +39,8 @@ class Open5GSEvent;
 class UserService {
 public:
     using SysTimeMS = std::chrono::system_clock::time_point;
-    UserService(CJson &json, bool as_request);
-    UserService(const std::shared_ptr<MBSUserService> &mbs_user_service);
+    UserService(fiveg_mag_reftools::CJson &json, bool as_request);
+    UserService(const std::shared_ptr<reftools::mbsf::MBSUserService> &mbs_user_service);
     UserService() = delete;
     UserService(UserService &&other) = delete;
     UserService(const UserService &other) = delete;
@@ -56,12 +49,12 @@ public:
 
     virtual ~UserService();
 
-    CJson json(bool as_request) const;
+    fiveg_mag_reftools::CJson json(bool as_request) const;
 
     static const std::shared_ptr<UserService> &find(const std::string &id); // throws std::out_of_range if id does not exist
-    void update(CJson &json, bool as_request);
+    void update(fiveg_mag_reftools::CJson &json, bool as_request);
     const std::string &userServiceId() const { return m_UserServiceId; };
-    const std::shared_ptr<MBSUserService> &getMBSUserService() const {return m_MBSUserService;};
+    const std::shared_ptr<reftools::mbsf::MBSUserService> &getMBSUserService() const {return m_MBSUserService;};
     const std::string &getMBSUserServiceType() const;
     const SysTimeMS &generated() const {return m_generated;};
     const std::string &hash() const {return m_hash;};
@@ -69,7 +62,7 @@ public:
     static bool processEvent(Open5GSEvent &event);
 
 private:
-    std::shared_ptr<MBSUserService> m_MBSUserService;
+    std::shared_ptr<reftools::mbsf::MBSUserService> m_MBSUserService;
     SysTimeMS m_generated;
     SysTimeMS m_lastUsed;
     std::string m_hash;

@@ -19,53 +19,29 @@
  * under the License.
  */
 
-#include "ogs-app.h"
-#include "ogs-proto.h"
-#include "ogs-sbi.h"
+#include "ogs-core.h"
 
 #include "mb-smf-service-consumer.h"
 
 #include <memory>
-#include <tuple>
-#include <mutex>
-#include "openapi/model/MBSDistributionSessionInfo.h"
-#include "openapi/model/MbsServiceInfo.h"
+#include <optional>
+#include <string>
+
 #include "common.hh"
+#include "openapi/model/MbsServiceInfo.h"
 
 namespace fiveg_mag_reftools {
     class CJson;
 }
 
-namespace reftools::mbsf {
-    class MBSDistributionSessionInfo;
-    class MbsServiceInfo;
-}
-
-using fiveg_mag_reftools::CJson;
-using reftools::mbsf::DistSessionState;
-using reftools::mbsf::MBSUserDataIngSession;
-using reftools::mbsf::MBSDistributionSessionInfo;
-using reftools::mbsf::MbsServiceInfo;
-using reftools::mbsf::Ssm;
-using reftools::mbsf::ObjDistributionOperatingMode;
-using reftools::mbsf::ObjAcquisitionMethod;
-using reftools::mbsf::PacketDistrMethInfo;
-using reftools::mbsf::PktDistributionOperatingMode;
-using reftools::mbsf::PktIngestMethod;
-using reftools::mbsf::ReservPriority;
-using reftools::mbsf::MbStfIngestAddr;
-
-
 MBSF_NAMESPACE_START
-
-class MediaComp;
 
 class ServiceInfo {
 public:
     using SysTimeMS = std::chrono::system_clock::time_point;
 
-    ServiceInfo(CJson &json, bool as_request);
-    ServiceInfo(const std::shared_ptr<MbsServiceInfo> &mbs_service_info);
+    ServiceInfo(fiveg_mag_reftools::CJson &json, bool as_request);
+    ServiceInfo(const std::shared_ptr<reftools::mbsf::MbsServiceInfo> &mbs_service_info);
     ServiceInfo() = delete;
     ServiceInfo(ServiceInfo &&other) = delete;
     ServiceInfo(const ServiceInfo &other) = delete;
@@ -74,20 +50,22 @@ public:
 
     virtual ~ServiceInfo();
 
-    CJson json(bool as_request) const;
+    fiveg_mag_reftools::CJson json(bool as_request) const;
 
-    const std::shared_ptr<MbsServiceInfo> &getMbsServiceInfo() const {return m_mbsServiceInfo;};
+    const std::shared_ptr<reftools::mbsf::MbsServiceInfo> &getMbsServiceInfo() const {return m_mbsServiceInfo;};
     const reftools::mbsf::MbsServiceInfo::MbsMediaCompsType &getMediaComps() const {return m_mbsServiceInfo->getMbsMediaComps();};
-    const std::optional<std::shared_ptr< ReservPriority > > &getSdfResPrio() const {return m_mbsServiceInfo->getMbsSdfResPrio();};
-    const std::optional<std::string > &getAfAppId() const {return m_mbsServiceInfo->getAfAppId();};
-    const std::optional<std::string > &getMbsSessionAmbr() const {return m_mbsServiceInfo->getMbsSessionAmbr();};
+    const std::optional<std::shared_ptr<reftools::mbsf::ReservPriority> > &getSdfResPrio() const {
+        return m_mbsServiceInfo->getMbsSdfResPrio();
+    };
+    const std::optional<std::string> &getAfAppId() const {return m_mbsServiceInfo->getAfAppId();};
+    const std::optional<std::string> &getMbsSessionAmbr() const {return m_mbsServiceInfo->getMbsSessionAmbr();};
     ogs_hash_t *populateMediaComps();
 
     mb_smf_sc_mbs_service_info_t *populateServiceInfo();
     uint64_t *ambr();
 
 private:
-    std::shared_ptr<MbsServiceInfo> m_mbsServiceInfo;
+    std::shared_ptr<reftools::mbsf::MbsServiceInfo> m_mbsServiceInfo;
 
 };
 

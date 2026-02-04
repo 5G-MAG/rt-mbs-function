@@ -41,19 +41,14 @@ namespace reftools::mbsf {
     class Arp;
 }
 
-using fiveg_mag_reftools::CJson;
-using reftools::mbsf::Arp;
-using reftools::mbsf::PreemptionCapability;
-using reftools::mbsf::PreemptionVulnerability;
-
 MBSF_NAMESPACE_START
 
 class AllocationRetentionPriority {
 public:
     using SysTimeMS = std::chrono::system_clock::time_point;
 
-    AllocationRetentionPriority(CJson &json, bool as_request);
-    AllocationRetentionPriority(const std::shared_ptr<Arp> &arp);
+    AllocationRetentionPriority(fiveg_mag_reftools::CJson &json, bool as_request);
+    AllocationRetentionPriority(const std::shared_ptr<reftools::mbsf::Arp> &arp);
     AllocationRetentionPriority() = delete;
     AllocationRetentionPriority(AllocationRetentionPriority &&other) = delete;
     AllocationRetentionPriority(const AllocationRetentionPriority &other) = delete;
@@ -62,19 +57,21 @@ public:
 
     virtual ~AllocationRetentionPriority();
 
-    CJson json(bool as_request) const;
+    fiveg_mag_reftools::CJson json(bool as_request) const;
 
-    const std::shared_ptr<Arp> &getArp() const {return m_arp;};
+    const std::shared_ptr<reftools::mbsf::Arp> &getArp() const {return m_arp;};
     const int32_t getPriorityLevel() const {return m_arp->getPriorityLevel();};
-    const std::shared_ptr< PreemptionCapability > &getPreemptionCapability() const { return m_arp->getPreemptCap();};
-    const std::shared_ptr< PreemptionVulnerability > &getPreemptionVulnerability() const { return m_arp->getPreemptVuln();};
+    const std::shared_ptr<reftools::mbsf::PreemptionCapability> &getPreemptionCapability() const { return m_arp->getPreemptCap();};
+    const std::shared_ptr<reftools::mbsf::PreemptionVulnerability> &getPreemptionVulnerability() const {
+        return m_arp->getPreemptVuln();
+    };
 
     mb_smf_sc_preemption_capability_e preemptionCapabilityLookup();
     mb_smf_sc_preemption_vulnerability_e preemptionVulnerabilityLookup();
     mb_smf_sc_arp_t *populateArp();
 
 private:
-    std::shared_ptr<Arp> m_arp;
+    std::shared_ptr<reftools::mbsf::Arp> m_arp;
     static const std::unordered_map<std::string, mb_smf_sc_preemption_capability_e> preemptionCap;
     static const std::unordered_map<std::string, mb_smf_sc_preemption_vulnerability_e> preemptionVuln;
 

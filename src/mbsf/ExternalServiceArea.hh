@@ -35,21 +35,13 @@ namespace fiveg_mag_reftools {
     class CJson;
 }
 
-namespace reftools::mbsf {
-    class ExternalMbsServiceArea;
-}
-
-using fiveg_mag_reftools::CJson;
-using reftools::mbsf::ExternalMbsServiceArea;
-using fiveg_mag_reftools::ModelException;
-
 MBSF_NAMESPACE_START
 
 class ExternalServiceArea {
 public:
 
-    ExternalServiceArea(CJson &json, bool as_request);
-    ExternalServiceArea(const std::shared_ptr<ExternalMbsServiceArea> &external_mbs_service_area);
+    ExternalServiceArea(fiveg_mag_reftools::CJson &json, bool as_request);
+    ExternalServiceArea(const std::shared_ptr<reftools::mbsf::ExternalMbsServiceArea> &external_mbs_service_area);
     ExternalServiceArea() = delete;
     ExternalServiceArea(ExternalServiceArea &&other) = delete;
     ExternalServiceArea(const ExternalServiceArea &other) = delete;
@@ -58,9 +50,9 @@ public:
 
     virtual ~ExternalServiceArea();
 
-    CJson json(bool as_request) const;
+    fiveg_mag_reftools::CJson json(bool as_request) const;
 
-    const std::shared_ptr<ExternalMbsServiceArea> &getExternalMbsServiceArea() const {return m_externalMbsServiceArea;};
+    const std::shared_ptr<reftools::mbsf::ExternalMbsServiceArea> &getExternalMbsServiceArea() const {return m_externalMbsServiceArea;};
     const reftools::mbsf::ExternalMbsServiceArea::GeographicAreaListType &getGeographicAreaList() const {return m_externalMbsServiceArea->getGeographicAreaList();};
     const reftools::mbsf::ExternalMbsServiceArea::CivicAddressListType &getCivicAddressList() const {return m_externalMbsServiceArea->getCivicAddressList();};
 
@@ -69,7 +61,7 @@ public:
     void civicAddresses(mb_smf_sc_ext_mbs_service_area_t *ext_mbs_service_area);
 
 private:
-    std::shared_ptr<ExternalMbsServiceArea> m_externalMbsServiceArea;
+    std::shared_ptr<reftools::mbsf::ExternalMbsServiceArea> m_externalMbsServiceArea;
 
 };
 

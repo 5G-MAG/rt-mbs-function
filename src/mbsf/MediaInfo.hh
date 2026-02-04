@@ -28,8 +28,6 @@
 #include <memory>
 #include <tuple>
 #include <mutex>
-#include "openapi/model/MBSDistributionSessionInfo.h"
-#include "openapi/model/MbsServiceInfo.h"
 #include "openapi/model/MbsMediaInfo.h"
 #include "common.hh"
 
@@ -37,34 +35,14 @@ namespace fiveg_mag_reftools {
     class CJson;
 }
 
-namespace reftools::mbsf {
-    class MBSDistributionSessionInfo;
-    class MbsServiceInfo;
-    class MbsMediaInfo;
-}
-
-using fiveg_mag_reftools::CJson;
-using reftools::mbsf::DistSessionState;
-using reftools::mbsf::MBSDistributionSessionInfo;
-using reftools::mbsf::MbsServiceInfo;
-using reftools::mbsf::Ssm;
-using reftools::mbsf::ObjDistributionOperatingMode;
-using reftools::mbsf::ObjAcquisitionMethod;
-using reftools::mbsf::PacketDistrMethInfo;
-using reftools::mbsf::PktDistributionOperatingMode;
-using reftools::mbsf::PktIngestMethod;
-using reftools::mbsf::MbStfIngestAddr;
-using reftools::mbsf::MbsMediaInfo;
-using reftools::mbsf::MediaType;
-
 MBSF_NAMESPACE_START
 
 class MediaInfo {
 public:
     using SysTimeMS = std::chrono::system_clock::time_point;
 
-    MediaInfo(CJson &json, bool as_request);
-    MediaInfo(const std::shared_ptr<MbsMediaInfo> &mbs_media_info);
+    MediaInfo(fiveg_mag_reftools::CJson &json, bool as_request);
+    MediaInfo(const std::shared_ptr<reftools::mbsf::MbsMediaInfo> &mbs_media_info);
     MediaInfo() = delete;
     MediaInfo(MediaInfo &&other) = delete;
     MediaInfo(const MediaInfo &other) = delete;
@@ -73,12 +51,14 @@ public:
 
     virtual ~MediaInfo();
 
-    CJson json(bool as_request) const;
+    fiveg_mag_reftools::CJson json(bool as_request) const;
 
-    const std::shared_ptr<MbsMediaInfo> &getMbsMediaInfo() const {return m_mbsMediaInfo;};
-    const std::optional<std::shared_ptr< MediaType > > &getMediaType() const {return m_mbsMediaInfo->getMbsMedType();};
-    const std::optional<std::string > &getMaximumReqBandwidthDownlink() const {return m_mbsMediaInfo->getMaxReqMbsBwDl();};
-    const std::optional<std::string > &getMinimumReqBandwidthDownlink() const {return m_mbsMediaInfo->getMinReqMbsBwDl();};
+    const std::shared_ptr<reftools::mbsf::MbsMediaInfo> &getMbsMediaInfo() const {return m_mbsMediaInfo;};
+    const std::optional<std::shared_ptr<reftools::mbsf::MediaType> > &getMediaType() const {
+        return m_mbsMediaInfo->getMbsMedType();
+    };
+    const std::optional<std::string> &getMaximumReqBandwidthDownlink() const {return m_mbsMediaInfo->getMaxReqMbsBwDl();};
+    const std::optional<std::string> &getMinimumReqBandwidthDownlink() const {return m_mbsMediaInfo->getMinReqMbsBwDl();};
     void codecs(mb_smf_sc_mbs_media_info_t *media_info);
 
     mb_smf_sc_mbs_media_info_t *populateMediaInfo();
@@ -86,14 +66,11 @@ public:
     uint64_t *bandwidth(const std::optional<std::string > &bandwidth);
 
 private:
-    std::shared_ptr<MbsMediaInfo> m_mbsMediaInfo;
+    std::shared_ptr<reftools::mbsf::MbsMediaInfo> m_mbsMediaInfo;
     static const std::unordered_map<std::string, mb_smf_sc_mbs_media_type_e>& mediaType();
-
-
 };
 
 MBSF_NAMESPACE_STOP
-
 
 /* vim:ts=8:sts=4:sw=4:expandtab:
  */

@@ -51,8 +51,9 @@
 #include "AssociatedSessId.hh"
 
 using fiveg_mag_reftools::CJson;
-using reftools::mbsf::AssociatedSessionId;
 using fiveg_mag_reftools::ModelException;
+using reftools::mbsf::AssociatedSessionId;
+using reftools::mbsf::IpAddr;
 
 MBSF_NAMESPACE_START
 

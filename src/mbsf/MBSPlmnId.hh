@@ -33,20 +33,13 @@ namespace fiveg_mag_reftools {
     class CJson;
 }
 
-namespace reftools::mbsf {
-    class PlmnId;
-}
-
-using fiveg_mag_reftools::CJson;
-using reftools::mbsf::PlmnId;
-
 MBSF_NAMESPACE_START
 
 class MBSPlmnId {
 public:
 
-    MBSPlmnId(CJson &json, bool as_request);
-    MBSPlmnId(const std::shared_ptr<PlmnId> &plmn_id);
+    MBSPlmnId(fiveg_mag_reftools::CJson &json, bool as_request);
+    MBSPlmnId(const std::shared_ptr<reftools::mbsf::PlmnId> &plmn_id);
     MBSPlmnId() = delete;
     MBSPlmnId(MBSPlmnId &&other) = delete;
     MBSPlmnId(const MBSPlmnId &other) = delete;
@@ -55,9 +48,9 @@ public:
 
     virtual ~MBSPlmnId();
 
-    CJson json(bool as_request) const;
+    fiveg_mag_reftools::CJson json(bool as_request) const;
 
-    const std::shared_ptr<PlmnId> &getPlmnId() const {return m_plmnId;};
+    const std::shared_ptr<reftools::mbsf::PlmnId> &getPlmnId() const {return m_plmnId;};
     const std::string &getMcc() const {return m_plmnId->getMcc();};
     const std::string &getMnc() const {return m_plmnId->getMnc();};
 
@@ -65,7 +58,7 @@ public:
     uint16_t mnc();
 
 private:
-    std::shared_ptr<PlmnId> m_plmnId;
+    std::shared_ptr<reftools::mbsf::PlmnId> m_plmnId;
 
 };
 

@@ -29,23 +29,12 @@
 
 #include "common.hh"
 
-namespace fiveg_mag_reftools {
-    class CJson;
-}
-
 namespace reftools::mbsf {
     class AssociatedSessionId;
     class ExternalMbsServiceArea;
     class MbsServiceArea;
     class MbsServiceInfo;
 }
-
-using fiveg_mag_reftools::CJson;
-using reftools::mbsf::AssociatedSessionId;
-using reftools::mbsf::ExternalMbsServiceArea;
-using reftools::mbsf::MbsServiceInfo;
-using reftools::mbsf::MbsServiceArea;
-
 
 MBSF_NAMESPACE_START
 
@@ -91,7 +80,7 @@ public:
     bool getLocationDependent() const;
     
 
-    MBSMFMBSSession &setAssociatedSessionId(std::shared_ptr< AssociatedSessionId > associated_session_id);
+    MBSMFMBSSession &setAssociatedSessionId(std::shared_ptr<reftools::mbsf::AssociatedSessionId> associated_session_id);
     MBSMFMBSSession &setSession(mb_smf_sc_mbs_session_t *session);
     MBSMFMBSSession &setServiceType(mb_smf_sc_mbs_service_type_e service_type);
     MBSMFMBSSession &setTunnelRequest(bool request_udp_tunnel);
@@ -99,9 +88,9 @@ public:
     MBSMFMBSSession &setTmgiRequest(bool req_tmgi);
     MBSMFMBSSession &setActivityStatus(mb_smf_sc_activity_status_e activity_status);
     MBSMFMBSSession &setAnyUeInd(bool any_ue_ind);
-    MBSMFMBSSession &setServiceInfo(std::shared_ptr< MbsServiceInfo > mbs_service_info);
-    MBSMFMBSSession &setExternalServiceArea(std::shared_ptr< ExternalMbsServiceArea > ext_mbs_service_area);
-    MBSMFMBSSession &setServiceArea(std::shared_ptr< MbsServiceArea > mbs_service_area);
+    MBSMFMBSSession &setServiceInfo(std::shared_ptr<reftools::mbsf::MbsServiceInfo> mbs_service_info);
+    MBSMFMBSSession &setExternalServiceArea(std::shared_ptr<reftools::mbsf::ExternalMbsServiceArea> ext_mbs_service_area);
+    MBSMFMBSSession &setServiceArea(std::shared_ptr<reftools::mbsf::MbsServiceArea> mbs_service_area);
     MBSMFMBSSession &setFsaId(const std::string &mbs_fsa_id);
     MBSMFMBSSession &setLocationDependent(bool location_dependent);
 

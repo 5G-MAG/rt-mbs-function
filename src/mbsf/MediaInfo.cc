@@ -55,14 +55,14 @@
 #include "MediaInfo.hh"
 
 using fiveg_mag_reftools::CJson;
-using reftools::mbsf::DistSessionState;
-using reftools::mbsf::MBSUserDataIngSession;
-using reftools::mbsf::MBSDistributionSessionInfo;
-using reftools::mbsf::MbsServiceInfo;
 using fiveg_mag_reftools::ModelException;
-using reftools::mbsf::MbsSessionId;
-using reftools::mbsf::MbsServiceInfo;
+using reftools::mbsf::DistSessionState;
+using reftools::mbsf::MBSDistributionSessionInfo;
 using reftools::mbsf::MbsMediaInfo;
+using reftools::mbsf::MbsServiceInfo;
+using reftools::mbsf::MbsSessionId;
+using reftools::mbsf::MBSUserDataIngSession;
+using reftools::mbsf::MediaType;
 
 MBSF_NAMESPACE_START
 

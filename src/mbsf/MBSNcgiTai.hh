@@ -33,23 +33,13 @@ namespace fiveg_mag_reftools {
     class CJson;
 }
 
-namespace reftools::mbsf {
-    class NcgiTai;
-    class PlmnId;
-}
-
-using fiveg_mag_reftools::CJson;
-using reftools::mbsf::NcgiTai;
-using reftools::mbsf::Ncgi;
-using reftools::mbsf::Tai;
-
 MBSF_NAMESPACE_START
 
 class MBSNcgiTai {
 public:
 
-    MBSNcgiTai(CJson &json, bool as_request);
-    MBSNcgiTai(const std::shared_ptr<NcgiTai> &ncgi_tai);
+    MBSNcgiTai(fiveg_mag_reftools::CJson &json, bool as_request);
+    MBSNcgiTai(const std::shared_ptr<reftools::mbsf::NcgiTai> &ncgi_tai);
     MBSNcgiTai() = delete;
     MBSNcgiTai(MBSNcgiTai &&other) = delete;
     MBSNcgiTai(const MBSNcgiTai &other) = delete;
@@ -58,17 +48,17 @@ public:
 
     virtual ~MBSNcgiTai();
 
-    CJson json(bool as_request) const;
+    fiveg_mag_reftools::CJson json(bool as_request) const;
 
-    const std::shared_ptr<NcgiTai> &getNcgiTai() const {return m_ncgiTai;};
-    const std::shared_ptr< Tai > &getTai() const {return m_ncgiTai->getTai();};
-    const NcgiTai::CellListType &getCellList() const {return m_ncgiTai->getCellList();};
+    const std::shared_ptr<reftools::mbsf::NcgiTai> &getNcgiTai() const {return m_ncgiTai;};
+    const std::shared_ptr<reftools::mbsf::Tai> &getTai() const {return m_ncgiTai->getTai();};
+    const reftools::mbsf::NcgiTai::CellListType &getCellList() const {return m_ncgiTai->getCellList();};
 
     mb_smf_sc_ncgi_tai_t *populateNcgiTai();
     void ncgis(mb_smf_sc_ncgi_tai_t *ncgi_tai);
 
 private:
-    std::shared_ptr<NcgiTai> m_ncgiTai;
+    std::shared_ptr<reftools::mbsf::NcgiTai> m_ncgiTai;
 
 };
 

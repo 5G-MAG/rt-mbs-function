@@ -36,21 +36,16 @@ namespace fiveg_mag_reftools {
 }
 
 namespace reftools::mbsf {
-    class Tai;
     class PlmnId;
 }
-
-using fiveg_mag_reftools::CJson;
-using reftools::mbsf::Tai;
-using reftools::mbsf::PlmnId;
 
 MBSF_NAMESPACE_START
 
 class TrackingAreaIdentity {
 public:
 
-    TrackingAreaIdentity(CJson &json, bool as_request);
-    TrackingAreaIdentity(const std::shared_ptr<Tai> &tai);
+    TrackingAreaIdentity(fiveg_mag_reftools::CJson &json, bool as_request);
+    TrackingAreaIdentity(const std::shared_ptr<reftools::mbsf::Tai> &tai);
     TrackingAreaIdentity() = delete;
     TrackingAreaIdentity(TrackingAreaIdentity &&other) = delete;
     TrackingAreaIdentity(const TrackingAreaIdentity &other) = delete;
@@ -59,10 +54,10 @@ public:
 
     virtual ~TrackingAreaIdentity();
 
-    CJson json(bool as_request) const;
+    fiveg_mag_reftools::CJson json(bool as_request) const;
 
-    const std::shared_ptr<Tai> &getTai() const {return m_tai;};
-    const std::shared_ptr< PlmnId > &getPlmnId() const {return m_tai->getPlmnId();};
+    const std::shared_ptr<reftools::mbsf::Tai> &getTai() const {return m_tai;};
+    const std::shared_ptr<reftools::mbsf::PlmnId> &getPlmnId() const {return m_tai->getPlmnId();};
     const std::string &getTac() const {return m_tai->getTac();};
     const std::optional<std::string > &getNid() const {return m_tai->getNid();};
 
@@ -71,7 +66,7 @@ public:
     mb_smf_sc_tai_t *populateTai();
 
 private:
-    std::shared_ptr<Tai> m_tai;
+    std::shared_ptr<reftools::mbsf::Tai> m_tai;
 
 };
 

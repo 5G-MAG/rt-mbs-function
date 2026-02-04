@@ -33,8 +33,17 @@
 #include "ServiceArea.hh"
 #include "AssociatedSessId.hh"
 #include "UserDataIngSession.hh"
+#include "openapi/model/CJson.hh"
+#include "openapi/model/ProblemCause.hh"
 
 #include "MBSMFMBSSession.hh"
+
+using fiveg_mag_reftools::CJson;
+using fiveg_mag_reftools::ProblemCause;
+using reftools::mbsf::AssociatedSessionId;
+using reftools::mbsf::ExternalMbsServiceArea;
+using reftools::mbsf::MbsServiceArea;
+using reftools::mbsf::MbsServiceInfo;
 
 MBSF_NAMESPACE_START
 

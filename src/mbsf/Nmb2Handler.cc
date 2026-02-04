@@ -56,6 +56,7 @@
 #include "Nmb2Handler.hh"
 
 using fiveg_mag_reftools::CJson;
+using fiveg_mag_reftools::ProblemCause;
 using reftools::mbsf::CreateRspData;
 using reftools::mbsf::DistSession;
 using reftools::mbsf::DistSessionState;

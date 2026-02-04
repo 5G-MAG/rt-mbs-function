@@ -34,22 +34,16 @@ namespace fiveg_mag_reftools {
 }
 
 namespace reftools::mbsf {
-    class GeographicArea;
     class GeographicalCoordinates;
 }
 
-using fiveg_mag_reftools::CJson;
-using reftools::mbsf::GeographicArea;
-using reftools::mbsf::GeographicalCoordinates;
-
 MBSF_NAMESPACE_START
-
 
 class GeographicalArea {
 public:
 
-    GeographicalArea(CJson &json, bool as_request);
-    GeographicalArea(const std::shared_ptr<GeographicArea> &geographic_area);
+    GeographicalArea(fiveg_mag_reftools::CJson &json, bool as_request);
+    GeographicalArea(const std::shared_ptr<reftools::mbsf::GeographicArea> &geographic_area);
     GeographicalArea() = delete;
     GeographicalArea(GeographicalArea &&other) = delete;
     GeographicalArea(const GeographicalArea &other) = delete;
@@ -58,19 +52,18 @@ public:
 
     virtual ~GeographicalArea();
 
-    CJson json(bool as_request) const;
+    fiveg_mag_reftools::CJson json(bool as_request) const;
 
-    const std::shared_ptr<GeographicArea> &getGeographicArea() const {return m_geographicArea;};
-    const std::shared_ptr< GeographicalCoordinates > &getPoint() const {return m_geographicArea->getPoint();};
+    const std::shared_ptr<reftools::mbsf::GeographicArea> &getGeographicArea() const {return m_geographicArea;};
+    const std::shared_ptr<reftools::mbsf::GeographicalCoordinates> &getPoint() const {return m_geographicArea->getPoint();};
     mb_smf_sc_geographic_area_t *populateGeographicArea();
 
 private:
-    std::shared_ptr<GeographicArea> m_geographicArea;
+    std::shared_ptr<reftools::mbsf::GeographicArea> m_geographicArea;
 
 };
 
 MBSF_NAMESPACE_STOP
-
 
 /* vim:ts=8:sts=4:sw=4:expandtab:
  */

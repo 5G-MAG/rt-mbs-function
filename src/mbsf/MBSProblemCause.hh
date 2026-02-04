@@ -29,14 +29,6 @@
 #include "openapi/model/ProblemCause.hh"
 #include "common.hh"
 
-
-namespace fiveg_mag_reftools {
-    class CJson;
-}
-
-using fiveg_mag_reftools::CJson;
-using fiveg_mag_reftools::ProblemCause;
-
 MBSF_NAMESPACE_START
 
 class MBSProblemCause {
@@ -54,17 +46,16 @@ public:
     static const fiveg_mag_reftools::ProblemCause OVERLAPPING_MBS_SERVICE_AREA;
     static const fiveg_mag_reftools::ProblemCause UNKNOWN_MBS_SERVICE_AREA;
 
-    static std::optional<ProblemCause> lookup(const std::string& mbsmf_problem_cause);
+    static std::optional<fiveg_mag_reftools::ProblemCause> lookup(const std::string& mbsmf_problem_cause);
 
 
 private:
 
-    static const std::unordered_map<std::string, const ProblemCause *> propagationTable;
+    static const std::unordered_map<std::string, const fiveg_mag_reftools::ProblemCause*> propagationTable;
 
 };
 
 MBSF_NAMESPACE_STOP
-
 
 /* vim:ts=8:sts=4:sw=4:expandtab:
  */

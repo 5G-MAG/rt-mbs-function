@@ -35,6 +35,8 @@
 
 #include "NfServer.hh"
 
+using fiveg_mag_reftools::CJson;
+
 MBSF_NAMESPACE_START
 
 static Open5GSSBIResponse new_response(const NfServer::AppMetadata &app,

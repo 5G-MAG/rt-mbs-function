@@ -19,15 +19,10 @@
  * under the License.
  */
 
-#include "ogs-app.h"
-#include "ogs-proto.h"
-#include "ogs-sbi.h"
-
 #include "mb-smf-service-consumer.h"
 
 #include <memory>
-#include <tuple>
-#include <mutex>
+
 #include "openapi/model/MbsServiceArea.h"
 #include "common.hh"
 
@@ -35,24 +30,13 @@ namespace fiveg_mag_reftools {
     class CJson;
 }
 
-namespace reftools::mbsf {
-    class MbsServiceArea;
-}
-
-using fiveg_mag_reftools::CJson;
-using reftools::mbsf::MbsServiceArea;
-using reftools::mbsf::Ncgi;
-using reftools::mbsf::NcgiTai;
-using reftools::mbsf::Tai;
-using fiveg_mag_reftools::ModelException;
-
 MBSF_NAMESPACE_START
 
 class ServiceArea {
 public:
 
-    ServiceArea(CJson &json, bool as_request);
-    ServiceArea(const std::shared_ptr<MbsServiceArea> &mbs_service_area);
+    ServiceArea(fiveg_mag_reftools::CJson &json, bool as_request);
+    ServiceArea(const std::shared_ptr<reftools::mbsf::MbsServiceArea> &mbs_service_area);
     ServiceArea() = delete;
     ServiceArea(ServiceArea &&other) = delete;
     ServiceArea(const ServiceArea &other) = delete;
@@ -61,9 +45,9 @@ public:
 
     virtual ~ServiceArea();
 
-    CJson json(bool as_request) const;
+    fiveg_mag_reftools::CJson json(bool as_request) const;
 
-    const std::shared_ptr<MbsServiceArea> &getMbsServiceArea() const {return m_mbsServiceArea;};
+    const std::shared_ptr<reftools::mbsf::MbsServiceArea> &getMbsServiceArea() const {return m_mbsServiceArea;};
     const reftools::mbsf::MbsServiceArea::NcgiListType &getNcgiList() const {return m_mbsServiceArea->getNcgiList();};
     const reftools::mbsf::MbsServiceArea::TaiListType &getTaiList() const {return m_mbsServiceArea->getTaiList();};
 
@@ -72,12 +56,11 @@ public:
     void tais(mb_smf_sc_mbs_service_area_t *mbs_service_area);
 
 private:
-    std::shared_ptr<MbsServiceArea> m_mbsServiceArea;
+    std::shared_ptr<reftools::mbsf::MbsServiceArea> m_mbsServiceArea;
 
 };
 
 MBSF_NAMESPACE_STOP
-
 
 /* vim:ts=8:sts=4:sw=4:expandtab:
  */
