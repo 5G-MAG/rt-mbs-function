@@ -696,6 +696,24 @@ std::size_t UniqueMbsSessionId::hash() const
     return result;
 }
 
+static bool ncgi_tai_overlap(const NcgiTai &a, const NcgiTai &b)
+{
+    if (*a.getTai() != *b.getTai()) return false;
+    for (const auto &a_ncgi_item : a.getCellList()) {
+        if (a_ncgi_item && &a_ncgi_item.value()) {
+            const auto &a_ncgi = *a_ncgi_item.value();
+            const auto &b_ncgi_list = b.getCellList();
+            auto it = std::find_if(b_ncgi_list.begin(), b_ncgi_list.end(),
+                                       [a_ncgi](const NcgiTai::CellListItemType &b_ncgi_item) -> bool {
+                                           if (!b_ncgi_item || !b_ncgi_item.value()) return false;
+                                           return a_ncgi == *b_ncgi_item.value();
+                                       });
+            if (it != b_ncgi_list.end()) return true;
+        }
+    }
+    return false;
+}
+
 static bool svc_area_overlap(const std::shared_ptr<MbsServiceArea> &a, const std::shared_ptr<MbsServiceArea> &b)
 {
     /* check for any overlap in the service areas */
@@ -703,32 +721,53 @@ static bool svc_area_overlap(const std::shared_ptr<MbsServiceArea> &a, const std
 
     const auto &a_ncgi_list = a->getNcgiList();
     const auto &b_ncgi_list = b->getNcgiList();
+    const auto &a_tai_list = a->getTaiList();
+    const auto &b_tai_list = b->getTaiList();
 
-    if (a_ncgi_list && b_ncgi_list) {
+
+    if (a_ncgi_list && (b_ncgi_list || b_tai_list)) {
         for (const auto &a_ncgi_item : a_ncgi_list.value()) { /* a_ncgi_item is std::optional<std::shared_ptr<NcgiTai>> */
             if (a_ncgi_item && a_ncgi_item.value()) {
                 const auto &a_ncgi_tai = *a_ncgi_item.value();
-                auto it = std::find_if(b_ncgi_list.value().begin(), b_ncgi_list.value().end(),
+                if (b_ncgi_list) {
+                    auto it = std::find_if(b_ncgi_list.value().begin(), b_ncgi_list.value().end(),
                                        [a_ncgi_tai](const MbsServiceArea::NcgiListItemType &b_ncgi_item) -> bool {
-                                           return (b_ncgi_item && b_ncgi_item.value() && a_ncgi_tai == *b_ncgi_item.value());
+                                           if (!b_ncgi_item || !b_ncgi_item.value()) return false;
+                                           return ncgi_tai_overlap(a_ncgi_tai, *b_ncgi_item.value());
                                        });
-                if (it != b_ncgi_list.value().end()) return true;
+                    if (it != b_ncgi_list.value().end()) return true;
+                }
+                if (b_tai_list) {
+                    auto it = std::find_if(b_tai_list.value().begin(), b_tai_list.value().end(),
+                                        [a_ncgi_tai](const MbsServiceArea::TaiListItemType &b_tai_item) -> bool {
+                                            if (!b_tai_item || !b_tai_item.value()) return false;
+                                            return *a_ncgi_tai.getTai() == *b_tai_item.value();
+                                        });
+                    if (it != b_tai_list.value().end()) return true;
+                }
             }
         }
     }
 
-    const auto &a_tai_list = a->getTaiList();
-    const auto &b_tai_list = b->getTaiList();
-
-    if (a_tai_list && b_tai_list) {
+    if (a_tai_list && (b_ncgi_list || b_tai_list)) {
         for (const auto &a_tai_item : a_tai_list.value()) { /* a_tai_item is std::optional<std::shared_ptr<Tai>> */
             if (a_tai_item && a_tai_item.value()) {
                 const auto &a_tai = *a_tai_item.value();
-                auto it = std::find_if(b_tai_list.value().begin(), b_tai_list.value().end(),
+                if (b_tai_list) {
+                    auto it = std::find_if(b_tai_list.value().begin(), b_tai_list.value().end(),
                                         [a_tai](const MbsServiceArea::TaiListItemType &b_tai_item) -> bool {
                                             return (b_tai_item && b_tai_item.value() && a_tai == *b_tai_item.value());
                                         });
-                if (it != b_tai_list.value().end()) return true;
+                    if (it != b_tai_list.value().end()) return true;
+                }
+                if (b_ncgi_list) {
+                    auto it = std::find_if(b_ncgi_list.value().begin(), b_ncgi_list.value().end(),
+                                        [a_tai](const MbsServiceArea::NcgiListItemType &b_ncgi_item) -> bool {
+                                            if (!b_ncgi_item || !b_ncgi_item.value()) return false;
+                                            return a_tai == *b_ncgi_item.value()->getTai();
+                                        });
+                    if (it != b_ncgi_list.value().end()) return true;
+                }
             }
         }
     }
