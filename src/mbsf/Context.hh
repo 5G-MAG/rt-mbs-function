@@ -63,6 +63,7 @@ public:
 
     void addUserService(const std::shared_ptr<UserService> &userService);
     void deleteUserService(const std::string &userServiceId);
+    const std::shared_ptr<UserService> &findUserService(const std::string &id) const;
 
     void addUserDataIngSession(const std::shared_ptr<UserDataIngSession> &userIngSession);
     void deleteUserDataIngSession(const std::string &userIngSessionId);
@@ -116,7 +117,7 @@ private:
     const std::shared_ptr<Open5GSSBIServer> &findServerForAddr(ogs_socknode_t *node);
 
     std::shared_ptr<std::recursive_mutex> m_userDataIngSessMutex;
-    std::map<std::string, std::shared_ptr<UserDataIngSession> > m_userDataIngSessions;
+    std::map<std::string, std::weak_ptr<UserService> > m_userDataIngSessIndex;
 
     std::shared_ptr<std::recursive_mutex> m_mbsSessionIdsMutex;
     std::set<UniqueMbsSessionId> m_mbsSessionIds;

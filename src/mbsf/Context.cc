@@ -54,7 +54,7 @@ Context::Context()
     ,capacity({100,100})
     ,allowedMulticastRange()
     ,m_userDataIngSessMutex(new std::recursive_mutex)
-    ,m_userDataIngSessions()
+    ,m_userDataIngSessIndex()
     ,m_mbsSessionIdsMutex(new std::recursive_mutex)
     ,m_mbsSessionIds()
 {
@@ -69,7 +69,7 @@ Context::~Context()
     }
     {
         std::lock_guard<decltype(m_userDataIngSessMutex)::element_type> lock(*m_userDataIngSessMutex);
-        m_userDataIngSessions.clear();
+        m_userDataIngSessIndex.clear();
     }
     UserDataIngSession::clearRegistries();
 }
@@ -161,37 +161,41 @@ void Context::deleteUserService(const std::string &id)
     }
 }
 
+const std::shared_ptr<UserService> &Context::findUserService(const std::string &id) const
+{
+    auto it = UserServices.find(id);
+    if (it != UserServices.end()) {
+        return it->second;
+    }
+    static const std::shared_ptr<UserService> null_us;
+    return null_us;
+}
+
 void Context::addUserDataIngSession(const std::shared_ptr<UserDataIngSession> &session)
 {
     if (!session) return;
-    std::shared_ptr<UserDataIngSession> map_session(session);
-    std::lock_guard<std::recursive_mutex> lock(*m_userDataIngSessMutex);
-    m_userDataIngSessions.insert(std::make_pair<std::string, std::shared_ptr<UserDataIngSession> >(std::string(map_session->userDataIngSessionId()), std::move(map_session)));
-    auto mbs_user_data_ing_session = session->getMBSUserIngSession();
-    for (auto &[dist_sess_id, dist_sess_info] : mbs_user_data_ing_session->getMbsDisSessInfos()) {
-        if (dist_sess_info) {
-            auto info = dist_sess_info.value();
-            if (info) {
-                const auto &mbs_session_id = info->getMbsSessionId();
-                if (mbs_session_id) {
-                    const auto &mbs_service_area = info->getTgtServAreas();
-                    const auto &ext_mbs_service_area = info->getExtTgtServAreas();
-                    addMbsSessionId(!!mbs_session_id.value()->getSsm(), mbs_session_id.value(),
-                                    mbs_service_area?mbs_service_area.value():std::shared_ptr<MbsServiceArea>(),
-                                    ext_mbs_service_area?ext_mbs_service_area.value():std::shared_ptr<ExternalMbsServiceArea>());
-                }
-            }
-        }
+    auto &mbs_user_data_ing_session = session->getMBSUserIngSession();
+    auto &mbs_user_service_id = mbs_user_data_ing_session->getMbsUserServId();
+    auto it = UserServices.find(mbs_user_service_id);
+    if (it == UserServices.end()) {
+        throw std::out_of_range(std::format("User Service {} not found when adding User Data Ingest Session", mbs_user_service_id));
     }
+    auto &mbs_user_service = it->second;
+    mbs_user_service->addUserDataIngSession(session);
+    std::lock_guard<std::recursive_mutex> lock(*m_userDataIngSessMutex);
+    std::remove_reference<decltype(mbs_user_service)>::type::weak_type weak_service(mbs_user_service);
+    m_userDataIngSessIndex.insert(std::make_pair<decltype(m_userDataIngSessIndex)::key_type, decltype(m_userDataIngSessIndex)::mapped_type>(std::string(session->userDataIngSessionId()), std::move(weak_service)));
 }
 
 
 void Context::deleteUserDataIngSession(const std::string &id)
 {
     std::lock_guard<std::recursive_mutex> lock(*m_userDataIngSessMutex);
-    auto it = m_userDataIngSessions.find(id);
-    if (it != m_userDataIngSessions.end()) {
-        m_userDataIngSessions.erase(it);
+    auto it = m_userDataIngSessIndex.find(id);
+    if (it != m_userDataIngSessIndex.end()) {
+        auto mbs_user_service = it->second.lock();
+        if (mbs_user_service) mbs_user_service->deleteUserDataIngSession(id);
+        m_userDataIngSessIndex.erase(it);
     } else {
         throw std::out_of_range("MBSF: User Ingest Session to be deleted is not found");
     }
@@ -200,9 +204,12 @@ void Context::deleteUserDataIngSession(const std::string &id)
 const std::shared_ptr<UserDataIngSession> &Context::findUserDataIngSession(const std::string &id) const
 {
     std::lock_guard<std::recursive_mutex> lock(*m_userDataIngSessMutex);
-    auto it = m_userDataIngSessions.find(id);
-    if (it != m_userDataIngSessions.end()) {
-        return it->second;
+    auto it = m_userDataIngSessIndex.find(id);
+    if (it != m_userDataIngSessIndex.end()) {
+        auto mbs_user_service = it->second.lock();
+        if (mbs_user_service) {
+            return mbs_user_service->findUserDataIngSession(id);
+        }
     }
     static const std::shared_ptr<UserDataIngSession> null_udis(nullptr);
     return null_udis;

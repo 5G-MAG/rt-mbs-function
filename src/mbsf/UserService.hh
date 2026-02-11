@@ -39,6 +39,11 @@ class Open5GSEvent;
 class UserService {
 public:
     using SysTimeMS = std::chrono::system_clock::time_point;
+
+    enum {
+        LOCAL_REMOVE_EVENT = OGS_MAX_NUM_OF_PROTO_EVENT + 1700
+    };
+
     UserService(fiveg_mag_reftools::CJson &json, bool as_request);
     UserService(const std::shared_ptr<reftools::mbsf::MBSUserService> &mbs_user_service);
     UserService() = delete;
@@ -61,12 +66,25 @@ public:
 
     static bool processEvent(Open5GSEvent &event);
 
+    void remove(const std::shared_ptr<Open5GSEvent> &post_remove_event);
+
+    void addUserDataIngSession(const std::shared_ptr<UserDataIngSession> &userIngSession);
+    void deleteUserDataIngSession(const std::string &userIngSessionId);
+    const std::shared_ptr<UserDataIngSession> &findUserDataIngSession(const std::string &id) const;
+    void removeUserDataIngSession(const std::string &userIngSessionId);
+    void removeAllUserDataIngSessions();
+
 private:
     std::shared_ptr<reftools::mbsf::MBSUserService> m_MBSUserService;
     SysTimeMS m_generated;
     SysTimeMS m_lastUsed;
     std::string m_hash;
     std::string m_UserServiceId;
+
+    std::shared_ptr<std::recursive_mutex> m_userDataIngSessMutex;
+    std::map<std::string, std::shared_ptr<UserDataIngSession> > m_userDataIngSessions;
+
+    std::shared_ptr<Open5GSEvent> m_postDeleteEvent;
 };
 
 MBSF_NAMESPACE_STOP

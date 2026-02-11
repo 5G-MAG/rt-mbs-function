@@ -329,8 +329,14 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
 
                         if (!validate_state_setting_options(user_data_ing_session, stream, message, app_meta, api)) return true;
 
-                        App::self().context()->addUserDataIngSession(user_data_ing_session);
-                        user_data_ing_session->processDistributionSessionInfo(stream_id, request_ctx);
+                        try {
+                            App::self().context()->addUserDataIngSession(user_data_ing_session);
+                            user_data_ing_session->processDistributionSessionInfo(stream_id, request_ctx);
+                        } catch (std::out_of_range &ex) {
+                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 3, message,
+                                                    app_meta, api, "MBS User Service does not exist", ex.what(), std::nullopt,
+                                                    std::nullopt));
+                        }
 
                         return true;
                     } else if (method == OGS_SBI_HTTP_METHOD_GET) {

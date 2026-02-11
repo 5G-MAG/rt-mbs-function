@@ -43,6 +43,7 @@
 #include "Open5GSTimer.hh"
 #include "Open5GSYamlDocument.hh"
 #include "Open5GSNetworkFunction.hh"
+#include "UserDataIngSession.hh"
 #include "openapi/model/MBSUserService.h"
 #include "openapi/model/CreateReqData.h"
 #include "openapi/model/TunnelAddress.h"
@@ -55,12 +56,21 @@
 #include "UserService.hh"
 
 using fiveg_mag_reftools::CJson;
-using reftools::mbsf::MBSUserService;
 using reftools::mbsf::CreateReqData;
-using reftools::mbsf::TunnelAddress;
+using reftools::mbsf::ExternalMbsServiceArea;
+using reftools::mbsf::MbsServiceArea;
 using reftools::mbsf::MbsServiceType;
+using reftools::mbsf::MBSUserService;
+using reftools::mbsf::TunnelAddress;
 
 MBSF_NAMESPACE_START
+
+namespace {
+struct LocalRemoveEventData {
+    std::string user_service_id;
+    ogs_pool_id_t stream_id;
+};
+}
 
 static const NfServer::InterfaceMetadata g_nmbsf_userservice_api_metadata(
     NMBSF_MBS_US_API_NAME,
@@ -70,6 +80,9 @@ static const NfServer::InterfaceMetadata g_nmbsf_userservice_api_metadata(
 
 UserService::UserService(CJson &json, bool as_request)
     :m_MBSUserService(std::make_shared<MBSUserService>(json, as_request))
+    ,m_userDataIngSessMutex(new std::recursive_mutex)
+    ,m_userDataIngSessions()
+    ,m_postDeleteEvent(nullptr)
 {
     ogs_uuid_t uuid;
 
@@ -109,7 +122,7 @@ const std::shared_ptr<UserService> &UserService::find(const std::string &id)
 {
     const std::map<std::string, std::shared_ptr<UserService> > &UserServices = App::self().context()->UserServices;
     auto it = UserServices.find(id);
-    if (it == UserServices.end()) {
+    if (it == UserServices.end() || it->second->m_postDeleteEvent) { // doesn't exist or is in the process of being deleted
         throw std::out_of_range(std::format("MBS User Service [{}] not found", id));
     }
     return it->second;
@@ -354,13 +367,16 @@ bool UserService::processEvent(Open5GSEvent &event)
                     } else if (method == OGS_SBI_HTTP_METHOD_DELETE) {
                         if (message.resourceComponent(1) && !message.resourceComponent(2)) {
                             std::string user_service_id(message.resourceComponent(1));
-                            try {
-                                App::self().context()->deleteUserService(user_service_id);
-                                std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(std::nullopt, std::nullopt, std::nullopt, std::nullopt, 0, std::nullopt, api, app_meta));
-                                NfServer::populateResponse(response, "", OGS_SBI_HTTP_STATUS_NO_CONTENT);
-                                ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *response));
 
-                            } catch (const std::out_of_range &e) {
+                            auto &mbs_user_service = App::self().context()->findUserService(user_service_id);
+                            if (mbs_user_service && !mbs_user_service->m_postDeleteEvent) {
+                                // New delete request, trigger clean up of UserService and UserDataIngestSessions
+                                ogs_event_t *post_delete_event = reinterpret_cast<ogs_event_t*>(ogs_calloc(1, sizeof(*post_delete_event)));
+                                post_delete_event->id = LOCAL_REMOVE_EVENT;
+                                post_delete_event->sbi.data = new LocalRemoveEventData{user_service_id, stream_id};
+                                mbs_user_service->remove(std::make_shared<Open5GSEvent>(post_delete_event));
+                            } else {
+                                // No such MBS User Service or already in the process of deleting, return 404
                                 std::ostringstream err;
                                 err << "MBS Session [" << user_service_id << "] does not exist.";
                                 ogs_error("%s", err.str().c_str());
@@ -403,10 +419,108 @@ bool UserService::processEvent(Open5GSEvent &event)
             }
             return true;
         }
+        case UserService::LOCAL_REMOVE_EVENT:
+        {
+            LocalRemoveEventData *local_remove_data = reinterpret_cast<LocalRemoveEventData*>(event.sbiData());
+            App::self().context()->deleteUserService(local_remove_data->user_service_id);
+            std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(std::nullopt, std::nullopt, std::nullopt, std::nullopt, 0, std::nullopt, nmbsf_mbs_userservice_api, app_meta));
+            NfServer::populateResponse(response, "", OGS_SBI_HTTP_STATUS_NO_CONTENT);
+            Open5GSSBIStream stream(local_remove_data->stream_id);
+            ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *response));
+            delete local_remove_data;
+            return true;
+        }
         default:
             break;
     }
     return false;
+}
+
+void UserService::remove(const std::shared_ptr<Open5GSEvent> &post_action_event)
+{
+    if (m_postDeleteEvent) throw std::runtime_error(std::format("Attempt to remove UserService {} when already removing the UserService", m_UserServiceId));
+    m_postDeleteEvent = post_action_event;
+    removeAllUserDataIngSessions();
+}
+
+void UserService::addUserDataIngSession(const std::shared_ptr<UserDataIngSession> &session)
+{
+    if (!session) return;
+    auto mbs_user_data_ing_session = session->getMBSUserIngSession();
+    if (ogs_unlikely(mbs_user_data_ing_session->getMbsUserServId() != m_UserServiceId)) {
+        throw std::runtime_error(std::format("Attempt to add UserDataIngSession for MBSUserService {} to MBSUserService {}",
+                                             mbs_user_data_ing_session->getMbsUserServId(), m_UserServiceId));
+    }
+    std::shared_ptr<UserDataIngSession> map_session(session);
+    std::lock_guard<std::recursive_mutex> lock(*m_userDataIngSessMutex);
+    m_userDataIngSessions.insert(std::make_pair<std::string, std::shared_ptr<UserDataIngSession> >(std::string(map_session->userDataIngSessionId()), std::move(map_session)));
+    for (auto &[dist_sess_id, dist_sess_info] : mbs_user_data_ing_session->getMbsDisSessInfos()) {
+        if (dist_sess_info) {
+            auto info = dist_sess_info.value();
+            if (info) {
+                const auto &mbs_session_id = info->getMbsSessionId();
+                if (mbs_session_id) {
+                    const auto &mbs_service_area = info->getTgtServAreas();
+                    const auto &ext_mbs_service_area = info->getExtTgtServAreas();
+                    App::self().context()->addMbsSessionId(!!mbs_session_id.value()->getSsm(), mbs_session_id.value(),
+                                    mbs_service_area?mbs_service_area.value():std::shared_ptr<MbsServiceArea>(),
+                                    ext_mbs_service_area?ext_mbs_service_area.value():std::shared_ptr<ExternalMbsServiceArea>());
+                }
+            }
+        }
+    }
+}
+
+void UserService::deleteUserDataIngSession(const std::string &userIngSessionId)
+{
+    std::lock_guard<std::recursive_mutex> lock(*m_userDataIngSessMutex);
+    auto it = m_userDataIngSessions.find(userIngSessionId);
+    if (it != m_userDataIngSessions.end()) {
+        m_userDataIngSessions.erase(it);
+        if (m_postDeleteEvent && m_userDataIngSessions.empty()) {
+            App::self().queuePush(m_postDeleteEvent);
+            m_postDeleteEvent.reset();
+        }
+    } else {
+        throw std::out_of_range("MBSF: User Ingest Session to be deleted is not found");
+    }
+}
+
+void UserService::removeUserDataIngSession(const std::string &userIngSessionId)
+{
+    std::lock_guard<std::recursive_mutex> lock(*m_userDataIngSessMutex);
+    auto it = m_userDataIngSessions.find(userIngSessionId);
+    if (it != m_userDataIngSessions.end()) {
+        it->second->sendMbstfDelRequests();
+    } else {
+        throw std::out_of_range("MBSF: User Ingest Session to be removed is not found");
+    }
+}
+
+void UserService::removeAllUserDataIngSessions()
+{
+    std::lock_guard<std::recursive_mutex> lock(*m_userDataIngSessMutex);
+    if (m_userDataIngSessions.empty()) {
+        if (m_postDeleteEvent) {
+            App::self().queuePush(m_postDeleteEvent);
+            m_postDeleteEvent.reset();
+        }
+    } else {
+        for (auto &[user_data_ing_sess_id, user_data_ing_sess] : m_userDataIngSessions) {
+            user_data_ing_sess->sendMbstfDelRequests();
+        }
+    }
+}
+
+const std::shared_ptr<UserDataIngSession> &UserService::findUserDataIngSession(const std::string &id) const
+{
+    std::lock_guard<std::recursive_mutex> lock(*m_userDataIngSessMutex);
+    auto it = m_userDataIngSessions.find(id);
+    if (it != m_userDataIngSessions.end()) {
+        return it->second;
+    }
+    static const std::shared_ptr<UserDataIngSession> null_udis(nullptr);
+    return null_udis;
 }
 
 MBSF_NAMESPACE_STOP
