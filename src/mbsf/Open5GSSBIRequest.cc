@@ -38,13 +38,13 @@ Open5GSSBIRequest::Open5GSSBIRequest(const std::string &method, const std::strin
     ,m_owner(true)
 {
 
-    m_request = ogs_sbi_request_new();
-    m_request->h.method = (char *)method.c_str();
-    m_request->h.uri = (char *)uri.c_str();
-    m_request->h.api.version = (char *)apiVersion.c_str();
+    //m_request = ogs_sbi_request_new();
+    m_request->h.method = ogs_strdup((char *)method.c_str());
+    m_request->h.uri = ogs_strdup((char *)uri.c_str());
+    m_request->h.api.version = ogs_strdup((char *)apiVersion.c_str());
 
     if (data) {
-        m_request->http.content = const_cast<char*>(data->c_str());
+        m_request->http.content = ogs_strdup(const_cast<char*>(data->c_str()));
         m_request->http.content_length = data->size();
     } else {
         m_request->http.content = nullptr;

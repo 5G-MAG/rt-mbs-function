@@ -45,6 +45,7 @@ class Open5GSSockAddr;
 class Open5GSYamlIter;
 class UserService;
 class UserDataIngSession;
+class UserDataIngStatSubsc;
 class UniqueMbsSessionId;
 
 class Context {
@@ -60,6 +61,7 @@ public:
 
     std::vector <std::shared_ptr<Open5GSSockAddr> > MBSFUserServicesAddresses();
     std::vector <std::shared_ptr<Open5GSSockAddr> > MBSFUserDataIngestSessionAddresses();
+    std::vector <std::shared_ptr<Open5GSSBIServer> > MBSFNotificationServers();
 
     void addUserService(const std::shared_ptr<UserService> &userService);
     void deleteUserService(const std::string &userServiceId);
@@ -82,12 +84,23 @@ public:
                           const std::shared_ptr<reftools::mbsf::MbsServiceArea> &mbs_service_area,
                           const std::shared_ptr<reftools::mbsf::ExternalMbsServiceArea> &ext_mbs_service_area) const;
 
+    void addUserDataIngStatSubsc(const std::shared_ptr<UserDataIngStatSubsc> &userIngStatSubsc);
+    void deleteUserDataIngStatSubsc(const std::string &userIngStatSubscId);
+
     int load();
+
+    void assignNotificationServer();
+    const ogs_sockaddr_t *contextGetNotificationAddress();
+    ogs_sbi_server_t *newSbiServer(const ogs_sockaddr_t *address);
+
+     std::map<std::string, std::shared_ptr<UserDataIngStatSubsc> > &userDataIngStatSubscs() { return m_userDataIngStatSubscs;};
+
 
     enum ServerType {
         OPEN5GS_SBI_SERVER,
         MBS_USER_SERVICES,
         MBS_USER_DATA_INGEST_SESSION,
+	MBS_NOTIFICATION_LISTENER,
         SERVER_MAX_NUM
     };
 
@@ -110,10 +123,12 @@ public:
 
     std::optional<std::string> allowedMulticastRange;
 
+    ogs_sockaddr_t *notification_bind_address;
 
 private:
     void parseCacheControl(Open5GSYamlIter &iter);
     void parseConfiguration(std::string &pc_key, Open5GSYamlIter &iter);
+    int parseNotificationConfig(std::string &pc_key, Open5GSYamlIter &iter);
     const std::shared_ptr<Open5GSSBIServer> &findServerForAddr(ogs_socknode_t *node);
 
     std::shared_ptr<std::recursive_mutex> m_userDataIngSessMutex;
@@ -121,6 +136,9 @@ private:
 
     std::shared_ptr<std::recursive_mutex> m_mbsSessionIdsMutex;
     std::set<UniqueMbsSessionId> m_mbsSessionIds;
+
+    std::shared_ptr<std::recursive_mutex> m_userDataIngStatSubscMutex;
+    std::map<std::string, std::shared_ptr<UserDataIngStatSubsc> > m_userDataIngStatSubscs;
 };
 
 MBSF_NAMESPACE_STOP

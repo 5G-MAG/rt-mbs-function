@@ -34,11 +34,18 @@
 #include "common.hh"
 #include "App.hh"
 #include "Context.hh"
+#include "DistributionSessionInfoSubscription.hh"
+#include "LocalEvents.hh"
+#include "SubscribedEvents.hh"
+#include "UserDataIngStatSubsc.hh"
 #include "UniqueMBSSessionId.hh"
 #include "UserDataIngSession.hh"
+#include "utilities.hh"
 #include "openapi/model/AssociatedSessionId.h"
 #include "openapi/model/DistributionMethod.h"
 #include "openapi/model/DistSessionState.h"
+#include "openapi/model/DistSessionEventReport.h"
+#include "openapi/model/DistSessionEventReportList.h"
 #include "openapi/model/ExternalMbsServiceArea.h"
 #include "openapi/model/FECConfig.h"
 #include "openapi/model/MBSDistributionSessionInfo.h"
@@ -48,6 +55,8 @@
 #include "openapi/model/NrRedCapUeInfo.h"
 #include "openapi/model/ObjectDistrMethInfo.h"
 #include "openapi/model/PacketDistrMethInfo.h"
+#include "openapi/model/StatusSubscribeReqData.h"
+#include "openapi/model/StatusNotifyReqData.h"
 
 #include "mb-smf-service-consumer.h"
 
@@ -57,22 +66,41 @@
 using fiveg_mag_reftools::CJson;
 using fiveg_mag_reftools::ModelException;
 using reftools::mbsf::DistSessionState;
+using reftools::mbsf::DistSessionEventReportList;
 using reftools::mbsf::ExternalMbsServiceArea;
 using reftools::mbsf::MBSDistributionSessionInfo;
 using reftools::mbsf::MbsServiceArea;
 using reftools::mbsf::MbsServiceInfo;
 using reftools::mbsf::MbsSessionId;
 using reftools::mbsf::MBSUserDataIngSession;
+using reftools::mbsf::StatusSubscribeReqData;
+using reftools::mbsf::StatusNotifyReqData;
 
 MBSF_NAMESPACE_START
 
 DistributionSessionInfo::DistributionSessionInfo(CJson &json, bool as_request)
     :m_mbsDistributionSessionInfo(new MBSDistributionSessionInfo(json, as_request))
+    ,m_eventSubscriptions()
+    ,m_eventTimestamps()
+    ,m_statusNotifyReqData(nullptr)
+    ,m_mbsDistributionSessionInfoSubscription(nullptr)
+    ,m_mutex()
+    ,m_dataIngestSessionEstablished(false)
+    ,m_dataIngestSessionTerminated(false)
+
 {
 }
 
 DistributionSessionInfo::DistributionSessionInfo(const std::shared_ptr<MBSDistributionSessionInfo> &mbs_distribution_session_info)
     :m_mbsDistributionSessionInfo(mbs_distribution_session_info)
+    ,m_eventSubscriptions()
+    ,m_eventTimestamps()
+    ,m_statusNotifyReqData(nullptr)
+    ,m_mbsDistributionSessionInfoSubscription(nullptr)
+    ,m_mutex()
+    ,m_dataIngestSessionEstablished(false)
+    ,m_dataIngestSessionTerminated(false)
+
 {
 }
 
@@ -178,6 +206,196 @@ std::shared_ptr<ExternalMbsServiceArea> DistributionSessionInfo::getExtTgtServAr
     if (!ext_mbs_service_area) return nullptr;
     return ext_mbs_service_area.value();
 }
+
+
+void DistributionSessionInfo::addEventSubscription(const std::weak_ptr<UserDataIngStatSubsc> &stat_subscription, std::shared_ptr< Event > event)
+{
+    if (!m_mbsDistributionSessionInfoSubscription) {
+        m_mbsDistributionSessionInfoSubscription.reset(new DistributionSessionInfoSubscription(weak_from_this(), stat_subscription));
+    }
+    m_mbsDistributionSessionInfoSubscription->setEvents(event);
+
+}
+
+void DistributionSessionInfo::resetEventSubscription()
+{
+    if (!m_mbsDistributionSessionInfoSubscription) return;
+    m_mbsDistributionSessionInfoSubscription->resetEvents();
+}
+
+void DistributionSessionInfo::removeEventSubscription()
+{
+    if (!m_mbsDistributionSessionInfoSubscription) return;
+    resetEventSubscription();
+    m_mbsDistributionSessionInfoSubscription.reset();
+
+}
+
+void DistributionSessionInfo::registerEvent(std::shared_ptr<DistSessionEventReport> dist_sess_event_report)
+{
+    m_eventTimestamps.registerEvent(dist_sess_event_report);
+    //sendSubscriptionNotifications();
+
+}
+
+bool DistributionSessionInfo::resetDataIngestSessionEstablished() {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    m_dataIngestSessionEstablished = false;
+    return m_dataIngestSessionEstablished;
+};
+
+bool DistributionSessionInfo::resetDataIngestSessionTerminated() {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    m_dataIngestSessionTerminated = false;
+    return m_dataIngestSessionTerminated;
+};
+
+void DistributionSessionInfo::registerEvent(SubscribedEvents::EventTypeBitMask event_type)
+{
+    m_eventTimestamps.registerEvent(event_type);
+    sendSubscriptionNotifications();
+}
+
+void DistributionSessionInfo::sendSubscriptionNotifications()
+{
+    if(m_mbsDistributionSessionInfoSubscription) m_mbsDistributionSessionInfoSubscription->pushNotificationsEvent();
+}
+
+const DistSessionEventReportList::EventReportListType &DistributionSessionInfo::distributionSessionEventReports() const
+{
+    std::shared_ptr< DistSessionEventReportList > distribution_session_event_reports = m_statusNotifyReqData->getReportList();
+    return distribution_session_event_reports->getEventReportList();
+}
+
+DistributionSessionInfo &DistributionSessionInfo::processStatusNotifyReqData(std::shared_ptr<UserDataIngSession> ing_sess, CJson &json, bool as_request)
+{
+    m_statusNotifyReqData.reset(new StatusNotifyReqData(json, as_request));
+    //displayEventReports();
+    distributionSessionEventReportsSort();
+    //displayEventReports();
+    processEvents(ing_sess);
+    //std::list<std::optional<std::shared_ptr< DistSessionEventReport > >
+    const DistSessionEventReportList::EventReportListType &dist_session_event_reports = distributionSessionEventReports();
+    for (const auto &dist_session_event_report : dist_session_event_reports) {
+        if (!dist_session_event_report.has_value()) continue;
+
+        std::shared_ptr<DistSessionEventReport> dist_sess_event_report  = dist_session_event_report.value();
+        if (!dist_sess_event_report) continue;
+        registerEvent(dist_sess_event_report);
+    }
+    sendSubscriptionNotifications();
+
+    return *this;
+}
+
+void DistributionSessionInfo::displayEventReports()
+{
+ const DistSessionEventReportList::EventReportListType &dist_session_event_reports = distributionSessionEventReports();
+     for (const auto &dist_session_event_report : dist_session_event_reports) {
+        if (!dist_session_event_report.has_value()) continue;
+
+        std::shared_ptr<DistSessionEventReport> dist_sess_event_report  = dist_session_event_report.value();
+        if (!dist_sess_event_report) continue;
+
+	std::shared_ptr< DistSessionEventType > distribution_session_event_type = dist_sess_event_report->getEventType();
+        DistSessionEventType dist_session_event_type = *distribution_session_event_type;
+
+	std::optional<std::string> time_stamp = dist_sess_event_report->getTimeStamp();
+        if(!time_stamp.has_value()) continue;
+        ogs_info("Event:[%s] Timestamp: [%s]", distribution_session_event_type->getString().c_str(), time_stamp.value().c_str());
+
+    }
+}
+
+DistributionSessionInfo &DistributionSessionInfo::distributionSessionEventReportsSort()
+{
+
+    std::multimap<std::chrono::system_clock::time_point, std::shared_ptr<DistSessionEventReport>> dist_session_event_reports_sorted;
+    std::shared_ptr< DistSessionEventReportList > sorted_distribution_session_event_reports = nullptr;
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    //std::shared_ptr< DistSessionEventReportList > distribution_session_event_reports = m_statusNotifyReqData->getReportList();
+    //DistSessionEventReportList::EventReportListType dist_session_event_reports = distribution_session_event_reports->getEventReportList();
+    const DistSessionEventReportList::EventReportListType &dist_session_event_reports = distributionSessionEventReports();
+    for (const auto &dist_session_event_report : dist_session_event_reports) {
+        if (!dist_session_event_report.has_value()) continue;
+	std::shared_ptr<DistSessionEventReport> dist_sess_event_report  = dist_session_event_report.value();
+	if (!dist_sess_event_report) continue;
+        std::optional<std::string> time_stamp = dist_sess_event_report->getTimeStamp();
+        if(!time_stamp.has_value()) continue;
+	std::chrono::system_clock::time_point tp = to_time_point_iso8601(time_stamp.value());
+        if (tp == std::chrono::system_clock::time_point{}) {
+            ogs_error("Epoch parse failed");
+	    continue;
+        }
+	dist_session_event_reports_sorted.emplace(tp, dist_sess_event_report);
+
+    }
+    for (const auto &dist_session_event_report_sorted : dist_session_event_reports_sorted) {
+	if (!sorted_distribution_session_event_reports){
+	    sorted_distribution_session_event_reports.reset(new DistSessionEventReportList());
+	}
+        sorted_distribution_session_event_reports->addEventReportList(std::move(dist_session_event_report_sorted.second));
+    }
+    //dist_session_event_reports.clearEventReportList()
+    m_statusNotifyReqData->setReportList(std::move(sorted_distribution_session_event_reports));
+
+    return *this;
+}
+
+DistributionSessionInfo &DistributionSessionInfo::processEvents(std::shared_ptr<UserDataIngSession> ing_sess)
+{
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    const DistSessionEventReportList::EventReportListType &dist_session_event_reports = distributionSessionEventReports();
+    for (const auto &dist_session_event_report : dist_session_event_reports) {
+        if (!dist_session_event_report.has_value()) continue;
+        std::shared_ptr<DistSessionEventReport> dist_sess_event_report  = dist_session_event_report.value();
+        if (!dist_sess_event_report) continue;
+	std::shared_ptr< DistSessionEventType > distribution_session_event_type = dist_sess_event_report->getEventType();
+	DistSessionEventType dist_session_event_type = *distribution_session_event_type;
+	switch (dist_session_event_type) {
+	case DistSessionEventType::VAL_DATA_INGEST_FAILURE:
+            processDataIngestFailure(dist_sess_event_report);
+	    break;
+        case DistSessionEventType::VAL_DATA_INGEST_SESSION_ESTABLISHED:
+	    m_dataIngestSessionEstablished = true;
+	    break;
+        case DistSessionEventType::VAL_DATA_INGEST_SESSION_TERMINATED:
+	    m_dataIngestSessionTerminated = true;
+	    break;
+        default:
+            continue;
+       }
+    }
+    return *this;
+
+}
+
+void DistributionSessionInfo::processDataIngestFailure(std::shared_ptr<DistSessionEventReport> dist_sess_event_report)
+{
+    std::shared_ptr< DistSessionState > dist_session_state = nullptr;
+    dist_session_state.reset(new DistSessionState());
+    *dist_session_state = DistSessionState::VAL_INACTIVE;
+
+    setState(dist_session_state);
+
+    std::shared_ptr< DistSessionEventType > dist_session_event = nullptr;
+    dist_session_event.reset(new DistSessionEventType());
+    *dist_session_event = DistSessionEventType::VAL_SESSION_DEACTIVATED;
+
+    std::shared_ptr<DistSessionEventReport> dist_session_event_report  = nullptr;
+    dist_session_event_report.reset(new DistSessionEventReport());
+    dist_session_event_report->setEventType(dist_session_event);
+    dist_session_event_report->setTimeStamp(dist_sess_event_report->getTimeStamp());
+    registerEvent(dist_session_event_report);
+
+}
+
+void DistributionSessionInfo::setState(std::shared_ptr< DistSessionState > dist_session_state)
+{
+    m_mbsDistributionSessionInfo->setMbsDistSessState(std::move(dist_session_state));
+}
+
+
 
 MBSF_NAMESPACE_STOP
 

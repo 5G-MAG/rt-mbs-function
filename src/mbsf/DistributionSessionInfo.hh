@@ -29,19 +29,28 @@
 #include "openapi/model/MBSDistributionSessionInfo.h"
 #include "openapi/model/DistributionMethod.h"
 #include "openapi/model/MbsSessionId.h"
+#include "openapi/model/StatusNotifyReqData.h"
 #include "common.hh"
 
+#include "DistributionSessionInfoSubscription.hh"
+#include "SubscribedEvents.hh"
+
 namespace reftools::mbsf {
+    class DistSessionEventReportList;
+    class EventNotification;
     class MbsServiceArea;
     class ExternalMbsServiceArea;
+    class StatusNotifyReqData;
 }
 
 MBSF_NAMESPACE_START
 
+class DistributionSessionInfoSubscriptions;
 class ServiceInfo;
+class SubscribedEvents;
 class UniqueMbsSessionId;
 
-class DistributionSessionInfo {
+class DistributionSessionInfo : public std::enable_shared_from_this<DistributionSessionInfo> {
 public:
     using SysTimeMS = std::chrono::system_clock::time_point;
 
@@ -64,9 +73,41 @@ public:
     std::shared_ptr<reftools::mbsf::MbsSessionId> getMbsSessionId() const;
     std::shared_ptr<reftools::mbsf::MbsServiceArea> getTgtServAreas() const;
     std::shared_ptr<reftools::mbsf::ExternalMbsServiceArea> getExtTgtServAreas() const;
+
+    DistributionSessionInfo &processStatusNotifyReqData(std::shared_ptr<UserDataIngSession> ing_sess, fiveg_mag_reftools::CJson &json, bool as_request);
+    void addEventSubscription(const std::weak_ptr<UserDataIngStatSubsc> &stat_subscription, std::shared_ptr< Event > event);
+    void resetEventSubscription();
+    void removeEventSubscription();
+    void processDataIngestFailure(std::shared_ptr<DistSessionEventReport> dist_sess_event_report);
+
+    DistributionSessionInfo &distributionSessionEventReportsSort();
+    void displayEventReports();
+
+
+    DistributionSessionInfo &processEvents(std::shared_ptr<UserDataIngSession> ing_sess);
+    bool resetDataIngestSessionEstablished();
+    bool resetDataIngestSessionTerminated();
+
+    const reftools::mbsf::DistSessionEventReportList::EventReportListType &distributionSessionEventReports() const;
+    const SubscribedEvents &eventTimestamps() const { return m_eventTimestamps; };
+    const bool dataIngestSessionEstablished() const { return m_dataIngestSessionEstablished; };
+    const bool dataIngestSessionTerminated() const { return m_dataIngestSessionTerminated; };
       
 private:
+    void setState(std::shared_ptr< reftools::mbsf::DistSessionState > dist_session_state);
+    void registerEvent(std::shared_ptr<reftools::mbsf::DistSessionEventReport> dist_sess_event_report);
+    void registerEvent(SubscribedEvents::EventTypeBitMask event_type);
+    void sendSubscriptionNotifications();
+
     std::shared_ptr<reftools::mbsf::MBSDistributionSessionInfo> m_mbsDistributionSessionInfo;
+    std::map<std::string, DistributionSessionInfoSubscription> m_eventSubscriptions;
+    SubscribedEvents m_eventTimestamps;
+    std::optional<std::string> m_subscriptionLocation;
+    std::shared_ptr<reftools::mbsf::StatusNotifyReqData> m_statusNotifyReqData;
+    std::unique_ptr<DistributionSessionInfoSubscription> m_mbsDistributionSessionInfoSubscription;
+    std::recursive_mutex m_mutex;
+    bool m_dataIngestSessionEstablished;
+    bool m_dataIngestSessionTerminated;
 
 };
 

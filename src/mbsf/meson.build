@@ -63,6 +63,10 @@ libmbsf_dist_sources = files('''
     Context.hh
     DistributionSessionInfo.cc
     DistributionSessionInfo.hh
+    DistributionSessionInfoSubscription.cc
+    DistributionSessionInfoSubscription.hh
+    DistributionSessionNotificationEvent.cc
+    DistributionSessionNotificationEvent.hh
     EventHandler.hh
     ExternalServiceArea.cc
     ExternalServiceArea.hh
@@ -71,6 +75,7 @@ libmbsf_dist_sources = files('''
     GeographicalCoordinate.cc
     GeographicalCoordinate.hh
     hash.hh
+    LocalEvents.hh
     MBSFEventHandler.cc
     MBSFEventHandler.hh
     MBSFNetworkFunction.hh
@@ -122,6 +127,8 @@ libmbsf_dist_sources = files('''
     ServiceArea.hh
     ServiceInfo.cc
     ServiceInfo.hh
+    SubscribedEvents.cc
+    SubscribedEvents.hh
     TimerFunc.hh
     TrackingAreaIdentity.cc
     TrackingAreaIdentity.hh
@@ -129,8 +136,14 @@ libmbsf_dist_sources = files('''
     UniqueMBSSessionId.hh
     UserDataIngSession.cc
     UserDataIngSession.hh
+    UserDataIngSessionNotificationEvent.cc
+    UserDataIngSessionNotificationEvent.hh
+    UserDataIngStatSubsc.cc
+    UserDataIngStatSubsc.hh
     UserService.cc
     UserService.hh
+    utilities.cc
+    utilities.hh
 '''.split())
 
 api_tag = latest_apis?'REL-'+fiveg_api_release:'TSG'+fiveg_api_approval+'-Rel'+fiveg_api_release

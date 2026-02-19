@@ -66,6 +66,7 @@
 #include "Open5GSNetworkFunction.hh"
 #include "UserService.hh"
 #include "UniqueMBSSessionId.hh"
+#include "UserDataIngSessionNotificationEvent.hh"
 #include "openapi/model/DistSession.h"
 #include "openapi/model/MBSUserDataIngSession.h"
 #include "openapi/model/Tmgi.h"
@@ -710,6 +711,33 @@ void UserDataIngSession::sendMbsmfActivityStatus(std::shared_ptr< UserDataIngSes
 
 }
 
+void UserDataIngSession::sendNotificationsEvent(std::shared_ptr< UserDataIngSession::UserDataIngDistSessId > user_data_ing_dist_sess_ids)
+{
+    std::shared_ptr< UserDataIngSession::ContextData > context_data = getContextData(user_data_ing_dist_sess_ids);
+
+    std::optional<std::shared_ptr< DistSessionState > > dist_session_state = context_data->info->getMbsDistSessState();
+    if(!dist_session_state.has_value()) return;
+
+    std::shared_ptr< DistSessionState > dist_sess_state = dist_session_state.value();
+
+    if(*dist_sess_state == DistSessionState::VAL_ESTABLISHED) {
+        try {
+            std::shared_ptr<UserDataIngSession> ing_session = UserDataIngSession::find(user_data_ing_dist_sess_ids->first);
+            ing_session->pushNotificationsEvent();
+        } catch (const std::out_of_range &e) {
+                std::ostringstream err;
+                err << "MBS User Data Ingest Session [" << user_data_ing_dist_sess_ids->first << "] does not exist.";
+                ogs_error("%s", err.str().c_str());
+        }
+    }
+}
+
+
+void UserDataIngSession::pushNotificationsEvent() const
+{
+    std::shared_ptr<Open5GSEvent> event(new UserDataIngSessionNotificationEvent(*this));
+    App::self().ogsApp()->pushEvent(event);
+}
 
 bool UserDataIngSession::startTimer()
 {
@@ -746,6 +774,12 @@ bool UserDataIngSession::startTimer()
     return false;
 
 }
+
+std::map<std::string, std::shared_ptr< UserDataIngSession::ContextData >> &UserDataIngSession::distributionSessionInfos() {
+    std::lock_guard<decltype(m_distSessInfosMutex)::element_type> lock(*m_distSessInfosMutex);
+    return m_distributionSessionInfos;
+};
+
 
 void UserDataIngSession::addToDistributionSessionInfos(const std::string &key, const std::shared_ptr<ContextData> &context)
 {
@@ -881,6 +915,7 @@ void UserDataIngSession::changeDistSessionState(void *data)
                 *dist_sess_state = user_data_ing_sess->distSessionState();
                 context_data->info->setMbsDistSessState(dist_sess_state);
                 sendMbsmfActivityStatus(ids_ptr);
+		UserDataIngSession::sendNotificationsEvent(ids_ptr);
 
                 user_data_ing_sess->nmbstfDiscoverAndSend(ids_ptr, Nmb2Build::buildNmb2DistSessionPatch, nullptr, session_id);
             }
@@ -1277,6 +1312,44 @@ bool UserDataIngSession::resetReceivedMBSTFResponseFlags()
         dist_sess_info.second->receivedMBSTFResponse = false;
     }
     return true;
+
+}
+
+bool UserDataIngSession::checkIfAllMBSDistributionSessionsEstablished()
+{
+    for (const auto &dist_sess_info : m_distributionSessionInfos) {
+        if (!dist_sess_info.second->distributionSessionInfo->dataIngestSessionEstablished()) {
+            return false;
+        }
+    }
+    return true;
+
+}
+
+bool UserDataIngSession::checkIfAllMBSDistributionSessionsTerminated()
+{
+    for (const auto &dist_sess_info : m_distributionSessionInfos) {
+        if (!dist_sess_info.second->distributionSessionInfo->dataIngestSessionTerminated()) {
+            return false;
+        }
+    }
+    return true;
+
+}
+
+void UserDataIngSession::resetMBSDistributionSessionsTerminatedFlag()
+{
+    for (const auto &dist_sess_info : m_distributionSessionInfos) {
+        dist_sess_info.second->distributionSessionInfo->resetDataIngestSessionTerminated();
+    }
+
+}
+
+void UserDataIngSession::resetMBSDistributionSessionsEstablishedFlag()
+{
+    for (const auto &dist_sess_info : m_distributionSessionInfos) {
+        dist_sess_info.second->distributionSessionInfo->resetDataIngestSessionEstablished();
+    }
 
 }
 

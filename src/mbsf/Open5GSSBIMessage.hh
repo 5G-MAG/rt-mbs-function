@@ -76,13 +76,12 @@ public:
     Open5GSSBIMessage &contentType(char *ctype);
     Open5GSSBIMessage &problemDetails(OpenAPI_problem_details_t *prob_details);
 
-
+    void resetHeader();
 
     operator bool() const { return !!m_message; };
 
 private:
     void ensureMessage();
-    void resetHeader();
 
     ogs_sbi_message_t *m_message;
     ogs_sbi_header_t *m_parsedHeader;

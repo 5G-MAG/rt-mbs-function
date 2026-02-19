@@ -61,6 +61,7 @@ class MBSMFMBSSession;
 class UserDataIngSession {
 public:
     using SysTimeMS = std::chrono::system_clock::time_point;
+    using DateTime = std::chrono::system_clock::time_point;
     using ActPeriodsType = reftools::mbsf::MBSUserDataIngSession::ActPeriodsType;
     using ActPeriodsRepRuleType = reftools::mbsf::MBSUserDataIngSession::ActPeriodsRepRuleType;
 
@@ -185,6 +186,13 @@ public:
     bool resetReceivedMBSTFResponseFlags();
     bool checkIfAllMBSTFPatchResponsesReceived();
 
+    bool checkIfAllMBSDistributionSessionsEstablished();
+    bool checkIfAllMBSDistributionSessionsTerminated();
+    void resetMBSDistributionSessionsTerminatedFlag();
+    void resetMBSDistributionSessionsEstablishedFlag();
+
+    std::map<std::string, std::shared_ptr< ContextData >> &distributionSessionInfos();
+
     static const char *localEventGetName( ogs_event_t *event);
 
     static const std::shared_ptr<UserDataIngSession> &find(const std::string &id); // throws std::out_of_range if id does not exist
@@ -219,6 +227,7 @@ public:
     void setMbstfsInDesiredState();
     void checkDesiredState();
     void pendingDeleteResponse(ogs_pool_id_t stream_id);
+    void pushNotificationsEvent() const;
 
     static void changeDistSessionState(void *data);
     static void currentDistSessionState(void *data);
@@ -232,6 +241,7 @@ public:
     static void handlePatchUpdateResponse(ogs_sbi_xact_t *xact);
     static void rollbackMBSTFDistSessionState(ogs_sbi_xact_t *xact);
 
+    static void sendNotificationsEvent(std::shared_ptr< UserDataIngSession::UserDataIngDistSessId > user_data_ing_dist_sess_ids);
     static void sendMbsmfActivityStatus(std::shared_ptr< UserDataIngSession::UserDataIngDistSessId > user_data_ing_dist_sess_ids);
 
     static void addToRegistry(ogs_sbi_xact_t* xact, std::shared_ptr< UserDataIngDistSessId > &ids);

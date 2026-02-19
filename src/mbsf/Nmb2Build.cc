@@ -22,8 +22,11 @@
 #include "ogs-sbi.h"
 
 // standard template library includes
+#include <array>
 #include <chrono>
 #include <memory>
+#include <optional>
+#include <list>
 #include <stdexcept>
 #include <stdio.h>
 #include <string>
@@ -61,6 +64,7 @@
 #include "openapi/model/CreateReqData.h"
 #include "openapi/model/DistSession.h"
 #include "openapi/model/DistSessionState.h"
+#include "openapi/model/DistSessionSubscription.h"
 #include "openapi/model/IpAddr.h"
 #include "openapi/model/Ipv6Addr.h"
 #include "openapi/model/TunnelAddress.h"
@@ -88,7 +92,9 @@ using fiveg_mag_reftools::CJson;
 using reftools::mbsf::CreateReqData;
 using reftools::mbsf::DistributionMethod;
 using reftools::mbsf::DistSession;
+using reftools::mbsf::DistSessionEventType;
 using reftools::mbsf::DistSessionState;
+using reftools::mbsf::DistSessionSubscription;
 using reftools::mbsf::MBSUserDataIngSession;
 using reftools::mbsf::MBSDistributionSessionInfo;
 using reftools::mbsf::TunnelAddress;
@@ -114,7 +120,10 @@ static std::shared_ptr< TunnelAddress > populate_mbstf_mb_upf_tunnel_addr(ogs_so
 static std::shared_ptr< UpTrafficFlowInfo > populate_mbstf_up_traffic_flow_info(std::shared_ptr< IpAddr > dest_addr);
 static std::shared_ptr< DistSessionState > populate_mbstf_dist_session_state(std::shared_ptr<UserDataIngSession> ing_session, std::shared_ptr< UserDataIngSession::ContextData > context_data_ptr);
 static std::optional<std::shared_ptr< PktDistributionData > >  populate_mbstf_pkt_distribution_data(std::shared_ptr<MBSDistributionSessionInfo> mbs_dist_session_info);
+static std::shared_ptr<DistSessionSubscription> make_mbstf_dist_session_subscription(const std::string &user_data_ing_session_id, std::shared_ptr< UserDataIngSession::ContextData > context_data_ptr);
 static std::shared_ptr< DistSession > build_nmb2_create_dist_session(std::shared_ptr<UserDataIngSession> ing_session, std::shared_ptr< UserDataIngSession::ContextData > context_data_ptr);
+static std::string make_dist_session_subscription_notif_url(const std::string &user_data_ing_session_id, const std::string &dist_session_info_key);
+static std::string make_mbstf_dist_session_subscription_notify_correlation_id(const std::string &user_data_ing_session_id, const std::string &dist_session_info_key);
 static std::string generate_uuid();
 
 ogs_sbi_request_t *Nmb2Build::buildNmb2DistSession(void *context, void *data) {
@@ -255,6 +264,8 @@ ogs_sbi_request_t *Nmb2Build::buildNmb2DistSessionPatch(void *context, void *dat
         ogs_error("No status item.value");
     }
 
+    if(value) cJSON_Delete(value);
+
     OpenAPI_list_add(patch_item_list, &status_item);
 
     message.PatchItemList = patch_item_list;
@@ -377,6 +388,82 @@ static std::optional<std::shared_ptr< PktDistributionData > >  populate_mbstf_pk
 
 }
 
+
+static std::shared_ptr<DistSessionSubscription> make_mbstf_dist_session_subscription(const std::string &user_data_ing_session_id, std::shared_ptr< UserDataIngSession::ContextData > context_data_ptr)
+{
+    std::shared_ptr<DistSessionSubscription> subscription = nullptr;
+
+    using EventListType = DistSessionSubscription::EventListType;
+    using EventListItemType = DistSessionSubscription::EventListItemType;
+
+    EventListType events;
+
+    const std::array<DistSessionEventType::Enum, 6> eventEnums = {
+        DistSessionEventType::VAL_DATA_INGEST_FAILURE,
+        DistSessionEventType::VAL_SESSION_DEACTIVATED,
+        DistSessionEventType::VAL_SESSION_ACTIVATED,
+        DistSessionEventType::VAL_SERVICE_MANAGEMENT_FAILURE,
+        DistSessionEventType::VAL_DATA_INGEST_SESSION_ESTABLISHED,
+        DistSessionEventType::VAL_DATA_INGEST_SESSION_TERMINATED
+    };
+
+    for (auto evEnum : eventEnums) {
+        std::shared_ptr<DistSessionEventType> evPtr = nullptr;
+        evPtr.reset(new DistSessionEventType());
+        *evPtr = evEnum;
+        events.push_back(EventListItemType(std::move(evPtr)));
+    }
+
+    subscription.reset(new DistSessionSubscription());
+
+    subscription->setEventList(std::move(events));
+    std::string notif_url = make_dist_session_subscription_notif_url(user_data_ing_session_id, context_data_ptr->distSessionInfoKey);
+    if (!notif_url.empty()) {
+        subscription->setNotifyUri(std::move(notif_url));
+    }
+    std::string notify_correlation_id = make_mbstf_dist_session_subscription_notify_correlation_id(user_data_ing_session_id, context_data_ptr->distSessionInfoKey);
+    if (!notify_correlation_id.empty()) {
+        subscription->setNotifyCorrelationId(std::move(notify_correlation_id));
+    }
+    //context_data_ptr->distributionSessionInfo->addSubscription(subscription);
+    return subscription;
+}
+
+static std::string make_mbstf_dist_session_subscription_notify_correlation_id(const std::string &user_data_ing_session_id, const std::string &dist_session_info_key)
+{
+    return std::format("{}/{}", user_data_ing_session_id, dist_session_info_key);
+}
+
+static std::string make_dist_session_subscription_notif_url(const std::string &user_data_ing_session_id, const std::string &dist_session_info_key)
+{
+
+    ogs_sbi_header_t header;
+    memset(&header, 0, sizeof(header));
+    std::string notif_url;
+    char *notification_url = nullptr;
+    header.service.name = (char*)"notify";
+    header.api.version = (char*)"v1";
+    //header.resource.component[0] = (char*)"notification";
+
+    std::shared_ptr<Open5GSSBIServer> server = nullptr;
+
+    if (!App::self().context()->MBSFNotificationServers().empty()) {
+        server = App::self().context()->MBSFNotificationServers().front();
+    }
+    if (server) {
+
+        header.resource.component[0] = (char*)user_data_ing_session_id.c_str();
+        header.resource.component[1] = (char*)dist_session_info_key.c_str();
+	notification_url =  ogs_sbi_server_uri(server->ogsSBIServer(), &header);
+    }
+    if(notification_url) {
+
+	notif_url = std::string(notification_url);
+	ogs_free(notification_url);
+    }
+    return notif_url;
+}
+
 static std::shared_ptr< DistSession > build_nmb2_create_dist_session(std::shared_ptr<UserDataIngSession> ing_session, std::shared_ptr< UserDataIngSession::ContextData > context_data_ptr)
 {
     std::shared_ptr< ObjDistributionData > mbstf_obj_distribution_data = nullptr;
@@ -407,6 +494,8 @@ static std::shared_ptr< DistSession > build_nmb2_create_dist_session(std::shared
     std::string mbr = UserDataIngSession::maxContBitRate(context_data_ptr->info);
     //std::shared_ptr< DistSessionState > dist_sess_state = ing_session->getDistSessionState();
 
+    std::shared_ptr<DistSessionSubscription> subscription = make_mbstf_dist_session_subscription(ing_session->userDataIngSessionId(), context_data_ptr);
+
     dist_session.reset(new DistSession());
     if(mbstf_obj_distribution_data) dist_session->setObjDistributionData(mbstf_obj_distribution_data);
     if(mbstf_pkt_distribution_data) dist_session->setPktDistributionData(mbstf_pkt_distribution_data);
@@ -417,6 +506,7 @@ static std::shared_ptr< DistSession > build_nmb2_create_dist_session(std::shared
     dist_session->setMaxDelay(context_data_ptr->info->getMaxContDelay());
     dist_session->setFecInformation(context_data_ptr->info->getFecConfig());
     dist_session->setDscpMarking(context_data_ptr->info->getTrafficMarkingInfo());
+    dist_session->setDistSessionSubscription(subscription);
 
     ing_session->currentDistSessionState(*dist_session_state);
 

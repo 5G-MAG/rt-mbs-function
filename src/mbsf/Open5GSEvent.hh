@@ -50,6 +50,7 @@ public:
     Open5GSSBIRequest sbiRequest(bool take_ownership=false) const { return Open5GSSBIRequest(m_event?(m_event->sbi.request):nullptr, take_ownership); };
     Open5GSSBIResponse sbiResponse(bool take_ownership=false) const { return Open5GSSBIResponse(m_event?(m_event->sbi.response):nullptr, take_ownership); };
     void *sbiData() const { return m_event?(m_event->sbi.data):nullptr; };
+    int sbiState() const { return m_event?(m_event->sbi.state):OGS_ERROR; };
     Open5GSSBIMessage sbiMessage() const { return Open5GSSBIMessage(m_event?(m_event->sbi.message):nullptr, false); };
     void sbiMessage(Open5GSSBIMessage &message) { if (!m_event) return; m_event->sbi.message = message.ogsSBIMessage(); };
     void sbiResponse(Open5GSSBIResponse &response) { if (!m_event) return; m_event->sbi.response = response.ogsSBIResponse(); };

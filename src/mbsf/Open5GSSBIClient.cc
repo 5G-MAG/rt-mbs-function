@@ -47,7 +47,6 @@ Open5GSSBIClient::Open5GSSBIClient(ogs_sbi_client_t *client)
 Open5GSSBIClient::Open5GSSBIClient(const std::string &url)
 {
 
-    ogs_sbi_client_t *client = NULL;
     OpenAPI_uri_scheme_e scheme = OpenAPI_uri_scheme_NULL;
     ogs_sockaddr_t *addr = NULL;
     ogs_sockaddr_t *addr6 = NULL;
@@ -61,7 +60,7 @@ Open5GSSBIClient::Open5GSSBIClient(const std::string &url)
          throw std::runtime_error("Failed to get sockaddr from uri!");
      }
      m_ogsClient = ogs_sbi_client_add(scheme, fqdn, fqdn_port, addr, addr6);
-     ogs_assert(client);
+     ogs_assert(m_ogsClient);
      if(fqdn) ogs_free(fqdn);
      if(addr) ogs_freeaddrinfo(addr);
      if(addr6) ogs_freeaddrinfo(addr6);
@@ -80,7 +79,7 @@ Open5GSSBIClient::Open5GSSBIClient(const char *hostname, int port)
     }
 
     if (addr == nullptr) {
-        ogs_error("Could not get the address of the Application Server");
+        ogs_error("Could not get the address of the Application Function");
         throw std::runtime_error("Unable to get client address!");
     }
 
