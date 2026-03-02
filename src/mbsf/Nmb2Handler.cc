@@ -80,24 +80,35 @@ static void send_error(ogs_sbi_xact_t *xact);
 static void remove_xact(ogs_sbi_xact_t *xact);
 static bool valid_content_type(Open5GSSBIMessage &message);
 
+static const NfServer::InterfaceMetadata g_nmbsf_userdataingstatsubsc_api_metadata(
+    NMBSF_MBS_UD_INGEST_API_NAME,
+    NMBSF_MBS_UD_INGEST_API_VERSION
+);
+
 bool Nmb2Handler::processEvent(Open5GSEvent &event)
 {
     switch (event.id()) {
 
     case OGS_EVENT_SBI_SERVER:
     {
-	ogs_sbi_stream_t *ogs_stream = nullptr;
-        ogs_pool_id_t stream_id = OGS_POINTER_TO_UINT(reinterpret_cast<ogs_sbi_stream_t*>(event.sbiData()));
-	ogs_stream = reinterpret_cast<ogs_sbi_stream_t*>(ogs_sbi_stream_find_by_id(stream_id));
-	if(!ogs_stream) return false;
+        ogs_pool_id_t stream_id = OGS_POINTER_TO_UINT(event.sbiData());
+        Open5GSSBIStream stream;
+        try {
+            stream = Open5GSSBIStream(stream_id);
+        } catch (std::runtime_error &ex) {
+            ogs_error("%s", ex.what());
+            return false;
+        }
 
-	Open5GSSBIRequest request(event.sbiRequest());
+        Open5GSSBIRequest request(event.sbiRequest());
 
         Open5GSSBIMessage message;
-	Open5GSSBIStream stream(stream_id);
 
         Open5GSSBIServer server(stream.server());
-	std::shared_ptr<UserDataIngSession::UserDataIngDistSessId> user_data_ing_sess_dist_sess_id = nullptr;
+
+        if (!App::self().context()->serverIsType(server, Context::MBS_NOTIFICATION_LISTENER)) return false;
+
+        std::shared_ptr<UserDataIngSession::UserDataIngDistSessId> user_data_ing_sess_dist_sess_id = nullptr;
 
         try {
             message.parseHeader(request);
@@ -106,11 +117,11 @@ bool Nmb2Handler::processEvent(Open5GSEvent &event)
             return false;
         }
 
-	std::string method(message.method());
+        std::string method(message.method());
         if (method == OGS_SBI_HTTP_METHOD_POST) {
 
-	    std::string service_name(message.serviceName());
-	    if (service_name != "notify") return false;
+            std::string service_name(message.serviceName());
+            if (service_name != "notify") return false;
 
             std::string resource0(message.resourceComponent(0));
             std::string resource1(message.resourceComponent(1));
@@ -119,13 +130,13 @@ bool Nmb2Handler::processEvent(Open5GSEvent &event)
                 return false;
             }
             std::shared_ptr<UserDataIngSession> ing_sess = nullptr;
-	    CJson notification_from_mbstf(CJson::Null);
+            CJson notification_from_mbstf(CJson::Null);
             try {
                 notification_from_mbstf = CJson::parse(request.content());
             } catch (std::exception &ex) {
                 static const char *err = "Unable to parse Notification from MBSTF as JSON.";
                 ogs_error("%s", err);
-	        ogs_assert(true == Open5GSSBIServer::sendError(stream, std::nullopt, ProblemCause::INBOUND_SERVER_ERROR,
+                ogs_assert(true == Open5GSSBIServer::sendError(stream, std::nullopt, ProblemCause::INBOUND_SERVER_ERROR,
                                                                       "Bad Notification received from MBSTF"));
                 return true;
             }
@@ -135,29 +146,32 @@ bool Nmb2Handler::processEvent(Open5GSEvent &event)
             }
 
             try {
-                std::shared_ptr<UserDataIngSession> ing_sess = UserDataIngSession::find(resource0);
+                ing_sess = UserDataIngSession::find(resource0);
             } catch (const std::out_of_range &e) {
-		static const char *err = "Unable to retrieve the Distribution Session associated with the Notification from MBSTF.";
+                static const char *err = "Unable to retrieve the Distribution Session associated with the Notification from MBSTF.";
                 ogs_error("%s", err);
-		ogs_assert(true == Open5GSSBIServer::sendError(stream, std::nullopt, ProblemCause::INBOUND_SERVER_ERROR,
+                ogs_assert(true == Open5GSSBIServer::sendError(stream, std::nullopt, ProblemCause::INBOUND_SERVER_ERROR,
                                                                       "Unable to retrieve the associated Distribution Session"));
                 return true;
-           }
+            }
 
-
-	    user_data_ing_sess_dist_sess_id.reset(new UserDataIngSession::UserDataIngDistSessId(resource0, resource1));
-            std::shared_ptr< UserDataIngSession::ContextData > context_data = UserDataIngSession::getContextData(user_data_ing_sess_dist_sess_id);
-	    if (!context_data || !context_data->distributionSessionInfo) {
+            user_data_ing_sess_dist_sess_id.reset(new UserDataIngSession::UserDataIngDistSessId(resource0, resource1));
+            std::shared_ptr<UserDataIngSession::ContextData> context_data = UserDataIngSession::getContextData(user_data_ing_sess_dist_sess_id);
+            if (!context_data || !context_data->distributionSessionInfo) {
                 static const char *err = "Unable to retrieve the Distribution Session associated with the Notification from MBSTF.";
                 ogs_error("%s", err);
 
-	        ogs_assert(true == Open5GSSBIServer::sendError(stream, std::nullopt, ProblemCause::INBOUND_SERVER_ERROR,
+                ogs_assert(true == Open5GSSBIServer::sendError(stream, std::nullopt, ProblemCause::INBOUND_SERVER_ERROR,
                                                                       "Unable to retrieve the associated Distribution Session"));
                 return true;
-	    }
+            }
             context_data->distributionSessionInfo->processStatusNotifyReqData(ing_sess, notification_from_mbstf, true);
-	    return true;
-	}
+            const NfServer::AppMetadata &app_meta = App::self().mbsfAppMetadata();
+            std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(std::nullopt, std::nullopt, std::nullopt, std::nullopt, 0, std::nullopt, g_nmbsf_userdataingstatsubsc_api_metadata, app_meta));
+            NfServer::populateResponse(response, "", OGS_SBI_HTTP_STATUS_NO_CONTENT);
+            ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *response));
+            return true;
+        }
     }
 
     case OGS_EVENT_SBI_CLIENT:

@@ -48,6 +48,7 @@ MBSF_NAMESPACE_START
 class DistributionSessionInfoSubscriptions;
 class ServiceInfo;
 class SubscribedEvents;
+class UserDataIngSession;
 class UniqueMbsSessionId;
 
 class DistributionSessionInfo : public std::enable_shared_from_this<DistributionSessionInfo> {
@@ -102,7 +103,6 @@ private:
     std::shared_ptr<reftools::mbsf::MBSDistributionSessionInfo> m_mbsDistributionSessionInfo;
     std::map<std::string, DistributionSessionInfoSubscription> m_eventSubscriptions;
     SubscribedEvents m_eventTimestamps;
-    std::optional<std::string> m_subscriptionLocation;
     std::shared_ptr<reftools::mbsf::StatusNotifyReqData> m_statusNotifyReqData;
     std::unique_ptr<DistributionSessionInfoSubscription> m_mbsDistributionSessionInfoSubscription;
     std::recursive_mutex m_mutex;

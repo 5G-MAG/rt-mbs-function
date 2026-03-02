@@ -30,6 +30,7 @@
 #include "ogs-app.h"
 
 #include "common.hh"
+#include "UserDataIngSession.hh"
 #include "openapi/model/MbsSessionId.h"
 
 namespace reftools::mbsf {
@@ -44,7 +45,6 @@ class Open5GSSBIClient;
 class Open5GSSockAddr;
 class Open5GSYamlIter;
 class UserService;
-class UserDataIngSession;
 class UserDataIngStatSubsc;
 class UniqueMbsSessionId;
 
@@ -89,20 +89,22 @@ public:
 
     int load();
 
-    void assignNotificationServer();
-    const ogs_sockaddr_t *contextGetNotificationAddress();
-    ogs_sbi_server_t *newSbiServer(const ogs_sockaddr_t *address);
+    std::string assignNotificationServer(const std::shared_ptr<UserDataIngSession::UserDataIngDistSessId> &id);
+    void freeNotificationServer(const std::string &notif_url);
+    const std::shared_ptr<UserDataIngSession::UserDataIngDistSessId> &findDistSessIdFromUrl(const std::string &notif_url) const;
+    std::shared_ptr<Open5GSSBIServer> newSbiServer(const ogs_sockaddr_t *address);
 
-     std::map<std::string, std::shared_ptr<UserDataIngStatSubsc> > &userDataIngStatSubscs() { return m_userDataIngStatSubscs;};
-
+    std::map<std::string, std::shared_ptr<UserDataIngStatSubsc> > &userDataIngStatSubscs() { return m_userDataIngStatSubscs;};
 
     enum ServerType {
         OPEN5GS_SBI_SERVER,
         MBS_USER_SERVICES,
         MBS_USER_DATA_INGEST_SESSION,
-	MBS_NOTIFICATION_LISTENER,
+        MBS_NOTIFICATION_LISTENER,
         SERVER_MAX_NUM
     };
+
+    bool serverIsType(const Open5GSSBIServer &server, ServerType typ) const;
 
     std::map<std::string, std::shared_ptr<UserService> > UserServices;
 
@@ -123,13 +125,15 @@ public:
 
     std::optional<std::string> allowedMulticastRange;
 
-    ogs_sockaddr_t *notification_bind_address;
+    ogs_sockaddr_t *notificationBindAddress;
 
 private:
     void parseCacheControl(Open5GSYamlIter &iter);
-    void parseConfiguration(std::string &pc_key, Open5GSYamlIter &iter);
-    int parseNotificationConfig(std::string &pc_key, Open5GSYamlIter &iter);
-    const std::shared_ptr<Open5GSSBIServer> &findServerForAddr(ogs_socknode_t *node);
+    void parseConfiguration(const std::string &pc_key, Open5GSYamlIter &iter);
+    int parseNotificationConfig(const std::string &pc_key, Open5GSYamlIter &iter);
+    std::shared_ptr<Open5GSSBIServer> getServerForAddr(const ogs_sockaddr_t *addr, int add_to_server_type);
+    const std::shared_ptr<Open5GSSBIServer> &findServerForAddr(const ogs_sockaddr_t *addr) const;
+    const std::shared_ptr<Open5GSSBIServer> &findServerForAddr(const ogs_socknode_t *node) const;
 
     std::shared_ptr<std::recursive_mutex> m_userDataIngSessMutex;
     std::map<std::string, std::weak_ptr<UserService> > m_userDataIngSessIndex;
@@ -139,6 +143,9 @@ private:
 
     std::shared_ptr<std::recursive_mutex> m_userDataIngStatSubscMutex;
     std::map<std::string, std::shared_ptr<UserDataIngStatSubsc> > m_userDataIngStatSubscs;
+
+    std::shared_ptr<std::recursive_mutex> m_notifServerMapMutex;
+    std::map<std::string, std::shared_ptr<UserDataIngSession::UserDataIngDistSessId> > m_notifServerMap;
 };
 
 MBSF_NAMESPACE_STOP

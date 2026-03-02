@@ -105,6 +105,8 @@ libmbsf_dist_sources = files('''
     Open5GSNetworkFunction.hh
     Open5GSSBIClient.cc
     Open5GSSBIClient.hh
+    Open5GSSBIHeader.cc
+    Open5GSSBIHeader.hh
     Open5GSSBIObject.cc
     Open5GSSBIObject.hh
     Open5GSSBIMessage.cc

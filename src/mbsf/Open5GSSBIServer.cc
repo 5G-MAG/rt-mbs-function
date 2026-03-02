@@ -31,6 +31,7 @@
 #include "Open5GSTimer.hh"
 #include "Open5GSYamlDocument.hh"
 #include "Open5GSSBIStream.hh"
+#include "Open5GSSBIHeader.hh"
 #include "openapi/model/ProblemCause.hh"
 
 #include "Open5GSSBIServer.hh"
@@ -82,6 +83,19 @@ bool Open5GSSBIServer::sendResponse(Open5GSSBIStream &stream, Open5GSSBIResponse
 {
     response.setOwner(false); // ogs_sbi_response is being passed to ogs_sbi_server now
     return ogs_sbi_server_send_response(stream.ogsSBIStream(), response.ogsSBIResponse());
+}
+
+std::string Open5GSSBIServer::makeUrl(Open5GSSBIHeader &header) const
+{
+    std::string ret;
+
+    char *url = ogs_sbi_server_uri(m_ogsServer, header.ogsSBIHeader());
+    if (url) {
+        ret = url;
+        ogs_free(url);
+    }
+
+    return ret;
 }
 
 MBSF_NAMESPACE_STOP

@@ -34,6 +34,7 @@
 #include "common.hh"
 #include "App.hh"
 #include "Open5GSNetworkFunction.hh"
+#include "Open5GSSBIHeader.hh"
 #include "Open5GSSBIServer.hh"
 #include "Open5GSSockAddr.hh"
 #include "Open5GSYamlDocument.hh"
@@ -61,12 +62,15 @@ Context::Context()
     ,cacheControl({60, 60, 60})
     ,capacity({100,100})
     ,allowedMulticastRange()
+    ,notificationBindAddress(nullptr)
     ,m_userDataIngSessMutex(new std::recursive_mutex)
     ,m_userDataIngSessIndex()
     ,m_mbsSessionIdsMutex(new std::recursive_mutex)
     ,m_mbsSessionIds()
     ,m_userDataIngStatSubscMutex(new std::recursive_mutex)
     ,m_userDataIngStatSubscs()
+    ,m_notifServerMapMutex(new std::recursive_mutex)
+    ,m_notifServerMap()
 {
 }
 
@@ -127,7 +131,7 @@ bool Context::parseConfig()
                      actPeriodEstablishedStateDuration = std::stoll( act_period_established_state_dur);
                 } else if (mbsf_key == "allowedMulticastRange" ) {
                     allowedMulticastRange = std::string(mbsf_iter.value());
-                } else if (mbsf_key == "mbsUserServices" || mbsf_key == "mbsUserDataIngestSession" || mbsf_key == "notificationListener") {
+                } else if (mbsf_key == "mbsUserServices" || mbsf_key == "mbsUserDataIngestSession") {
                     Open5GSYamlIter mbsUserServices_array(mbsf_iter);
                     do {
                         if (mbsUserServices_array.type() == YAML_MAPPING_NODE) {
@@ -139,11 +143,29 @@ bool Context::parseConfig()
                         } else if (mbsUserServices_array.type() == YAML_SCALAR_NODE) {
                             break;
                         } else {
-                            throw std::out_of_range("Bad configuration node at mbsf.mbsUserServices");
+                            throw std::out_of_range(std::format("Bad configuration node at mbsf.{}", mbsf_key));
                         }
 
                     } while (mbsUserServices_array.type() == YAML_SEQUENCE_NODE);
-
+                } else if (mbsf_key == "notificationListener") {
+                    Open5GSYamlIter notificationListener_iter(mbsf_iter);
+                    do {
+                        if (notificationListener_iter.type() == YAML_MAPPING_NODE) {
+                            if (parseNotificationConfig("mbsf.notificationListener", notificationListener_iter) != OGS_OK) {
+                                ogs_warn("Problem in mbsf.notificationListener section of configuration");
+                            }
+                        } else if (notificationListener_iter.type() == YAML_SEQUENCE_NODE) {
+                            if (!notificationListener_iter.next()) break;
+                            Open5GSYamlIter notificationListener_array_iter(notificationListener_iter);
+                            if (parseNotificationConfig("mbsf.notificationListener", notificationListener_array_iter) != OGS_OK) {
+                                ogs_warn("Problem in mbsf.notificationListener section of configuration");
+                            }
+                        } else if (notificationListener_iter.type() == YAML_SCALAR_NODE) {
+                            break;
+                        } else {
+                            throw std::out_of_range(std::format("Bad configuration node at mbsf.{}", mbsf_key));
+                        }
+                    } while (notificationListener_iter.type() == YAML_SEQUENCE_NODE);
                 } else {
                     ogs_warn("Unknown key `mbsf.%s` in configuration", mbsf_key.c_str());
                 }
@@ -307,7 +329,7 @@ void Context::deleteUserDataIngStatSubsc(const std::string &id)
     }
 }
 
-void Context::parseConfiguration(std::string &pc_key, Open5GSYamlIter &iter)   {
+void Context::parseConfiguration(const std::string &pc_key, Open5GSYamlIter &iter)   {
      ogs_list_t list, list6;
      ogs_socknode_t *node = NULL, *node6 = NULL;
      int rv;
@@ -419,28 +441,6 @@ void Context::parseConfiguration(std::string &pc_key, Open5GSYamlIter &iter)   {
                 servers[MBS_USER_SERVICES].push_back(new_server);
             } else if (pc_key == "mbsUserDataIngestSession") {
                 servers[MBS_USER_DATA_INGEST_SESSION].push_back(new_server);
-            } else if (pc_key == "notificationListener") {
-                servers[MBS_NOTIFICATION_LISTENER].push_back(new_server);
-               ogs_sbi_server_t *notif_server = new_server->ogsSBIServer();
-               ogs_sockaddr_t *notif_server_addr = notif_server->node.addr;
-
-               if (notif_server) {
-                    if ((notif_server_addr->ogs_sa_family == AF_INET && notif_server_addr->sin.sin_port == 0) ||
-                        (notif_server_addr->ogs_sa_family == AF_INET6 && notif_server_addr->sin6.sin6_port == 0)) {
-                        /* Retrieve bound address to get port number of ephemeral port */
-
-                        ogs_sbi_server_actions.start(notif_server, ogs_sbi_server_handler);
-                        char buf[OGS_ADDRSTRLEN];
-                        socklen_t len = ogs_sockaddr_len(&notif_server->node.sock->local_addr);
-                        getsockname(notif_server->node.sock->fd, (struct sockaddr*)&notif_server->node.sock->local_addr, &len);
-                        ogs_freeaddrinfo(notif_server->node.addr);
-                        ogs_copyaddrinfo(&notif_server->node.addr, &notif_server->node.sock->local_addr);
-                        ogs_info("Ephemeral notification server(%s) [%s://%s]:%u", notif_server->interface ? notif_server->interface : "",
-                        notif_server->ssl_ctx ? "https" : "http", OGS_ADDR(notif_server->node.addr, buf), OGS_PORT(notif_server->node.addr));
-                        ogs_sbi_server_actions.stop(notif_server);
-                    }
-
-                }
 	    }
         }
     }
@@ -457,8 +457,6 @@ void Context::parseConfiguration(std::string &pc_key, Open5GSYamlIter &iter)   {
                 servers[MBS_USER_SERVICES].push_back(new_server);
             } else if (pc_key == "mbsUserDataIngestSession") {
                 servers[MBS_USER_DATA_INGEST_SESSION].push_back(new_server);
-            } else if (pc_key == "notificationListener") {
-               servers[MBS_NOTIFICATION_LISTENER].push_back(new_server);
             }
         }
     }
@@ -496,70 +494,56 @@ std::vector <std::shared_ptr<Open5GSSockAddr> > Context::MBSFUserDataIngestSessi
 }
 
 
-int Context::parseNotificationConfig(std::string &pc_key, Open5GSYamlIter &iter) {
-    Open5GSYamlIter child_iter(iter);
+int Context::parseNotificationConfig(const std::string &pc_key, Open5GSYamlIter &iter) {
     const char *addr = nullptr;
     uint16_t port = 0;
 
     // Iterate through the keys inside the current block (e.g., address, port)
-    while (child_iter.next()) {
-        std::string key(child_iter.key());
+    while (iter.next()) {
+        std::string key(iter.key());
 
         if (key == "addr") {
-            addr = child_iter.value();
+            addr = iter.value();
         } else if (key == "port") {
-            const char *v = child_iter.value();
+            const char *v = iter.value();
             if (v) {
                 char *end_ptr = nullptr;
                 unsigned long num = strtoul(v, &end_ptr, 0);
 
                 if (!end_ptr || *end_ptr || num >= 65536) {
-                    ogs_error("[%s] Notification port (%s) must be 0-65535",
-                              pc_key.c_str(), v);
+                    ogs_error("Notification port (%s) must be 0-65535", v);
 		    return OGS_ERROR;
                 } else {
                     port = (uint16_t)num;
                 }
             }
         } else {
-            ogs_warn("[%s] unknown key `%s`", pc_key.c_str(), key.c_str());
+            ogs_warn("Unknown key `%s.%s`", pc_key.c_str(), key.c_str());
         }
     }
 
     // Process the collected configuration
     if (addr) {
         /* Resolve hostname/IP and fill notification_bind_address */
-        if (ogs_getaddrinfo(&notification_bind_address, AF_UNSPEC, addr, port,
+        if (ogs_getaddrinfo(&notificationBindAddress, AF_UNSPEC, addr, port,
                             AI_V4MAPPED | AI_ADDRCONFIG | AI_PASSIVE) != OGS_OK) {
-            ogs_error("[%s] Could not get address info for %s", pc_key.c_str(), addr);
+            ogs_error("[%s.address] Could not get address info for %s", pc_key.c_str(), addr);
             return OGS_ERROR;
         }
     } else {
         /* Default to IPv4 Any (0.0.0.0) if only port is provided */
-        if (notification_bind_address) {
-            ogs_freeaddrinfo(notification_bind_address);
-        }
-
-        notification_bind_address = (ogs_sockaddr_t*)ogs_calloc(1, sizeof(ogs_sockaddr_t));
-        ogs_assert(notification_bind_address);
-        notification_bind_address->ogs_sa_family = AF_INET;
-        notification_bind_address->ogs_sin_port = htons(port);
+        if (notificationBindAddress) ogs_freeaddrinfo(notificationBindAddress);
+        notificationBindAddress = (ogs_sockaddr_t*)ogs_calloc(1, sizeof(ogs_sockaddr_t));
+        ogs_assert(notificationBindAddress);
+        notificationBindAddress->ogs_sa_family = AF_INET;
+        notificationBindAddress->ogs_sin_port = htons(port);
     }
     return OGS_OK;
 }
 
-const ogs_sockaddr_t *Context::contextGetNotificationAddress()
+std::string Context::assignNotificationServer(const std::shared_ptr<UserDataIngSession::UserDataIngDistSessId> &dist_session_id)
 {
-    return notification_bind_address;
-}
-
-
-void Context::assignNotificationServer()
-{
-    std::vector <std::shared_ptr<Open5GSSBIServer> > notif_server = servers[MBS_NOTIFICATION_LISTENER];
-    if(!notif_server.empty()) return;
-
-    const ogs_sockaddr_t *notif_address = contextGetNotificationAddress();
+    const ogs_sockaddr_t *notif_address = notificationBindAddress;
 
     if (!notif_address) {
         /* if not configured, use ephemeral port on IPv4 any address */
@@ -567,50 +551,29 @@ void Context::assignNotificationServer()
         notif_address = &any_ephemeral_v4;
     }
 
-    bool is_ephemeral = false;
-    if (notif_address->ogs_sa_family == AF_INET) {
-        if (notif_address->sin.sin_port == 0) {
-            is_ephemeral = true;
-        }
-    } else if (notif_address->ogs_sa_family == AF_INET6) {
-        if (notif_address->sin6.sin6_port == 0) {
-            is_ephemeral = true;
-        }
+    Open5GSSBIHeader header;
+    header.serviceName("notify");
+    header.apiVersion("v1");
+
+    std::shared_ptr<Open5GSSBIServer> notification_server(getServerForAddr(notif_address, MBS_NOTIFICATION_LISTENER));
+    header.resourceComponent(0, dist_session_id->first.c_str());
+    header.resourceComponent(1, dist_session_id->second.c_str());
+
+    std::string notif_url = notification_server->makeUrl(header);
+    if (!notif_url.empty()) {
+        std::lock_guard<decltype(m_notifServerMapMutex)::element_type> lock(*m_notifServerMapMutex);
+        m_notifServerMap.insert(decltype(m_notifServerMap)::value_type(notif_url, dist_session_id));
     }
-
-    ogs_sbi_header_t header;
-    memset(&header, 0, sizeof(header));
-    header.service.name = (char*)"notify";
-    header.api.version = (char*)"v1";
-
-    if (is_ephemeral) {
-        /* ephemeral port, allocate new server, notifications to come in at root */
-        ogs_sbi_server_t *new_notif_server = newSbiServer(notif_address);
-        std::shared_ptr<Open5GSSBIServer> new_notification_server = nullptr;
-	new_notification_server.reset(new Open5GSSBIServer(new_notif_server));
-	servers[MBS_NOTIFICATION_LISTENER].push_back(new_notification_server);
-	notif_server = servers[MBS_NOTIFICATION_LISTENER];
-        if(!notif_server.empty()) {
-
-            header.resource.component[0] = (char*)"notification";
-        }
-    } else {
-	ogs_sbi_server_t *new_notif_server = newSbiServer(notif_address);
-        if (new_notif_server) {
-            ogs_uuid_t uuid;
-            char id[OGS_UUID_FORMATTED_LENGTH + 1];
-
-            ogs_uuid_get(&uuid);
-            ogs_uuid_format(id, &uuid);
-            header.resource.component[0] = id;
-	    std::shared_ptr<Open5GSSBIServer> new_notification_server = nullptr;
-            new_notification_server.reset(new Open5GSSBIServer(new_notif_server));
-            servers[MBS_NOTIFICATION_LISTENER].push_back(new_notification_server);
-        }
-    }
+    return notif_url;
 }
 
-ogs_sbi_server_t *Context::newSbiServer(const ogs_sockaddr_t *address)
+void Context::freeNotificationServer(const std::string &notif_url)
+{
+    auto it = m_notifServerMap.find(notif_url);
+    if (it != m_notifServerMap.end()) m_notifServerMap.erase(it);
+}
+
+std::shared_ptr<Open5GSSBIServer> Context::newSbiServer(const ogs_sockaddr_t *address)
 {
     ogs_sbi_server_t *svr = ogs_sbi_server_add(NULL, OpenAPI_uri_scheme_http, (ogs_sockaddr_t*)address, NULL);
     if (svr) {
@@ -627,7 +590,7 @@ ogs_sbi_server_t *Context::newSbiServer(const ogs_sockaddr_t *address)
                      svr->ssl_ctx ? "https" : "http", OGS_ADDR(svr->node.addr, buf), OGS_PORT(svr->node.addr));
         }
     }
-    return svr;
+    return std::shared_ptr<Open5GSSBIServer>(new Open5GSSBIServer(svr));
 }
 
 std::vector <std::shared_ptr<Open5GSSBIServer> > Context::MBSFNotificationServers()
@@ -640,18 +603,58 @@ int Context::load()
     return UserDataIngSession::numberOfDistributionSessions();
 }
 
-const std::shared_ptr<Open5GSSBIServer> &Context::findServerForAddr(ogs_socknode_t *node)
+std::shared_ptr<Open5GSSBIServer> Context::getServerForAddr(const ogs_sockaddr_t *addr, int add_to_server_type)
 {
-    int i = 0;
-    for (i=0; i<SERVER_MAX_NUM; i++) {
-        for (const auto &srv : servers[i]) {
-            if (srv && ogs_sockaddr_is_equal(node->addr, srv->ogsSBIServer()->node.addr)) {
-                return srv;
+    std::shared_ptr<Open5GSSBIServer> svr = findServerForAddr(addr);
+    if (!svr) {
+        svr = newSbiServer(addr);
+        servers[add_to_server_type].push_back(svr);
+    } else {
+        auto it = std::find(servers[add_to_server_type].begin(), servers[add_to_server_type].end(), svr);
+        if (it == servers[add_to_server_type].end()) servers[add_to_server_type].push_back(svr);
+    }
+    return svr;
+}
+
+const std::shared_ptr<Open5GSSBIServer> &Context::findServerForAddr(const ogs_sockaddr_t *addr) const
+{
+    if (addr) {
+        int i = 0;
+        for (i=0; i<SERVER_MAX_NUM; i++) {
+            for (const auto &srv : servers[i]) {
+                if (srv && ogs_sockaddr_is_equal(addr, srv->ogsSBIServer()->node.addr)) {
+                    return srv;
+                }
             }
         }
     }
     static const std::shared_ptr<Open5GSSBIServer>null_svr(nullptr);
     return null_svr;
+}
+
+const std::shared_ptr<Open5GSSBIServer> &Context::findServerForAddr(const ogs_socknode_t *node) const
+{
+    if (node) return findServerForAddr(node->addr);
+    static const std::shared_ptr<Open5GSSBIServer>null_svr(nullptr);
+    return null_svr;
+}
+
+bool Context::serverIsType(const Open5GSSBIServer &server, Context::ServerType typ) const
+{
+    if (typ >= SERVER_MAX_NUM) return false;
+    for (const auto &svr : servers[typ]) {
+        if (svr->ogsSBIServer() == server.ogsSBIServer()) return true;
+    }
+    return false;
+}
+
+const std::shared_ptr<UserDataIngSession::UserDataIngDistSessId> &Context::findDistSessIdFromUrl(const std::string &notif_url) const
+{
+    std::lock_guard<decltype(m_notifServerMapMutex)::element_type> lock(*m_notifServerMapMutex);
+    auto it = m_notifServerMap.find(notif_url);
+    if (it != m_notifServerMap.end()) return it->second;
+    static const std::shared_ptr<UserDataIngSession::UserDataIngDistSessId> null_dist_sess_id;
+    return null_dist_sess_id;
 }
 
 MBSF_NAMESPACE_STOP

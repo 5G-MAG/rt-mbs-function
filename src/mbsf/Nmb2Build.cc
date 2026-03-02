@@ -22,7 +22,6 @@
 #include "ogs-sbi.h"
 
 // standard template library includes
-#include <array>
 #include <chrono>
 #include <memory>
 #include <optional>
@@ -40,6 +39,7 @@
 #include <iostream>
 #include <random>
 #include <uuid/uuid.h>
+#include <vector>
 
 // App header includes
 #include "common.hh"
@@ -122,7 +122,8 @@ static std::shared_ptr< DistSessionState > populate_mbstf_dist_session_state(std
 static std::optional<std::shared_ptr< PktDistributionData > >  populate_mbstf_pkt_distribution_data(std::shared_ptr<MBSDistributionSessionInfo> mbs_dist_session_info);
 static std::shared_ptr<DistSessionSubscription> make_mbstf_dist_session_subscription(const std::string &user_data_ing_session_id, std::shared_ptr< UserDataIngSession::ContextData > context_data_ptr);
 static std::shared_ptr< DistSession > build_nmb2_create_dist_session(std::shared_ptr<UserDataIngSession> ing_session, std::shared_ptr< UserDataIngSession::ContextData > context_data_ptr);
-static std::string make_dist_session_subscription_notif_url(const std::string &user_data_ing_session_id, const std::string &dist_session_info_key);
+static std::string make_dist_session_subscription_notif_url(const std::string &user_data_ing_session_id,
+                                                            const std::string &dist_session_info_key);
 static std::string make_mbstf_dist_session_subscription_notify_correlation_id(const std::string &user_data_ing_session_id, const std::string &dist_session_info_key);
 static std::string generate_uuid();
 
@@ -391,40 +392,42 @@ static std::optional<std::shared_ptr< PktDistributionData > >  populate_mbstf_pk
 
 static std::shared_ptr<DistSessionSubscription> make_mbstf_dist_session_subscription(const std::string &user_data_ing_session_id, std::shared_ptr< UserDataIngSession::ContextData > context_data_ptr)
 {
-    std::shared_ptr<DistSessionSubscription> subscription = nullptr;
+    std::shared_ptr<DistSessionSubscription> subscription;
 
     using EventListType = DistSessionSubscription::EventListType;
-    using EventListItemType = DistSessionSubscription::EventListItemType;
 
-    EventListType events;
+    if (context_data_ptr->mbstfNotificationUrl.empty()) {
+        context_data_ptr->mbstfNotificationUrl = make_dist_session_subscription_notif_url(user_data_ing_session_id,
+                                                                                          context_data_ptr->distSessionInfoKey);
+    }
+    if (!context_data_ptr->mbstfNotificationUrl.empty()) {
+        EventListType events;
 
-    const std::array<DistSessionEventType::Enum, 6> eventEnums = {
-        DistSessionEventType::VAL_DATA_INGEST_FAILURE,
-        DistSessionEventType::VAL_SESSION_DEACTIVATED,
-        DistSessionEventType::VAL_SESSION_ACTIVATED,
-        DistSessionEventType::VAL_SERVICE_MANAGEMENT_FAILURE,
-        DistSessionEventType::VAL_DATA_INGEST_SESSION_ESTABLISHED,
-        DistSessionEventType::VAL_DATA_INGEST_SESSION_TERMINATED
-    };
+        const std::vector<DistSessionEventType::Enum> eventEnums = {
+            DistSessionEventType::VAL_DATA_INGEST_FAILURE,
+            DistSessionEventType::VAL_SESSION_DEACTIVATED,
+            DistSessionEventType::VAL_SESSION_ACTIVATED,
+            DistSessionEventType::VAL_SERVICE_MANAGEMENT_FAILURE,
+            DistSessionEventType::VAL_DATA_INGEST_SESSION_ESTABLISHED,
+            DistSessionEventType::VAL_DATA_INGEST_SESSION_TERMINATED
+        };
 
-    for (auto evEnum : eventEnums) {
-        std::shared_ptr<DistSessionEventType> evPtr = nullptr;
-        evPtr.reset(new DistSessionEventType());
-        *evPtr = evEnum;
-        events.push_back(EventListItemType(std::move(evPtr)));
+        for (auto evEnum : eventEnums) {
+            std::shared_ptr<DistSessionEventType> evPtr(new DistSessionEventType());
+            *evPtr = evEnum;
+            events.emplace_back(std::move(evPtr));
+        }
+        subscription.reset(new DistSessionSubscription());
+        subscription->setEventList(std::move(events));
+
+        subscription->setNotifyUri(context_data_ptr->mbstfNotificationUrl);
+
+        std::string notify_correlation_id = make_mbstf_dist_session_subscription_notify_correlation_id(user_data_ing_session_id, context_data_ptr->distSessionInfoKey);
+        if (!notify_correlation_id.empty()) {
+            subscription->setNotifyCorrelationId(std::move(notify_correlation_id));
+        }
     }
 
-    subscription.reset(new DistSessionSubscription());
-
-    subscription->setEventList(std::move(events));
-    std::string notif_url = make_dist_session_subscription_notif_url(user_data_ing_session_id, context_data_ptr->distSessionInfoKey);
-    if (!notif_url.empty()) {
-        subscription->setNotifyUri(std::move(notif_url));
-    }
-    std::string notify_correlation_id = make_mbstf_dist_session_subscription_notify_correlation_id(user_data_ing_session_id, context_data_ptr->distSessionInfoKey);
-    if (!notify_correlation_id.empty()) {
-        subscription->setNotifyCorrelationId(std::move(notify_correlation_id));
-    }
     //context_data_ptr->distributionSessionInfo->addSubscription(subscription);
     return subscription;
 }
@@ -434,9 +437,10 @@ static std::string make_mbstf_dist_session_subscription_notify_correlation_id(co
     return std::format("{}/{}", user_data_ing_session_id, dist_session_info_key);
 }
 
-static std::string make_dist_session_subscription_notif_url(const std::string &user_data_ing_session_id, const std::string &dist_session_info_key)
+static std::string make_dist_session_subscription_notif_url(const std::string &user_data_ing_session_id,
+                                                            const std::string &dist_session_info_key)
 {
-
+#if 0
     ogs_sbi_header_t header;
     memset(&header, 0, sizeof(header));
     std::string notif_url;
@@ -462,6 +466,12 @@ static std::string make_dist_session_subscription_notif_url(const std::string &u
 	ogs_free(notification_url);
     }
     return notif_url;
+#else
+    return App::self().context()->assignNotificationServer(
+                std::shared_ptr<UserDataIngSession::UserDataIngDistSessId>(
+                        new UserDataIngSession::UserDataIngDistSessId{user_data_ing_session_id,dist_session_info_key}
+                ));
+#endif
 }
 
 static std::shared_ptr< DistSession > build_nmb2_create_dist_session(std::shared_ptr<UserDataIngSession> ing_session, std::shared_ptr< UserDataIngSession::ContextData > context_data_ptr)

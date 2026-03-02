@@ -54,6 +54,7 @@ MBSF_NAMESPACE_START
 class Open5GSEvent;
 class Open5GSSBIRequest;
 class Open5GSSBIObject;
+class Open5GSTimer;
 class ActivePeriods;
 class AlwaysActive;
 class MBSMFMBSSession;
@@ -102,6 +103,7 @@ public:
         std::string mbstfDistSessionId;
         bool distSessionState;
         mb_smf_sc_tmgi_t *tmgi = nullptr;
+        std::string mbstfNotificationUrl;
     };
 
     UserDataIngSession(fiveg_mag_reftools::CJson &json, bool as_request);
@@ -220,7 +222,7 @@ public:
 
     static void removeDistributionSessionInfos(void *data);
 
-    static std::shared_ptr< ContextData > getContextData(std::shared_ptr<UserDataIngDistSessId> &ids);
+    static std::shared_ptr< ContextData > getContextData(const std::shared_ptr<UserDataIngDistSessId> &ids);
 
     bool checkIfAllMBSSessionResponsesReceived();
     void handleFailedMBSSession();
