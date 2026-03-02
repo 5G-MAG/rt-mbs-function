@@ -43,7 +43,7 @@
 #include "openapi/model/EventNotification.h"
 #include "openapi/model/SubscribedEvent.h"
 #include "openapi/model/Event.h"
-#include "openapi/api/IndividualMBSUserDataIngestSessionStatusSubscriptionDocumentApi-info.h"
+#include "openapi/api/IndividualMBSUserDataIngestSessionDocumentApi-info.h"
 
 
 #include "utilities.hh"

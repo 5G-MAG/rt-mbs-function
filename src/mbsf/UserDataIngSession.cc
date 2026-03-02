@@ -1691,7 +1691,7 @@ void UserDataIngSession::rollbackMBSTFDistSessionState(ogs_sbi_xact_t *xact)
 }
 
 
-std::shared_ptr< UserDataIngSession::ContextData > UserDataIngSession::getContextData(std::shared_ptr<UserDataIngDistSessId> &ids)
+std::shared_ptr< UserDataIngSession::ContextData > UserDataIngSession::getContextData(const std::shared_ptr<UserDataIngDistSessId> &ids)
 {
     try {
         std::shared_ptr<UserDataIngSession> ing_sess = find(ids->first);
