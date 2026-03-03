@@ -222,6 +222,11 @@ UserDataIngStatSubsc &UserDataIngStatSubsc::modify(CJson &json, bool as_request)
 UserDataIngStatSubsc &UserDataIngStatSubsc::update(CJson &json, bool as_request)
 {
     MBSUserDataIngStatSubsc tmp(json, as_request);
+    
+    if (tmp.getMbsIngSessionId() != m_mbsUserDataIngStatSubsc.getMbsIngSessionId()) {
+        throw ModelException("Cannot update MBSUserDataIngStatSubsc.mbsIngSessionId", "UserDataIngStatSubsc", "mbsIngSessionId", ProblemCause::MODIFICATION_NOT_ALLOWED);
+    }
+    
     std::swap(m_mbsUserDataIngStatSubsc, tmp);
     resetEventSubscriptions();
     processEventSubscs();
