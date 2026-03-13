@@ -37,7 +37,7 @@ scriptdir=`cd "$scriptdir"; pwd`
 
 # Command line option defaults
 default_branch='REL-18'
-default_apis="TS29580_Nmbsf_MBSUserService TS29580_Nmbsf_MBSUserDataIngestSession TS29581_Nmbstf_DistSession"
+default_apis="TS29580_Nmbsf_MBSUserService TS29580_Nmbsf_MBSUserDataIngestSession TS29581_Nmbstf_DistSession TS26517_MBSUserServiceAnnouncement"
 default_cache_dir="${MESON_BUILD_ROOT:+$MESON_BUILD_ROOT/$MESON_SUBDIR/openapi-generator-cache}"
 
 # Parse command line arguments

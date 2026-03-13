@@ -50,10 +50,14 @@ libmbsf_dist_sources = files('''
     ActivePeriodsBase.hh
     ActivePeriodsRepRule.cc
     ActivePeriodsRepRule.hh
+    ApplicationServiceDesc.cc
+    ApplicationServiceDesc.hh
     AllocationRetentionPriority.cc
     AllocationRetentionPriority.hh
     AssociatedSessId.cc
     AssociatedSessId.hh
+    AvailabilityInfo.cc
+    AvailabilityInfo.hh
     common.cc
     common.hh
     CaseInsensitiveTraits.hh
@@ -63,6 +67,8 @@ libmbsf_dist_sources = files('''
     Context.hh
     DistributionSessionInfo.cc
     DistributionSessionInfo.hh
+    DistributionSessionDesc.cc
+    DistributionSessionDesc.hh
     DistributionSessionInfoSubscription.cc
     DistributionSessionInfoSubscription.hh
     DistributionSessionNotificationEvent.cc
@@ -99,6 +105,8 @@ libmbsf_dist_sources = files('''
     Nmb2Build.hh
     Nmb2Handler.cc
     Nmb2Handler.hh
+    ObjRepairParameters.cc
+    ObjRepairParameters.hh
     Open5GSEvent.hh
     Open5GSFSM.hh
     Open5GSNetworkFunction.cc
@@ -131,6 +139,8 @@ libmbsf_dist_sources = files('''
     ServiceInfo.hh
     SubscribedEvents.cc
     SubscribedEvents.hh
+    ServiceScheduleDesc.cc
+    ServiceScheduleDesc.hh
     TimerFunc.hh
     TrackingAreaIdentity.cc
     TrackingAreaIdentity.hh
@@ -144,6 +154,8 @@ libmbsf_dist_sources = files('''
     UserDataIngStatSubsc.hh
     UserService.cc
     UserService.hh
+    UserServiceDesc.cc
+    UserServiceDesc.hh
     utilities.cc
     utilities.hh
 '''.split())

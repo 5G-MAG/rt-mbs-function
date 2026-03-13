@@ -27,6 +27,7 @@
 #include <memory>
 #include "openapi/model/MBSUserService.h"
 #include "common.hh"
+#include "UserServiceDesc.hh"
 
 namespace fiveg_mag_reftools {
     class CJson;
@@ -34,7 +35,9 @@ namespace fiveg_mag_reftools {
 
 MBSF_NAMESPACE_START
 
+class DistributionSessionDesc;
 class Open5GSEvent;
+class UserServiceDesc;
 
 class UserService {
 public:
@@ -60,9 +63,15 @@ public:
     void update(fiveg_mag_reftools::CJson &json, bool as_request);
     const std::string &userServiceId() const { return m_UserServiceId; };
     const std::shared_ptr<reftools::mbsf::MBSUserService> &getMBSUserService() const {return m_MBSUserService;};
+    const reftools::mbsf::MBSUserService::ExtServiceIdsType &serviceIds() const {return m_MBSUserService->getExtServiceIds();};
+    const std::string &serviceClass() const {return m_MBSUserService->getServClass();};
+    const reftools::mbsf::MBSUserService::ServAnnModesType &serviceAnnModes() const {return m_MBSUserService->getServAnnModes();};
     const std::string &getMBSUserServiceType() const;
     const SysTimeMS &generated() const {return m_generated;};
     const std::string &hash() const {return m_hash;};
+
+    bool isServiceAnnModePassedBack();
+
 
     static bool processEvent(Open5GSEvent &event);
 
@@ -73,6 +82,8 @@ public:
     const std::shared_ptr<UserDataIngSession> &findUserDataIngSession(const std::string &id) const;
     void removeUserDataIngSession(const std::string &userIngSessionId);
     void removeAllUserDataIngSessions();
+    std::list<std::shared_ptr<UserServiceDesc::serviceNameLanguageDescription>> UserServiceDescriptionDescs(); 
+    std::list<std::shared_ptr<UserServiceDesc::serviceNameLanguageDescription>> UserServiceDescriptionNames();
 
 private:
     std::shared_ptr<reftools::mbsf::MBSUserService> m_MBSUserService;

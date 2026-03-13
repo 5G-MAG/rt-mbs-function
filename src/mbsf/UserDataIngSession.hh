@@ -58,6 +58,8 @@ class Open5GSTimer;
 class ActivePeriods;
 class AlwaysActive;
 class MBSMFMBSSession;
+class ServiceScheduleDesc;
+class UserServiceDesc;
 
 class UserDataIngSession {
 public:
@@ -129,6 +131,7 @@ public:
     const std::shared_ptr<reftools::mbsf::MBSUserDataIngSession> &getMBSUserIngSession() const {return m_MBSUserDataIngSession;};
     const SysTimeMS &generated() const {return m_generated;};
     const std::string &hash() const {return m_hash;};
+    const int32_t serviceScheduleDescVersion() {return m_serviceScheduleDescriptionVersion++;};
     const std::string &distSessionState() const ;
 
     ogs_sbi_xact_t *nmbstfDiscoverOnly(std::shared_ptr< ContextData > data);
@@ -149,7 +152,7 @@ public:
 
 
     UserDataIngSession &currentDistSessionState(const std::string &state) {m_currentDistSessionState = state; return *this;};
-
+    UserDataIngSession &userServiceAnnouncement(const std::shared_ptr<reftools::mbsf::UserServiceDescription> &user_service_description);
 
     UserDataIngSession &createTimer();
     UserDataIngSession &createCurrentStateTimer();
@@ -164,6 +167,7 @@ public:
     void handleUserDataIngSessionUpdate(ogs_pool_id_t stream_id, std::shared_ptr<Open5GSSBIRequest> &request);
     void updateMbstfRemovedDistSession();
     const std::shared_ptr<UserDataIngSession> &findSessionBySbiObject(const std::shared_ptr<Open5GSSBIObject>& sbi_obj);
+    const std::shared_ptr<ServiceScheduleDesc> &findServiceScheduleDesc(const std::string &id) const;
     void addToDistributionSessionInfos(const std::string &key, const std::shared_ptr<ContextData> &context);
     std::shared_ptr< UserDataIngSession::ContextData > getDistributionSessionInfoData(const std::string &key);
     void removeDistributionSessionInfo(std::string &key);
@@ -193,7 +197,17 @@ public:
     void resetMBSDistributionSessionsTerminatedFlag();
     void resetMBSDistributionSessionsEstablishedFlag();
 
+    std::list<std::shared_ptr< DistributionSessionDesc > > distributionSessionDescs();
+    std::optional<std::list<std::shared_ptr< ServiceScheduleDesc > >> serviceScheduleDescs();
+    std::shared_ptr<UserServiceDesc> userServiceDesc();
+
     std::map<std::string, std::shared_ptr< ContextData >> &distributionSessionInfos();
+    std::map<std::string, std::shared_ptr<ServiceScheduleDesc> > &getServiceScheduleDescs();
+    void serviceScheduleDescsUpdate(std::shared_ptr<reftools::mbsf::MBSUserDataIngSession> mbs_user_data_ing_session);
+    std::list<ActivePeriods::versionedActivePeriod> versionedActPeriods(const std::list<ActivePeriods::versionedActivePeriod> &versioned_active_periods, 
+		    const ActPeriodsType &active_periods);
+
+    std::shared_ptr<ActivePeriodsRepRule::versionedRepetitionRule > versionedActPeriodsRepRule(const std::shared_ptr<ActivePeriodsRepRule::versionedRepetitionRule> &versioned_repetition_rule, const ActPeriodsRepRuleType &act_periods_rep_rule);
 
     static const char *localEventGetName( ogs_event_t *event);
 
@@ -230,6 +244,9 @@ public:
     void checkDesiredState();
     void pendingDeleteResponse(ogs_pool_id_t stream_id);
     void pushNotificationsEvent() const;
+
+    bool checkIfAllMBSDistributionSessionsEstablishedOrActive();
+    const std::shared_ptr<UserService> &mbsUserService();
 
     static void changeDistSessionState(void *data);
     static void currentDistSessionState(void *data);
@@ -278,6 +295,7 @@ private:
     reftools::mbsf::DistSessionState m_currentDistSessionState;
     reftools::mbsf::DistSessionState m_desiredDistSessionState;
     bool m_startTimer;
+    int32_t m_serviceScheduleDescriptionVersion; // next ver no.
 
     //key: Dist Session Infos present in this User Data Ingest Session
     std::map<std::string, std::shared_ptr< ContextData >> m_distributionSessionInfos;
@@ -285,6 +303,9 @@ private:
 
     std::unique_ptr<std::recursive_mutex> m_deleteRequestsMutex;
     std::list<ogs_pool_id_t> m_deleteRequests;
+
+    std::shared_ptr<std::recursive_mutex> m_serviceScheduleDescMutex;
+    std::map<std::string, std::shared_ptr<ServiceScheduleDesc> > m_serviceScheduleDescs;
 };
 
 MBSF_NAMESPACE_STOP

@@ -28,6 +28,7 @@
 #include "common.hh"
 #include "SubscribedEvents.hh"
 #include "Open5GSSBIClient.hh"
+#include "openapi/model/Event.h"
 #include "openapi/model/SubscribedEvent.h"
 #include "openapi/model/EventNotification.h"
 
@@ -37,6 +38,7 @@ namespace fiveg_mag_reftools {
 }
 
 namespace reftools::mbsf {
+    class Event;
     class SubscribedEvent;
     class EventNotification;
 }
@@ -58,7 +60,7 @@ public:
     DistributionSessionInfoSubscription(const DistributionSessionInfoSubscription &other);
 
     DistributionSessionInfoSubscription &resetEvents();
-    DistributionSessionInfoSubscription &setEvents(std::shared_ptr< Event > event);
+    DistributionSessionInfoSubscription &setEvents(std::shared_ptr< reftools::mbsf::Event > event);
 
     virtual ~DistributionSessionInfoSubscription();
 

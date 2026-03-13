@@ -45,7 +45,11 @@ namespace reftools::mbsf {
 
 MBSF_NAMESPACE_START
 
+class AvailabilityInfo;
+class ApplicationServiceDesc;
+class DistributionSessionDesc;
 class DistributionSessionInfoSubscriptions;
+class ObjRepairParameters;
 class ServiceInfo;
 class SubscribedEvents;
 class UserDataIngSession;
@@ -70,13 +74,14 @@ public:
     const std::shared_ptr<reftools::mbsf::MBSDistributionSessionInfo> &getMBSDistributionSessionInfo() const {return m_mbsDistributionSessionInfo;};
     std::shared_ptr<reftools::mbsf::MBSDistributionSessionInfo> &updateMBSDistributionSessionInfo(std::shared_ptr<reftools::mbsf::MBSDistributionSessionInfo> new_mbs_dist_session_infos);
     const std::shared_ptr<reftools::mbsf::DistributionMethod> &getDistributionMethod() const { return m_mbsDistributionSessionInfo->getDistrMethod();}; 
+    const std::optional<std::shared_ptr< reftools::mbsf::DistSessionState > > &distSessionState() const {return m_mbsDistributionSessionInfo->getMbsDistSessState();};
     UniqueMbsSessionId getUniqueMbsSessionId() const;
     std::shared_ptr<reftools::mbsf::MbsSessionId> getMbsSessionId() const;
     std::shared_ptr<reftools::mbsf::MbsServiceArea> getTgtServAreas() const;
     std::shared_ptr<reftools::mbsf::ExternalMbsServiceArea> getExtTgtServAreas() const;
 
     DistributionSessionInfo &processStatusNotifyReqData(std::shared_ptr<UserDataIngSession> ing_sess, fiveg_mag_reftools::CJson &json, bool as_request);
-    void addEventSubscription(const std::weak_ptr<UserDataIngStatSubsc> &stat_subscription, std::shared_ptr< Event > event);
+    void addEventSubscription(const std::weak_ptr<UserDataIngStatSubsc> &stat_subscription, std::shared_ptr< reftools::mbsf::Event > event);
     void resetEventSubscription();
     void removeEventSubscription();
     void processDataIngestFailure(std::shared_ptr<DistSessionEventReport> dist_sess_event_report);
@@ -93,7 +98,14 @@ public:
     const SubscribedEvents &eventTimestamps() const { return m_eventTimestamps; };
     const bool dataIngestSessionEstablished() const { return m_dataIngestSessionEstablished; };
     const bool dataIngestSessionTerminated() const { return m_dataIngestSessionTerminated; };
-      
+
+    std::shared_ptr<AvailabilityInfo> populateAvailabilityInfo();
+    std::optional<std::list<std::shared_ptr<AvailabilityInfo>>> availabilityInfos();
+    std::optional<std::list<std::shared_ptr<ApplicationServiceDesc>>> applicationServiceDescriptions();
+    std::shared_ptr<DistributionSessionDesc> populateDistributionSessionDesc(const std::string &user_data_ing_session_id, const std::string &distribution_session_info_key);
+    std::optional<std::shared_ptr<ObjRepairParameters>> populateObjRepairParameters(const std::string &user_data_ing_session_id, const std::string &distribution_session_info_key); 
+    std::optional<std::string> objectAcqIdsContentType(const std::string &url);  
+
 private:
     void setState(std::shared_ptr< reftools::mbsf::DistSessionState > dist_session_state);
     void registerEvent(std::shared_ptr<reftools::mbsf::DistSessionEventReport> dist_sess_event_report);
@@ -105,6 +117,7 @@ private:
     SubscribedEvents m_eventTimestamps;
     std::shared_ptr<reftools::mbsf::StatusNotifyReqData> m_statusNotifyReqData;
     std::unique_ptr<DistributionSessionInfoSubscription> m_mbsDistributionSessionInfoSubscription;
+    std::shared_ptr<AvailabilityInfo> m_availabilityInfo;
     std::recursive_mutex m_mutex;
     bool m_dataIngestSessionEstablished;
     bool m_dataIngestSessionTerminated;

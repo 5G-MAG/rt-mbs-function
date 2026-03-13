@@ -34,7 +34,11 @@
 #include "common.hh"
 #include "App.hh"
 #include "Context.hh"
+#include "AvailabilityInfo.hh"
+#include "ApplicationServiceDesc.hh"
 #include "DistributionSessionInfoSubscription.hh"
+#include "DistributionSessionDesc.hh"
+#include "ObjRepairParameters.hh"
 #include "LocalEvents.hh"
 #include "SubscribedEvents.hh"
 #include "UserDataIngStatSubsc.hh"
@@ -47,6 +51,7 @@
 #include "openapi/model/DistSessionEventReport.h"
 #include "openapi/model/DistSessionEventReportList.h"
 #include "openapi/model/ExternalMbsServiceArea.h"
+#include "openapi/model/Event.h"
 #include "openapi/model/FECConfig.h"
 #include "openapi/model/MBSDistributionSessionInfo.h"
 #include "openapi/model/MbsServiceArea.h"
@@ -67,7 +72,10 @@ using fiveg_mag_reftools::CJson;
 using fiveg_mag_reftools::ModelException;
 using reftools::mbsf::DistSessionState;
 using reftools::mbsf::DistSessionEventReportList;
+using reftools::mbsf::Event;
 using reftools::mbsf::ExternalMbsServiceArea;
+using reftools::mbsf::FECConfig;
+using reftools::mbsf::ObjectDistrMethInfo;
 using reftools::mbsf::MBSDistributionSessionInfo;
 using reftools::mbsf::MbsServiceArea;
 using reftools::mbsf::MbsServiceInfo;
@@ -84,6 +92,7 @@ DistributionSessionInfo::DistributionSessionInfo(CJson &json, bool as_request)
     ,m_eventTimestamps()
     ,m_statusNotifyReqData(nullptr)
     ,m_mbsDistributionSessionInfoSubscription(nullptr)
+    ,m_availabilityInfo(nullptr)
     ,m_mutex()
     ,m_dataIngestSessionEstablished(false)
     ,m_dataIngestSessionTerminated(false)
@@ -97,6 +106,7 @@ DistributionSessionInfo::DistributionSessionInfo(const std::shared_ptr<MBSDistri
     ,m_eventTimestamps()
     ,m_statusNotifyReqData(nullptr)
     ,m_mbsDistributionSessionInfoSubscription(nullptr)
+    ,m_availabilityInfo(nullptr)
     ,m_mutex()
     ,m_dataIngestSessionEstablished(false)
     ,m_dataIngestSessionTerminated(false)
@@ -191,7 +201,7 @@ std::shared_ptr<MbsSessionId> DistributionSessionInfo::getMbsSessionId() const
     return mbs_session_id.value();
 }
 
-std::shared_ptr<MbsServiceArea> DistributionSessionInfo::getTgtServAreas() const
+std::shared_ptr<reftools::mbsf::MbsServiceArea> DistributionSessionInfo::getTgtServAreas() const
 {
     if (!m_mbsDistributionSessionInfo) return nullptr;
     const auto &mbs_service_area = m_mbsDistributionSessionInfo->getTgtServAreas();
@@ -199,7 +209,7 @@ std::shared_ptr<MbsServiceArea> DistributionSessionInfo::getTgtServAreas() const
     return mbs_service_area.value();
 }
 
-std::shared_ptr<ExternalMbsServiceArea> DistributionSessionInfo::getExtTgtServAreas() const
+std::shared_ptr<reftools::mbsf::ExternalMbsServiceArea> DistributionSessionInfo::getExtTgtServAreas() const
 {
     if (!m_mbsDistributionSessionInfo) return nullptr;
     const auto &ext_mbs_service_area = m_mbsDistributionSessionInfo->getExtTgtServAreas();
@@ -208,7 +218,7 @@ std::shared_ptr<ExternalMbsServiceArea> DistributionSessionInfo::getExtTgtServAr
 }
 
 
-void DistributionSessionInfo::addEventSubscription(const std::weak_ptr<UserDataIngStatSubsc> &stat_subscription, std::shared_ptr< Event > event)
+void DistributionSessionInfo::addEventSubscription(const std::weak_ptr<UserDataIngStatSubsc> &stat_subscription, std::shared_ptr< reftools::mbsf::Event > event)
 {
     if (!m_mbsDistributionSessionInfoSubscription) {
         m_mbsDistributionSessionInfoSubscription.reset(new DistributionSessionInfoSubscription(weak_from_this(), stat_subscription));
@@ -395,7 +405,97 @@ void DistributionSessionInfo::setState(std::shared_ptr< DistSessionState > dist_
     m_mbsDistributionSessionInfo->setMbsDistSessState(std::move(dist_session_state));
 }
 
+std::shared_ptr<AvailabilityInfo> DistributionSessionInfo::populateAvailabilityInfo()
+{
+    if (!m_mbsDistributionSessionInfo) return nullptr;
+    
+    const std::optional<std::shared_ptr< reftools::mbsf::MbsServiceArea > > &tgt_serv_areas = m_mbsDistributionSessionInfo->getTgtServAreas();
+    const  std::optional<std::string > &mbs_fSa_id = m_mbsDistributionSessionInfo->getMbsFSAId();
+    if(!tgt_serv_areas.has_value() || !mbs_fSa_id.has_value()) return nullptr;
+    std::shared_ptr<AvailabilityInfo> availability_info(new AvailabilityInfo(m_mbsDistributionSessionInfo->getTgtServAreas(), m_mbsDistributionSessionInfo->getMbsFSAId()));
+    return availability_info; 
+}
 
+std::optional<std::list<std::shared_ptr<AvailabilityInfo>>> DistributionSessionInfo::availabilityInfos()
+{
+    if(!m_mbsDistributionSessionInfo) return std::nullopt;
+    std::optional<std::list<std::shared_ptr<AvailabilityInfo>>> availability_infos = std::nullopt;
+    std::shared_ptr<AvailabilityInfo> availability_info = populateAvailabilityInfo();
+    availability_infos= std::list<std::shared_ptr<AvailabilityInfo>>();
+    availability_infos->push_back(availability_info);
+    return availability_infos;
+}
+
+std::optional<std::list<std::shared_ptr<ApplicationServiceDesc>>> DistributionSessionInfo::applicationServiceDescriptions()
+{
+
+    if(!m_mbsDistributionSessionInfo) return std::nullopt;
+    std::optional<std::list<std::shared_ptr<ApplicationServiceDesc>>> application_service_descs = std::nullopt;
+    std::optional<std::shared_ptr< ObjectDistrMethInfo > > obj_dist_method_info = m_mbsDistributionSessionInfo->getObjDistrInfo();
+    if(obj_dist_method_info.has_value()) {
+        std::shared_ptr< ObjectDistrMethInfo > dist_method_info = obj_dist_method_info.value();
+        const std::optional<std::string > &obj_ing_uri = dist_method_info->getObjIngUri();
+
+	if(!obj_ing_uri.has_value()) return std::nullopt;
+        const std::optional<std::string > &obj_distr_uri = dist_method_info->getObjDistrUri();
+
+	if(!obj_distr_uri.has_value()) return std::nullopt;
+
+        application_service_descs = std::list<std::shared_ptr<ApplicationServiceDesc>>();
+        const std::list<std::optional<std::string >, fiveg_mag_reftools::OgsAllocator<std::optional<std::string > > > &obj_acq_ids = dist_method_info->getObjAcqIds();
+	for (const auto &obj_acq_id : obj_acq_ids) {
+
+	    if(obj_acq_id.has_value()) {
+
+	        std::shared_ptr<ApplicationServiceDesc> application_service_desc(new ApplicationServiceDesc(obj_distr_uri.value(), obj_ing_uri.value(), obj_acq_id.value()));
+                application_service_descs->push_back(application_service_desc);
+
+	    }
+	}
+    }
+
+    return application_service_descs;
+}
+
+std::optional<std::shared_ptr<ObjRepairParameters>> DistributionSessionInfo::populateObjRepairParameters(const std::string &user_data_ing_session_id, const std::string &distribution_session_info_key)
+{
+    if (!m_mbsDistributionSessionInfo) return std::nullopt;
+
+    if(!App::self().context()->objectRepairParameters.objectRepairBaseLocator.has_value() ||
+                    !App::self().context()->objectRepairParameters.backOffParametersOffsetTime ||
+                    !App::self().context()->objectRepairParameters.backOffParametersRandomTimePeriod)
+    {
+        return std::nullopt;
+    }
+
+    std::optional<std::shared_ptr< ObjectDistrMethInfo > > obj_dist_method_info = m_mbsDistributionSessionInfo->getObjDistrInfo();
+    if (!obj_dist_method_info.has_value()) return std::nullopt;
+    if (obj_dist_method_info.has_value()) {
+        std::shared_ptr< ObjectDistrMethInfo > dist_method_info = obj_dist_method_info.value();
+
+        const std::optional<std::string > &obj_distr_uri = dist_method_info->getObjDistrUri();
+        if(!obj_distr_uri.has_value()) return std::nullopt;
+
+	//auto obj_repair_parameters = std::make_shared<ObjRepairParameters>(std::optional<std::string>{obj_distr_uri});
+
+	
+	std::shared_ptr<ObjRepairParameters> obj_repair_parameters(new ObjRepairParameters(user_data_ing_session_id, distribution_session_info_key, dist_method_info->getObjDistrUri()));
+	return obj_repair_parameters; 		
+    }
+    return std::nullopt;
+
+}
+
+
+std::shared_ptr<DistributionSessionDesc> DistributionSessionInfo::populateDistributionSessionDesc(const std::string &user_data_ing_session_id, const std::string &distribution_session_info_key)
+{
+    if (!m_mbsDistributionSessionInfo) return nullptr;
+
+    std::string session_description_locator = user_data_ing_session_id + "/"+ distribution_session_info_key + ".sdp";
+     
+    std::shared_ptr<DistributionSessionDesc> distribution_session_desc(new DistributionSessionDesc(m_mbsDistributionSessionInfo->getDistrMethod(), session_description_locator, applicationServiceDescriptions(), populateObjRepairParameters(user_data_ing_session_id, distribution_session_info_key), availabilityInfos()));
+    return distribution_session_desc;
+}
 
 MBSF_NAMESPACE_STOP
 

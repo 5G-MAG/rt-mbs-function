@@ -64,6 +64,7 @@
 #include "Open5GSTimer.hh"
 #include "Open5GSYamlDocument.hh"
 #include "Open5GSNetworkFunction.hh"
+#include "ServiceScheduleDesc.hh"
 #include "UserService.hh"
 #include "UniqueMBSSessionId.hh"
 #include "UserDataIngSessionNotificationEvent.hh"
@@ -92,6 +93,8 @@
 #include "openapi/model/MbsSessionId.h"
 #include "openapi/model/AssociatedSessionId.h"
 #include "openapi/model/ObjectDistrMethInfo.h"
+#include "openapi/model/ServiceScheduleDescription.h"
+#include "openapi/model/TimeWindow.h"
 
 
 #include "openapi/api/IndividualMBSUserDataIngestSessionDocumentApi-info.h"
@@ -124,9 +127,12 @@ using reftools::mbsf::PacketDistrMethInfo;
 using reftools::mbsf::PktDistributionOperatingMode;
 using reftools::mbsf::PktIngestMethod;
 using reftools::mbsf::PlmnId;
+using reftools::mbsf::RepetitionRule;
 using reftools::mbsf::Ssm;
+using reftools::mbsf::TimeWindow;
 using reftools::mbsf::Tmgi;
 using reftools::mbsf::TunnelAddress;
+using reftools::mbsf::ServiceScheduleDescription;
 
 MBSF_NAMESPACE_START
 
@@ -176,6 +182,7 @@ UserDataIngSession::UserDataIngSession(CJson &json, bool as_request)
     ,m_currentDistSessionState()
     ,m_desiredDistSessionState()
     ,m_startTimer(true)
+    ,m_serviceScheduleDescriptionVersion(1)	
     ,m_distributionSessionInfos()
     ,m_distSessInfosMutex(new decltype(m_distSessInfosMutex)::element_type)
     ,m_deleteRequestsMutex(new decltype(m_deleteRequestsMutex)::element_type)
@@ -225,6 +232,18 @@ const std::shared_ptr<UserDataIngSession> &UserDataIngSession::find(const std::s
     }
     return result;
 }
+
+const std::shared_ptr<ServiceScheduleDesc> &UserDataIngSession::findServiceScheduleDesc(const std::string &id) const
+{
+    std::lock_guard<decltype(m_serviceScheduleDescMutex)::element_type> lock(*m_serviceScheduleDescMutex);
+    auto it =  m_serviceScheduleDescs.find(id);
+    if (it !=  m_serviceScheduleDescs.end()) {
+        return it->second;
+    }
+    static const std::shared_ptr<ServiceScheduleDesc> null_ssd;
+    return null_ssd;
+}
+
 
 int UserDataIngSession::numberOfDistributionSessions()
 {
@@ -780,6 +799,12 @@ std::map<std::string, std::shared_ptr< UserDataIngSession::ContextData >> &UserD
     return m_distributionSessionInfos;
 };
 
+std::map<std::string, std::shared_ptr<ServiceScheduleDesc> > &UserDataIngSession::getServiceScheduleDescs()
+{
+    std::lock_guard<decltype(m_serviceScheduleDescMutex)::element_type> lock(*m_serviceScheduleDescMutex);
+    return m_serviceScheduleDescs;
+
+}
 
 void UserDataIngSession::addToDistributionSessionInfos(const std::string &key, const std::shared_ptr<ContextData> &context)
 {
@@ -1008,27 +1033,62 @@ void UserDataIngSession::processUserDataIngSessionUpdate(ogs_pool_id_t stream_id
     mbs_user_data_ing_session.reset(new MBSUserDataIngSession(json, true));
     const ActPeriodsType &act_periods = mbs_user_data_ing_session->getActPeriods();
     const ActPeriodsType &current_act_periods = m_MBSUserDataIngSession->getActPeriods();
-
+    
+    const ActPeriodsRepRuleType &act_periods_rep_rule = mbs_user_data_ing_session->getActPeriodsRepRule();
+    const ActPeriodsRepRuleType &current_act_periods_rep_rule = mbs_user_data_ing_session->getActPeriodsRepRule();
+    std::list<ActivePeriods::versionedActivePeriod > current_versioned_active_periods;
+    std::shared_ptr<ActivePeriodsRepRule::versionedRepetitionRule > current_versioned_active_periods_rep_rule = nullptr;
     if (current_act_periods.has_value()) {
+	if(m_activePeriods) {
+            current_versioned_active_periods = m_activePeriods->versionedActPeriods();
+        }
         m_MBSUserDataIngSession->clearActPeriods();
     }
 
+
+    ogs_info("CURRENT VERSIONED ACT PERIODS SIZE: %ld", current_versioned_active_periods.size());
+
     if (act_periods.has_value() && !act_periods->empty()) {
-        m_MBSUserDataIngSession->setActPeriods(std::move(act_periods));
+        /*
+	if(has_act_periods_changed(act_periods, current_act_periods)) {
+            m_serviceScheduleDescriptionVersion++;
+        } 
+	*/
         always_active = false;
 
         resetAlwaysActive();
         resetActivePeriodsRepRule();
         activePeriods(act_periods);
+	
+	if(m_activePeriods) {
+            //const std::list<ActivePeriods::versionedActivePeriod > &current_versioned_active_periods = m_activePeriods->versionedActPeriods();
+            
+	    std::list<ActivePeriods::versionedActivePeriod> versioned_active_periods = versionedActPeriods(current_versioned_active_periods, act_periods);
+            m_activePeriods->versionedActPeriods(versioned_active_periods);
+        }
+
+        m_MBSUserDataIngSession->setActPeriods(std::move(act_periods));
+
         dist_sess_state = getDistSessionState();
         createTimer();
     }
 
+    if(m_activePeriodsRepRule)
+    {
+        current_versioned_active_periods_rep_rule = m_activePeriodsRepRule->versionedActivePeriodsRepRule();
+
+    }
+
     m_MBSUserDataIngSession->setActPeriodsRepRule(std::nullopt);
 
-    const ActPeriodsRepRuleType &act_periods_rep_rule = mbs_user_data_ing_session->getActPeriodsRepRule();
 
     if (act_periods_rep_rule.has_value()) {
+        /*
+	if(has_act_periods_rep_rule_changed(act_periods_rep_rule, current_act_periods_rep_rule)) {
+            m_serviceScheduleDescriptionVersion++;
+        }
+	*/
+	
         m_MBSUserDataIngSession->setActPeriodsRepRule(std::move(act_periods_rep_rule));
         always_active = false;
 
@@ -1036,6 +1096,12 @@ void UserDataIngSession::processUserDataIngSessionUpdate(ogs_pool_id_t stream_id
         resetActivePeriods();
 
         activePeriodsRepRule(act_periods_rep_rule);
+
+	if(m_activePeriodsRepRule) {
+            std::shared_ptr<ActivePeriodsRepRule::versionedRepetitionRule > versioned_active_periods = versionedActPeriodsRepRule(current_versioned_active_periods_rep_rule, act_periods_rep_rule);
+            m_activePeriodsRepRule->versionedActivePeriodsRepRule(versioned_active_periods);
+        }
+
         dist_sess_state = getDistSessionState();
         createTimer();
     }
@@ -1145,6 +1211,14 @@ void UserDataIngSession::processUserDataIngSessionUpdate(ogs_pool_id_t stream_id
     if (serv_anmt_url.has_value() && !serv_anmt_url.value().empty()) {
         m_MBSUserDataIngSession->setMbsUserServiceAnmtUrl(std::move(serv_anmt_url));
     }
+
+    if(mbsUserService() && mbsUserService()->isServiceAnnModePassedBack() &&
+                        checkIfAllMBSDistributionSessionsEstablishedOrActive())
+    {
+
+        std::shared_ptr<UserServiceDesc> user_service_desc = userServiceDesc();
+        userServiceAnnouncement(user_service_desc->userServiceDescription());
+    } 
     handleUserDataIngSessionUpdate(stream_id, request);
 }
 
@@ -1164,6 +1238,11 @@ void UserDataIngSession::processDistributionSessionInfo( ogs_pool_id_t stream_id
         resetActivePeriodsRepRule();
 
         activePeriods(act_periods);
+	if(m_activePeriods) {
+            const std::list<ActivePeriods::versionedActivePeriod > &current_versioned_active_periods = m_activePeriods->versionedActPeriods();
+	    std::list<ActivePeriods::versionedActivePeriod> versioned_active_periods = versionedActPeriods(current_versioned_active_periods, act_periods);
+            m_activePeriods->versionedActPeriods(versioned_active_periods);
+	}
         dist_sess_state = getDistSessionState();
         createTimer();
     }
@@ -1175,6 +1254,14 @@ void UserDataIngSession::processDistributionSessionInfo( ogs_pool_id_t stream_id
         resetActivePeriods();
 
         activePeriodsRepRule(act_periods_rep_rule);
+
+        if(m_activePeriodsRepRule) {
+            const std::shared_ptr<ActivePeriodsRepRule::versionedRepetitionRule > &versioned_active_periods_repetition_rule = m_activePeriodsRepRule->versionedActivePeriodsRepRule();
+            std::shared_ptr<ActivePeriodsRepRule::versionedRepetitionRule > versioned_active_periods_rep_rule = versionedActPeriodsRepRule(versioned_active_periods_repetition_rule, act_periods_rep_rule);
+            m_activePeriodsRepRule->versionedActivePeriodsRepRule(versioned_active_periods_rep_rule);
+        }
+
+
         dist_sess_state = getDistSessionState();
         createTimer();
     }
@@ -1385,6 +1472,25 @@ void UserDataIngSession::checkDesiredState()
     }
 }
 
+bool UserDataIngSession::checkIfAllMBSDistributionSessionsEstablishedOrActive()
+{
+    for (const auto &dist_sess_info : m_distributionSessionInfos) {
+	const std::optional<std::shared_ptr< reftools::mbsf::DistSessionState > > &dist_session_state = dist_sess_info.second->distributionSessionInfo->distSessionState();
+	if(!dist_session_state.has_value()) return false;
+	std::shared_ptr< reftools::mbsf::DistSessionState > dist_sess_state = dist_session_state.value();
+	if(!dist_sess_state) return false;
+        if(dist_sess_state->getValue() == reftools::mbsf::DistSessionState::VAL_ESTABLISHED || dist_sess_state->getValue() == reftools::mbsf::DistSessionState::VAL_ACTIVE) return true;
+    }
+    return false;
+
+}
+
+UserDataIngSession &UserDataIngSession::userServiceAnnouncement(const std::shared_ptr<reftools::mbsf::UserServiceDescription> &user_service_description)
+{
+    m_MBSUserDataIngSession->setMbsUserServiceAnmt(user_service_description);
+    return *this;
+}
+
 bool UserDataIngSession::sendNmbsfMbsUserDataIngestResponse(std::shared_ptr<UserDataIngSession::UserDataIngDistSessId> &ids)
 {
 
@@ -1418,6 +1524,13 @@ bool UserDataIngSession::sendNmbsfMbsUserDataIngestResponse(std::shared_ptr<User
             return false;
         }
 
+	if(ing_sess->mbsUserService() && ing_sess->mbsUserService()->isServiceAnnModePassedBack() && 
+			checkIfAllMBSDistributionSessionsEstablishedOrActive())
+        {
+	    std::shared_ptr<UserServiceDesc> user_service_desc = userServiceDesc();
+
+            ing_sess->userServiceAnnouncement(user_service_desc->userServiceDescription());
+	}
 
         CJson user_data_ing_sess_json(ing_sess->json(false));
         std::string body(user_data_ing_sess_json.serialise());
@@ -2229,6 +2342,186 @@ void UserDataIngSession::pendingDeleteResponse(ogs_pool_id_t stream_id)
 {
     std::lock_guard<decltype(m_deleteRequestsMutex)::element_type> lock(*m_deleteRequestsMutex);
     m_deleteRequests.push_back(stream_id);
+}
+
+std::list<std::shared_ptr< DistributionSessionDesc > > UserDataIngSession::distributionSessionDescs()
+{
+    std::list<std::shared_ptr< DistributionSessionDesc > > distribution_session_descs = std::list<std::shared_ptr<DistributionSessionDesc>>();
+    std::lock_guard<decltype(m_distSessInfosMutex)::element_type> lock(*m_distSessInfosMutex);
+    for (const auto &dist_sess_info : m_distributionSessionInfos) {
+        if (!dist_sess_info.second->distributionSessionInfo) continue;
+        std::shared_ptr< DistributionSessionDesc > distribution_session_desc = dist_sess_info.second->distributionSessionInfo->populateDistributionSessionDesc( m_UserDataIngSessionId, dist_sess_info.first);
+	distribution_session_descs.push_back(std::move(distribution_session_desc));
+    }
+    return distribution_session_descs;
+
+}
+
+std::optional<std::list<std::shared_ptr< ServiceScheduleDesc > >>  UserDataIngSession::serviceScheduleDescs()
+{
+    std::optional<std::list<std::shared_ptr< ServiceScheduleDesc > >> service_schedule_descs = std::nullopt;
+    //std::optional<std::list<std::optional<std::shared_ptr< TimeWindow > >
+    const ActPeriodsType &act_periods =  m_MBSUserDataIngSession->getActPeriods();
+    //std::optional<std::shared_ptr< RepetitionRule > >
+    const ActPeriodsRepRuleType &act_periods_rep_rule = m_MBSUserDataIngSession->getActPeriodsRepRule();
+
+    if (!act_periods.has_value() && !act_periods_rep_rule.has_value()) return service_schedule_descs;
+    
+    if (act_periods.has_value() && !act_periods->empty() && m_activePeriods && !m_activePeriods->versionedActPeriods().empty()) {
+	
+        service_schedule_descs = std::list<std::shared_ptr< ServiceScheduleDesc >>();    
+        for (const auto &versioned_act_period : m_activePeriods->versionedActPeriods()) {
+	    const std::shared_ptr< TimeWindow > &time_window = versioned_act_period.second;
+            std::shared_ptr< ServiceScheduleDesc > service_schedule_desc( new ServiceScheduleDesc(m_UserDataIngSessionId, versioned_act_period.first, time_window->getStartTime(), time_window->getStopTime()));
+            //m_serviceScheduleDescs.insert(std::make_pair(service_schedule_desc->serviceScheduleDescriptionId(), service_schedule_desc));
+            service_schedule_descs->push_back(service_schedule_desc);               
+        }
+        //return service_schedule_descs;
+        
+    } else if(act_periods_rep_rule.has_value()) {
+	const std::shared_ptr<ActivePeriodsRepRule::versionedRepetitionRule > &versioned_active_periods_rep_rule = m_activePeriodsRepRule->versionedActivePeriodsRepRule();    
+        std::shared_ptr< ServiceScheduleDesc > service_schedule_desc( new ServiceScheduleDesc(m_UserDataIngSessionId, versioned_active_periods_rep_rule->first, versioned_active_periods_rep_rule->second /*act_periods_rep_rule*/));
+        service_schedule_descs->push_back(service_schedule_desc);
+    }
+    return service_schedule_descs;
+    
+}
+
+void UserDataIngSession::serviceScheduleDescsUpdate(std::shared_ptr<MBSUserDataIngSession> mbs_user_data_ing_session)
+{
+    const std::optional<std::shared_ptr< reftools::mbsf::UserServiceDescription > > &user_service_description = mbs_user_data_ing_session->getMbsUserServiceAnmt();
+    if(user_service_description.has_value()) {
+        std::shared_ptr< reftools::mbsf::UserServiceDescription > user_service_desc = user_service_description.value();
+	//std::optional<std::list<std::optional<std::shared_ptr< ServiceScheduleDescription > >	
+        reftools::mbsf::UserServiceDescription::ServiceScheduleDescriptionsType  service_schedule_descriptions = user_service_desc->getServiceScheduleDescriptions();
+	if(service_schedule_descriptions.has_value()) {
+	    for(const auto &service_schedule_description : service_schedule_descriptions.value()) {
+	         const std::string &id = service_schedule_description.value()->getId();
+		 {
+		     std::lock_guard<decltype(m_serviceScheduleDescMutex)::element_type> lock(*m_serviceScheduleDescMutex);
+                     auto it =  m_serviceScheduleDescs.find(id);
+                     if (it !=  m_serviceScheduleDescs.end()) {
+                         std::shared_ptr< ServiceScheduleDesc > schedule = it->second;
+			 std::shared_ptr< reftools::mbsf::ServiceScheduleDescription > new_service_schedule_description = service_schedule_description.value();
+			 std::shared_ptr< reftools::mbsf::ServiceScheduleDescription > current_service_schedule_description = schedule->serviceScheduleDescription();
+			 if(*new_service_schedule_description == *current_service_schedule_description) {
+		             continue;
+			 } else {
+			    schedule->changeServiceScheduleDescription(new_service_schedule_description);
+
+			 }
+			 
+	              }
+                 }
+	    } 
+	}
+	
+    }
+}
+
+std::shared_ptr<UserServiceDesc> UserDataIngSession::userServiceDesc()
+{
+   std::shared_ptr<UserServiceDesc> user_service_desc = nullptr;
+   const std::string &mbs_user_service_id = m_MBSUserDataIngSession->getMbsUserServId();
+   if(mbs_user_service_id.empty()) return nullptr;
+
+   try {
+       const std::shared_ptr<UserService> &mbs_user_service = UserService::find(mbs_user_service_id);
+       user_service_desc.reset(new UserServiceDesc(mbs_user_service->serviceIds(), mbs_user_service->serviceClass(),
+			      mbs_user_service->UserServiceDescriptionNames(), mbs_user_service->UserServiceDescriptionDescs(),
+			      distributionSessionDescs(), serviceScheduleDescs()) ); 
+   } catch (std::out_of_range &ex) {
+       ogs_error("Unable to find the parent MBS User Service");
+       return nullptr;
+   }
+   return user_service_desc;   
+}
+
+const std::shared_ptr<UserService> &UserDataIngSession::mbsUserService()
+{
+
+    const std::string &mbs_user_service_id = m_MBSUserDataIngSession->getMbsUserServId();
+    if(mbs_user_service_id.empty()) return nullptr;
+
+    try {
+        const std::shared_ptr<UserService> &mbs_user_service = UserService::find(mbs_user_service_id);
+	return mbs_user_service;
+    } catch (std::out_of_range &ex) {
+        ogs_error("Unable to find the parent MBS User Service");
+        return nullptr;
+    }
+    return nullptr;
+
+}
+
+std::shared_ptr<ActivePeriodsRepRule::versionedRepetitionRule > UserDataIngSession::versionedActPeriodsRepRule(const std::shared_ptr<ActivePeriodsRepRule::versionedRepetitionRule> &versioned_repetition_rule, const ActPeriodsRepRuleType &act_periods_rep_rule)
+{
+    //std::optional<std::shared_ptr< RepetitionRule > > ActPeriodsRepRuleType
+    if(!act_periods_rep_rule.has_value()) return versioned_repetition_rule;
+    
+    std::shared_ptr< RepetitionRule > repetition_rule = act_periods_rep_rule.value();
+    
+    if(!versioned_repetition_rule) {
+        auto rep_rule = std::make_shared<ActivePeriodsRepRule::versionedRepetitionRule>(serviceScheduleDescVersion(), repetition_rule);
+        return rep_rule;
+    }
+
+    std::shared_ptr< RepetitionRule > versioned_rep_rule = versioned_repetition_rule->second;
+    if (*repetition_rule == *versioned_rep_rule) {
+        return versioned_repetition_rule;
+    }
+
+    auto v_rep_rule = std::make_shared<ActivePeriodsRepRule::versionedRepetitionRule>(serviceScheduleDescVersion(), repetition_rule);
+    return v_rep_rule;		    
+}
+
+std::list<ActivePeriods::versionedActivePeriod>
+UserDataIngSession::versionedActPeriods(const std::list<ActivePeriods::versionedActivePeriod> &versioned_active_periods, const ActPeriodsType &active_periods)
+{
+    std::list<ActivePeriods::versionedActivePeriod> result;
+
+    if(!active_periods.has_value()) return versioned_active_periods;
+
+    std::list<std::optional<std::shared_ptr< TimeWindow > >, fiveg_mag_reftools::OgsAllocator<std::optional<std::shared_ptr< TimeWindow > > > >
+         act_periods = active_periods.value();
+
+    // --- Case 1: active_periods is empty → return versioned_active_periods unchanged ---
+    if (act_periods.empty()) {
+        return versioned_active_periods;
+    }
+
+    ogs_info("SIZE OF VERSION ACT PERIODS: %ld, ACT PERIODS: %ld", versioned_active_periods.size(), act_periods.size());
+
+    // --- Case 2: versioned_active_periods is empty → initialize from active_periods ---
+    if (versioned_active_periods.empty()) {
+        for (const auto &act_period : act_periods) {
+            if(!act_period.has_value()) continue;
+            result.emplace_back(serviceScheduleDescVersion(), act_period.value());   // default version = 1
+        }
+        return result;
+    }
+
+    for(const auto &act_period: act_periods) {
+        if(!act_period.has_value()) continue;
+        bool match = false;
+        const std::shared_ptr< TimeWindow > &non_versioned_time_window = act_period.value();
+
+        for(const auto &versioned_active_period: versioned_active_periods) {
+            const std::shared_ptr< TimeWindow > &versioned_time_window = versioned_active_period.second;
+            if(*non_versioned_time_window == *versioned_time_window) {
+                result.emplace_back(versioned_active_period.first, versioned_active_period.second);
+                match = true;
+		break;
+            }
+        }
+        if(!match) {
+            result.emplace_back(serviceScheduleDescVersion(), act_period.value());
+        }
+
+     }
+
+     ogs_info("RET RESULT SIZE OF VERSION ACT PERIODS: %ld, ACT PERIODS: %ld", versioned_active_periods.size(), act_periods.size());
+     return result;
 }
 
 static void process_mbs_distribution_session_info(std::shared_ptr< UserDataIngSession::ContextData > context_data, std::shared_ptr< DistSession > dist_session)

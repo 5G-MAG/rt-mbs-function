@@ -31,12 +31,14 @@
 #include "DistributionSessionInfo.hh"
 #include "UserDataIngStatSubsc.hh"
 #include "DistributionSessionNotificationEvent.hh"
+#include "openapi/model/Event.h"
 #include "openapi/model/SubscribedEvent.h"
 #include "openapi/model/EventNotification.h"
 #include "utilities.hh"
 
 #include "DistributionSessionInfoSubscription.hh"
 
+using reftools::mbsf::Event;
 using reftools::mbsf::EventNotification;
 using reftools::mbsf::SubscribedEvent;
 using fiveg_mag_reftools::CJson;
@@ -103,7 +105,7 @@ DistributionSessionInfoSubscription &DistributionSessionInfoSubscription::resetE
 }
 
 
-DistributionSessionInfoSubscription &DistributionSessionInfoSubscription::setEvents(std::shared_ptr< Event > event)
+DistributionSessionInfoSubscription &DistributionSessionInfoSubscription::setEvents(std::shared_ptr< reftools::mbsf::Event > event)
 {
     switch (event->getValue()) {
     case Event::VAL_DATA_INGEST_FAILURE:

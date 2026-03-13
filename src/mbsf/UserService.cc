@@ -43,11 +43,13 @@
 #include "Open5GSTimer.hh"
 #include "Open5GSYamlDocument.hh"
 #include "Open5GSNetworkFunction.hh"
+#include "UserServiceDesc.hh"
 #include "UserDataIngSession.hh"
 #include "openapi/model/MBSUserService.h"
 #include "openapi/model/CreateReqData.h"
 #include "openapi/model/TunnelAddress.h"
 #include "openapi/model/MbsServiceType.h"
+#include "openapi/model/ServiceNameDescription.h"
 
 #include "openapi/api/IndividualMBSUserServiceDocumentApi-info.h"
 #include "TimerFunc.hh"
@@ -62,6 +64,7 @@ using reftools::mbsf::MbsServiceArea;
 using reftools::mbsf::MbsServiceType;
 using reftools::mbsf::MBSUserService;
 using reftools::mbsf::TunnelAddress;
+using reftools::mbsf::ServiceNameDescription;
 
 MBSF_NAMESPACE_START
 
@@ -139,6 +142,37 @@ const std::string &UserService::getMBSUserServiceType() const
     return mbs_service_type->getString();
 
 }
+
+std::list<std::shared_ptr<UserServiceDesc::serviceNameLanguageDescription>> UserService::UserServiceDescriptionDescs()
+{
+    std::list<std::shared_ptr< UserServiceDesc::serviceNameLanguageDescription > > user_service_description_descs = std::list<std::shared_ptr< UserServiceDesc::serviceNameLanguageDescription > >();
+    const auto &service_name_descriptions = m_MBSUserService->getServNameDescs();
+    for (const auto &service_name_description : service_name_descriptions) {
+        if(service_name_description.has_value()) {
+	    std::shared_ptr< ServiceNameDescription > service_name_desc = service_name_description.value();
+	    if(!service_name_desc->getServName().has_value()) continue;	
+	    std::shared_ptr<UserServiceDesc::serviceNameLanguageDescription> desc(new UserServiceDesc::serviceNameLanguageDescription(service_name_desc->getServDescrip().value(), service_name_desc->getLanguage()));
+            user_service_description_descs.push_back(std::move(desc));			    
+	}	
+    }
+    return user_service_description_descs;
+}
+
+std::list<std::shared_ptr<UserServiceDesc::serviceNameLanguageDescription>> UserService::UserServiceDescriptionNames()
+{
+    std::list<std::shared_ptr< UserServiceDesc::serviceNameLanguageDescription > > user_service_description_names = std::list<std::shared_ptr< UserServiceDesc::serviceNameLanguageDescription > >();
+    const auto &service_name_descriptions = m_MBSUserService->getServNameDescs();
+    for (const auto &service_name_description : service_name_descriptions) {
+        if(service_name_description.has_value()) {
+            std::shared_ptr< ServiceNameDescription > service_name_desc = service_name_description.value();
+            if(!service_name_desc->getServName().has_value()) continue;
+            std::shared_ptr<UserServiceDesc::serviceNameLanguageDescription> name(new UserServiceDesc::serviceNameLanguageDescription(service_name_desc->getServName().value(), service_name_desc->getLanguage()));
+            user_service_description_names.push_back(std::move(name));
+        }
+    }
+    return user_service_description_names;
+}
+
 
 bool UserService::processEvent(Open5GSEvent &event)
 {
@@ -523,6 +557,16 @@ const std::shared_ptr<UserDataIngSession> &UserService::findUserDataIngSession(c
     return null_udis;
 }
 
+bool UserService::isServiceAnnModePassedBack()
+{	
+    //std::list<std::optional<std::shared_ptr< ServiceAnnouncementMode > >
+    const reftools::mbsf::MBSUserService::ServAnnModesType &service_ann_modes =  m_MBSUserService->getServAnnModes();
+    for( const auto &service_ann_mode : service_ann_modes) {
+        if(!service_ann_mode.has_value()) continue;
+        if(service_ann_mode.value()->getValue() == reftools::mbsf::ServiceAnnouncementMode::VAL_PASSED_BACK) return true;	
+    }
+    return false;
+}
 MBSF_NAMESPACE_STOP
 
 /* vim:ts=8:sts=4:sw=4:expandtab:

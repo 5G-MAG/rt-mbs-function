@@ -85,7 +85,14 @@ Context::~Context()
         std::lock_guard<decltype(m_userDataIngSessMutex)::element_type> lock(*m_userDataIngSessMutex);
         m_userDataIngSessIndex.clear();
     }
+    
     UserDataIngSession::clearRegistries();
+    
+    {
+        std::lock_guard<decltype(m_userDataIngStatSubscMutex)::element_type> lock(*m_userDataIngStatSubscMutex);
+        m_userDataIngStatSubscs.clear();
+    }
+
 }
 
 bool Context::parseConfig()
@@ -117,6 +124,20 @@ bool Context::parseConfig()
                         break;
                     } else {
                         throw std::out_of_range("Bad configuration node at mbsf.serverResponseCacheControl");
+                     }
+
+                } else if (mbsf_key == "objectRepairParameters") {
+                    Open5GSYamlIter orp_array(mbsf_iter);
+                    if (orp_array.type() == YAML_MAPPING_NODE) {
+                        parseObjectRepairParameters(orp_array);
+                    } else if (orp_array.type() == YAML_SEQUENCE_NODE) {
+                        if (!orp_array.next()) break;
+                        Open5GSYamlIter orp_iter(orp_array);
+                        parseObjectRepairParameters(orp_iter);
+                    } else if (orp_array.type() == YAML_SCALAR_NODE) {
+                        break;
+                    } else {
+                        throw std::out_of_range("Bad configuration node at mbsf.objectRepairParameters");
                      }
 
                 } else if (mbsf_key == "activeDistributionSessionsSoftLimit") {
@@ -310,6 +331,30 @@ void Context::parseCacheControl(Open5GSYamlIter &iter) {
         }
     }
 }
+
+void Context::parseObjectRepairParameters(Open5GSYamlIter &iter) {
+    while (iter.next()) {
+        std::string orp_key(iter.key());
+        std::string orp_val(iter.value());
+        try {
+            if (orp_key == "offsetTime") {
+                objectRepairParameters.backOffParametersOffsetTime = std::stoi(orp_val);
+            } else if (orp_key == "randomTimePeriod") {
+                objectRepairParameters.backOffParametersRandomTimePeriod = std::stoi(orp_val);
+            }
+        } catch (std::out_of_range &ex) {
+            ogs_error("Cache control value for %s of \"%s\" is too big for integer storage.", orp_key.c_str(), orp_val.c_str());
+        } catch (std::invalid_argument &ex) {
+            ogs_error("Cache control value for %s of \"%s\" is not understood as an integer.", orp_key.c_str(), orp_val.c_str());
+        }
+
+        if (orp_key == "objectRepairBaseLocator") {
+                objectRepairParameters.objectRepairBaseLocator = std::string(orp_val);
+            }
+
+    }
+}
+
 
 void Context::addUserDataIngStatSubsc(const std::shared_ptr<UserDataIngStatSubsc> &subsc)
 {

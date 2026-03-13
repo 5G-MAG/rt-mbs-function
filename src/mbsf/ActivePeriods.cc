@@ -71,7 +71,6 @@ ActivePeriods::ActivePeriods(ActPeriodsType &&act_periods)
     convert_act_periods(std::move(act_periods), m_actPeriodsTP);
 }
 
-
 const DistSessionState &ActivePeriods::currentState(const MbsDistSessStateType &dist_sess_state) const
 {
     std::chrono::seconds establish_pre_start_seconds{App::self().context()->actPeriodEstablishedStateDuration};
