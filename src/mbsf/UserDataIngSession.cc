@@ -1035,7 +1035,6 @@ void UserDataIngSession::processUserDataIngSessionUpdate(ogs_pool_id_t stream_id
     const ActPeriodsType &current_act_periods = m_MBSUserDataIngSession->getActPeriods();
     
     const ActPeriodsRepRuleType &act_periods_rep_rule = mbs_user_data_ing_session->getActPeriodsRepRule();
-    const ActPeriodsRepRuleType &current_act_periods_rep_rule = mbs_user_data_ing_session->getActPeriodsRepRule();
     std::list<ActivePeriods::versionedActivePeriod > current_versioned_active_periods;
     std::shared_ptr<ActivePeriodsRepRule::versionedRepetitionRule > current_versioned_active_periods_rep_rule = nullptr;
     if (current_act_periods.has_value()) {
@@ -2439,18 +2438,18 @@ std::shared_ptr<UserServiceDesc> UserDataIngSession::userServiceDesc()
 
 const std::shared_ptr<UserService> &UserDataIngSession::mbsUserService()
 {
-
+    static const std::shared_ptr<UserService> null_retval(nullptr);
     const std::string &mbs_user_service_id = m_MBSUserDataIngSession->getMbsUserServId();
-    if(mbs_user_service_id.empty()) return nullptr;
+    if(mbs_user_service_id.empty()) return null_retval;
 
     try {
         const std::shared_ptr<UserService> &mbs_user_service = UserService::find(mbs_user_service_id);
 	return mbs_user_service;
     } catch (std::out_of_range &ex) {
         ogs_error("Unable to find the parent MBS User Service");
-        return nullptr;
+        return null_retval;
     }
-    return nullptr;
+    return null_retval;
 
 }
 

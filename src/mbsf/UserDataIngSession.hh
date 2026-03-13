@@ -44,21 +44,22 @@ namespace fiveg_mag_reftools {
 }
 
 namespace reftools::mbsf {
-    class Ssm;
     class DistSession;
     class PacketDistrMethInfo;
+    class Ssm;
 }
 
 MBSF_NAMESPACE_START
 
+class ActivePeriods;
+class AlwaysActive;
+class MBSMFMBSSession;
 class Open5GSEvent;
 class Open5GSSBIRequest;
 class Open5GSSBIObject;
 class Open5GSTimer;
-class ActivePeriods;
-class AlwaysActive;
-class MBSMFMBSSession;
 class ServiceScheduleDesc;
+class UserService;
 class UserServiceDesc;
 
 class UserDataIngSession {
