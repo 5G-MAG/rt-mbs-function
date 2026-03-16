@@ -57,7 +57,7 @@ public:
 
     UserDataIngStatSubsc(const std::weak_ptr<UserDataIngSession> &user_data_ing_session, fiveg_mag_reftools::CJson &json,
                                     bool as_request);
-    
+
     UserDataIngStatSubsc(const std::weak_ptr<UserDataIngSession> &user_data_ing_session,
                                                                  const std::shared_ptr<reftools::mbsf::MBSUserDataIngStatSubsc> &mbs_user_data_ing_stat_subsc);
 
@@ -84,7 +84,7 @@ public:
     const reftools::mbsf::MBSUserDataIngStatSubsc &getMBSUserIngStatSubsc() const {return m_mbsUserDataIngStatSubsc;};
     const SysTimeMS &generated() const {return m_generated;};
     const std::string &hash() const {return m_hash;};
-   
+
     const std::string &userDataIngSessionId() const;
 
     const int eventTypes() const { return m_eventTypes; }; /* returns ORed SubscribedEvents::EventTypeBitMask */
@@ -120,8 +120,8 @@ public:
                                const std::optional<NfServer::InterfaceMetadata> &api,
                                const NfServer::AppMetadata &app_meta);
     void subscriptionDelete(Open5GSSBIStream &stream, Open5GSSBIMessage &message, Open5GSSBIRequest &request,
-                                const std::optional<NfServer::InterfaceMetadata> &api, 
-				const NfServer::AppMetadata &app_meta);
+                                const std::optional<NfServer::InterfaceMetadata> &api,
+                                const NfServer::AppMetadata &app_meta);
     void processEventSubscs();
     std::optional<SubscribedEvents::DateTime> timeOfLatestDistributionSessionEvent(std::shared_ptr<UserDataIngSession> user_data_ing_session, SubscribedEvents::EventTypeBitMask event_type) const;
 
@@ -144,7 +144,7 @@ private:
     std::string m_subscriptionId;
     int m_eventTypes; /* ORed EventTypeBitMask */
     reftools::mbsf::MBSUserDataIngStatSubsc m_mbsUserDataIngStatSubsc;
-    SubscribedEvents m_subscribedEventTimestamps;	    
+    SubscribedEvents m_subscribedEventTimestamps;
 
     struct CacheType {
         CacheType() : lastReportedEventTimes(), client(), notifyUri() {};
@@ -154,7 +154,7 @@ private:
         CacheType &operator=(CacheType &&other) {lastReportedEventTimes = std::move(other.lastReportedEventTimes); client = std::move(other.client); return *this; };
         SubscribedEvents lastReportedEventTimes;
         std::unique_ptr<Open5GSSBIClient> client;
-	std::string notifyUri;
+        std::string notifyUri;
     } *m_cache;
 };
 

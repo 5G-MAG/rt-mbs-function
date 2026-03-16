@@ -123,7 +123,7 @@ uint32_t TrackingAreaIdentity::tac() {
 
 uint64_t* TrackingAreaIdentity::nid() {
     const std::optional<std::string > &nid = getNid();
-    if(!nid.has_value()) return nullptr;
+    if (!nid.has_value()) return nullptr;
     uint64_t value = 0;
     for (char ch : nid.value()) {
         if (std::isdigit(static_cast<unsigned char>(ch))) {

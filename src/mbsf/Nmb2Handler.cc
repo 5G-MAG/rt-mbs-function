@@ -215,7 +215,7 @@ bool Nmb2Handler::processEvent(Open5GSEvent &event)
                 if (method == OGS_SBI_HTTP_METHOD_POST) {
                     if (message.resStatus() == OGS_SBI_HTTP_STATUS_OK || message.resStatus() == OGS_SBI_HTTP_STATUS_CREATED)
                     {
-                        if( response.contentLength() && valid_content_type(message))
+                        if ( response.contentLength() && valid_content_type(message))
                         {
 
                             handle_mbstf_dist_session_response(sbi_xact, response);
@@ -236,8 +236,8 @@ bool Nmb2Handler::processEvent(Open5GSEvent &event)
                     if (message.resStatus() == OGS_SBI_HTTP_STATUS_NO_CONTENT)
                     {
                         std::string resource_id(message.resourceComponent(1));
-                        if(!resource_id.empty()) {
-                            if(sbi_xact) {
+                        if (!resource_id.empty()) {
+                            if (sbi_xact) {
                                 remove_xact(sbi_xact);
                                 sbi_xact = nullptr;
                             }
@@ -251,7 +251,7 @@ bool Nmb2Handler::processEvent(Open5GSEvent &event)
                     ogs_info("PATCH MESSAGE STATUS: %d %lu CT:[%s]", message.resStatus(), response.contentLength(), message.contentType());
                      if (message.resStatus() == OGS_SBI_HTTP_STATUS_OK)
                     {
-                        if( response.contentLength() && valid_content_type(message))
+                        if ( response.contentLength() && valid_content_type(message))
                         {
                             CJson patch_response_from_mbstf(CJson::Null);
                             try {
@@ -278,7 +278,7 @@ bool Nmb2Handler::processEvent(Open5GSEvent &event)
                 } else {
                     ogs_error("Invalid HTTP method [%s]", method.c_str());
                 }
-                if(sbi_xact) {
+                if (sbi_xact) {
                     remove_xact(sbi_xact);
                     sbi_xact = nullptr;
                 }
@@ -287,7 +287,7 @@ bool Nmb2Handler::processEvent(Open5GSEvent &event)
             return false;
         }
 
-        if(!response.owner()) response.resetHeader();
+        if (!response.owner()) response.resetHeader();
     }
     return false;
     default:
@@ -342,7 +342,7 @@ static bool handle_mbstf_dist_session_response(ogs_sbi_xact_t *xact, Open5GSSBIR
 }
 
 static bool valid_content_type(Open5GSSBIMessage &message) {
-    if(std::string(message.contentType()) == "application/json") {
+    if (std::string(message.contentType()) == "application/json") {
         return true;
     }
     return false;
@@ -359,7 +359,7 @@ static void send_error(ogs_sbi_xact_t *xact)
 
 static void remove_xact(ogs_sbi_xact_t *xact)
 {
-    if(xact) {
+    if (xact) {
         UserDataIngSession::removeXact(xact);
         xact = nullptr;
     }

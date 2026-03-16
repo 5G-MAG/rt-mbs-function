@@ -141,7 +141,7 @@ std::shared_ptr<MBSDistributionSessionInfo> &DistributionSessionInfo::updateMBSD
     // --------------------------------------------------------------------
     std::optional<std::shared_ptr< DistSessionState > > dist_session_state = m_mbsDistributionSessionInfo->getMbsDistSessState();
 
-    if(dist_session_state.has_value() && dist_session_state.value()->getValue() == DistSessionState::VAL_INACTIVE) {
+    if (dist_session_state.has_value() && dist_session_state.value()->getValue() == DistSessionState::VAL_INACTIVE) {
         // ----- Max Continuous Bit Rate -----
         m_mbsDistributionSessionInfo->setMaxContBitRate(std::move(new_mbs_dist_session_infos->getMaxContBitRate()));
 
@@ -268,7 +268,7 @@ void DistributionSessionInfo::registerEvent(SubscribedEvents::EventTypeBitMask e
 
 void DistributionSessionInfo::sendSubscriptionNotifications()
 {
-    if(m_mbsDistributionSessionInfoSubscription) m_mbsDistributionSessionInfoSubscription->pushNotificationsEvent();
+    if (m_mbsDistributionSessionInfoSubscription) m_mbsDistributionSessionInfoSubscription->pushNotificationsEvent();
 }
 
 const DistSessionEventReportList::EventReportListType &DistributionSessionInfo::distributionSessionEventReports() const
@@ -307,11 +307,11 @@ void DistributionSessionInfo::displayEventReports()
         std::shared_ptr<DistSessionEventReport> dist_sess_event_report  = dist_session_event_report.value();
         if (!dist_sess_event_report) continue;
 
-	std::shared_ptr< DistSessionEventType > distribution_session_event_type = dist_sess_event_report->getEventType();
+        std::shared_ptr< DistSessionEventType > distribution_session_event_type = dist_sess_event_report->getEventType();
         DistSessionEventType dist_session_event_type = *distribution_session_event_type;
 
-	std::optional<std::string> time_stamp = dist_sess_event_report->getTimeStamp();
-        if(!time_stamp.has_value()) continue;
+        std::optional<std::string> time_stamp = dist_sess_event_report->getTimeStamp();
+        if (!time_stamp.has_value()) continue;
         ogs_info("Event:[%s] Timestamp: [%s]", distribution_session_event_type->getString().c_str(), time_stamp.value().c_str());
 
     }
@@ -328,22 +328,22 @@ DistributionSessionInfo &DistributionSessionInfo::distributionSessionEventReport
     const DistSessionEventReportList::EventReportListType &dist_session_event_reports = distributionSessionEventReports();
     for (const auto &dist_session_event_report : dist_session_event_reports) {
         if (!dist_session_event_report.has_value()) continue;
-	std::shared_ptr<DistSessionEventReport> dist_sess_event_report  = dist_session_event_report.value();
-	if (!dist_sess_event_report) continue;
+        std::shared_ptr<DistSessionEventReport> dist_sess_event_report  = dist_session_event_report.value();
+        if (!dist_sess_event_report) continue;
         std::optional<std::string> time_stamp = dist_sess_event_report->getTimeStamp();
-        if(!time_stamp.has_value()) continue;
-	std::chrono::system_clock::time_point tp = to_time_point_iso8601(time_stamp.value());
+        if (!time_stamp.has_value()) continue;
+        std::chrono::system_clock::time_point tp = to_time_point_iso8601(time_stamp.value());
         if (tp == std::chrono::system_clock::time_point{}) {
             ogs_error("Epoch parse failed");
-	    continue;
+            continue;
         }
-	dist_session_event_reports_sorted.emplace(tp, dist_sess_event_report);
+        dist_session_event_reports_sorted.emplace(tp, dist_sess_event_report);
 
     }
     for (const auto &dist_session_event_report_sorted : dist_session_event_reports_sorted) {
-	if (!sorted_distribution_session_event_reports){
-	    sorted_distribution_session_event_reports.reset(new DistSessionEventReportList());
-	}
+        if (!sorted_distribution_session_event_reports){
+            sorted_distribution_session_event_reports.reset(new DistSessionEventReportList());
+        }
         sorted_distribution_session_event_reports->addEventReportList(std::move(dist_session_event_report_sorted.second));
     }
     //dist_session_event_reports.clearEventReportList()
@@ -360,18 +360,18 @@ DistributionSessionInfo &DistributionSessionInfo::processEvents(std::shared_ptr<
         if (!dist_session_event_report.has_value()) continue;
         std::shared_ptr<DistSessionEventReport> dist_sess_event_report  = dist_session_event_report.value();
         if (!dist_sess_event_report) continue;
-	std::shared_ptr< DistSessionEventType > distribution_session_event_type = dist_sess_event_report->getEventType();
-	DistSessionEventType dist_session_event_type = *distribution_session_event_type;
-	switch (dist_session_event_type) {
-	case DistSessionEventType::VAL_DATA_INGEST_FAILURE:
+        std::shared_ptr< DistSessionEventType > distribution_session_event_type = dist_sess_event_report->getEventType();
+        DistSessionEventType dist_session_event_type = *distribution_session_event_type;
+        switch (dist_session_event_type) {
+        case DistSessionEventType::VAL_DATA_INGEST_FAILURE:
             processDataIngestFailure(dist_sess_event_report);
-	    break;
+            break;
         case DistSessionEventType::VAL_DATA_INGEST_SESSION_ESTABLISHED:
-	    m_dataIngestSessionEstablished = true;
-	    break;
+            m_dataIngestSessionEstablished = true;
+            break;
         case DistSessionEventType::VAL_DATA_INGEST_SESSION_TERMINATED:
-	    m_dataIngestSessionTerminated = true;
-	    break;
+            m_dataIngestSessionTerminated = true;
+            break;
         default:
             continue;
        }
@@ -408,17 +408,17 @@ void DistributionSessionInfo::setState(std::shared_ptr< DistSessionState > dist_
 std::shared_ptr<AvailabilityInfo> DistributionSessionInfo::populateAvailabilityInfo()
 {
     if (!m_mbsDistributionSessionInfo) return nullptr;
-    
+
     const std::optional<std::shared_ptr< reftools::mbsf::MbsServiceArea > > &tgt_serv_areas = m_mbsDistributionSessionInfo->getTgtServAreas();
     const  std::optional<std::string > &mbs_fSa_id = m_mbsDistributionSessionInfo->getMbsFSAId();
-    if(!tgt_serv_areas.has_value() || !mbs_fSa_id.has_value()) return nullptr;
+    if (!tgt_serv_areas.has_value() || !mbs_fSa_id.has_value()) return nullptr;
     std::shared_ptr<AvailabilityInfo> availability_info(new AvailabilityInfo(m_mbsDistributionSessionInfo->getTgtServAreas(), m_mbsDistributionSessionInfo->getMbsFSAId()));
-    return availability_info; 
+    return availability_info;
 }
 
 std::optional<std::list<std::shared_ptr<AvailabilityInfo>>> DistributionSessionInfo::availabilityInfos()
 {
-    if(!m_mbsDistributionSessionInfo) return std::nullopt;
+    if (!m_mbsDistributionSessionInfo) return std::nullopt;
     std::optional<std::list<std::shared_ptr<AvailabilityInfo>>> availability_infos = std::nullopt;
     std::shared_ptr<AvailabilityInfo> availability_info = populateAvailabilityInfo();
     availability_infos= std::list<std::shared_ptr<AvailabilityInfo>>();
@@ -462,7 +462,7 @@ std::optional<std::shared_ptr<ObjRepairParameters>> DistributionSessionInfo::pop
 {
     if (!m_mbsDistributionSessionInfo) return std::nullopt;
 
-    if(!App::self().context()->objectRepairParameters.objectRepairBaseLocator.has_value() ||
+    if (!App::self().context()->objectRepairParameters.objectRepairBaseLocator.has_value() ||
                     !App::self().context()->objectRepairParameters.backOffParametersOffsetTime ||
                     !App::self().context()->objectRepairParameters.backOffParametersRandomTimePeriod)
     {
@@ -475,13 +475,13 @@ std::optional<std::shared_ptr<ObjRepairParameters>> DistributionSessionInfo::pop
         std::shared_ptr< ObjectDistrMethInfo > dist_method_info = obj_dist_method_info.value();
 
         const std::optional<std::string > &obj_distr_uri = dist_method_info->getObjDistrUri();
-        if(!obj_distr_uri.has_value()) return std::nullopt;
+        if (!obj_distr_uri.has_value()) return std::nullopt;
 
-	//auto obj_repair_parameters = std::make_shared<ObjRepairParameters>(std::optional<std::string>{obj_distr_uri});
+        //auto obj_repair_parameters = std::make_shared<ObjRepairParameters>(std::optional<std::string>{obj_distr_uri});
 
-	
-	std::shared_ptr<ObjRepairParameters> obj_repair_parameters(new ObjRepairParameters(user_data_ing_session_id, distribution_session_info_key, dist_method_info->getObjDistrUri()));
-	return obj_repair_parameters; 		
+
+        std::shared_ptr<ObjRepairParameters> obj_repair_parameters(new ObjRepairParameters(user_data_ing_session_id, distribution_session_info_key, dist_method_info->getObjDistrUri()));
+        return obj_repair_parameters;
     }
     return std::nullopt;
 
@@ -493,7 +493,7 @@ std::shared_ptr<DistributionSessionDesc> DistributionSessionInfo::populateDistri
     if (!m_mbsDistributionSessionInfo) return nullptr;
 
     std::string session_description_locator = user_data_ing_session_id + "/"+ distribution_session_info_key + ".sdp";
-     
+
     std::shared_ptr<DistributionSessionDesc> distribution_session_desc(new DistributionSessionDesc(m_mbsDistributionSessionInfo->getDistrMethod(), session_description_locator, applicationServiceDescriptions(), populateObjRepairParameters(user_data_ing_session_id, distribution_session_info_key), availabilityInfos()));
     return distribution_session_desc;
 }

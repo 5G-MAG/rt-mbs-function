@@ -242,7 +242,7 @@ int Open5GSNetworkFunction::setNFServices(const char *serviceName, const char *s
     addAddressesToNFService(nf_service, addrs);
     ogs_sbi_nf_service_add_version(nf_service, OGS_SBI_API_V1, apiVersion, NULL);
     if (supportedFeatures) nf_service->supported_features = ogs_strdup(supportedFeatures);
-    if(capacity.has_value() && *capacity != 0 ) nf_service->capacity = *capacity;
+    if (capacity.has_value() && *capacity != 0 ) nf_service->capacity = *capacity;
     ogs_info("MBSF Service [%s]", nf_service->name);
     if (!nf_service) return OGS_ERROR;
 
@@ -310,7 +310,7 @@ bool Open5GSNetworkFunction::sbiOpen()
         }
     }
 
-    if(services_capacity) ogs_sbi_self()->nf_instance->capacity = services_capacity;
+    if (services_capacity) ogs_sbi_self()->nf_instance->capacity = services_capacity;
     nf_instance = ogs_sbi_self()->nrf_instance;
     if (nf_instance) {
         ogs_sbi_nf_fsm_init(nf_instance);

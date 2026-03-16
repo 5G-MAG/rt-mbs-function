@@ -59,7 +59,7 @@ public:
         MBSF_LOCAL_EVENT_MBS_SESSION_CREATE,
         MBSF_LOCAL_EVENT_MBS_SESSION_CREATE_RESULT,
         MBSF_LOCAL_EVENT_MBS_SESSION_DELETED,
-	MBSF_LOCAL_EVENT_MBS_SESSION_NOTIFY,
+        MBSF_LOCAL_EVENT_MBS_SESSION_NOTIFY,
         MBSF_LOCAL_EVENT_MAX
     };
 
@@ -68,7 +68,7 @@ public:
         LocalEventId id;
         mb_smf_sc_mbs_session_t *mbs_session;
         const OpenAPI_problem_details_s*  problem_details;
-	const mb_smf_sc_mbs_status_notification_result_t *notification;
+        const mb_smf_sc_mbs_status_notification_result_t *notification;
         int result;
     };
 
@@ -80,13 +80,13 @@ public:
     mb_smf_sc_activity_status_e getActivityStatus() const;
     bool getAnyUeInd() const;
     bool getLocationDependent() const;
-    
+
 
     MBSMFMBSSession &setAssociatedSessionId(std::shared_ptr<reftools::mbsf::AssociatedSessionId> associated_session_id);
     MBSMFMBSSession &setSession(mb_smf_sc_mbs_session_t *session);
     MBSMFMBSSession &setSubscription(mb_smf_sc_mbs_status_subscription_t *subscription);
     MBSMFMBSSession &createStatusSubscription(uint16_t area_session_id, mb_smf_sc_mbs_session_event_type_e event_type,
-		const char *correlation_id, time_t expiry_time, void *callback_data);
+                const char *correlation_id, time_t expiry_time, void *callback_data);
     MBSMFMBSSession &setServiceType(mb_smf_sc_mbs_service_type_e service_type);
     MBSMFMBSSession &setTunnelRequest(bool request_udp_tunnel);
     MBSMFMBSSession &setCreatedCallback(void *callback_data);

@@ -93,7 +93,7 @@ void MBSNcgiTai::ncgis(mb_smf_sc_ncgi_tai_t *ncgi_tai) {
     ogs_list_init(&ncgi_tai->ncgis);
 
     for(const auto &cell: cells) {
-        if(cell.has_value()) {
+        if (cell.has_value()) {
             std::shared_ptr< MBSNcgi > mbs_ncgi = nullptr;
             std::shared_ptr< Ncgi > ncgi = cell.value();
             mbs_ncgi.reset(new MBSNcgi(ncgi));

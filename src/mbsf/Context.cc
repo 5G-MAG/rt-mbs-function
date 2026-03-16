@@ -85,9 +85,9 @@ Context::~Context()
         std::lock_guard<decltype(m_userDataIngSessMutex)::element_type> lock(*m_userDataIngSessMutex);
         m_userDataIngSessIndex.clear();
     }
-    
+
     UserDataIngSession::clearRegistries();
-    
+
     {
         std::lock_guard<decltype(m_userDataIngStatSubscMutex)::element_type> lock(*m_userDataIngStatSubscMutex);
         m_userDataIngStatSubscs.clear();
@@ -391,7 +391,7 @@ void Context::parseConfiguration(const std::string &pc_key, Open5GSYamlIter &ite
 
      while (iter.next()) {
          std::string sbi_key(iter.key());
-         if(sbi_key == "family") {
+         if (sbi_key == "family") {
              const char *v = iter.value();
              if (v) family = atoi(v);
              if (family != AF_UNSPEC && family != AF_INET && family != AF_INET6) {
@@ -486,14 +486,14 @@ void Context::parseConfiguration(const std::string &pc_key, Open5GSYamlIter &ite
                 servers[MBS_USER_SERVICES].push_back(new_server);
             } else if (pc_key == "mbsUserDataIngestSession") {
                 servers[MBS_USER_DATA_INGEST_SESSION].push_back(new_server);
-	    }
+            }
         }
     }
     ogs_list_for_each(&list6, node6) {
         if (node6) {
             std::shared_ptr<Open5GSSBIServer> new_server = findServerForAddr(node);
 
-            if(!new_server) {
+            if (!new_server) {
                 new_server.reset(new Open5GSSBIServer(node, is_option ? &option : nullptr));
                 new_server->ogsSBIServerAdvertise(addr);
             }
@@ -514,7 +514,7 @@ std::vector <std::shared_ptr<Open5GSSockAddr> > Context::MBSFUserServicesAddress
 {
     std::vector<std::shared_ptr<Open5GSSockAddr> > sockAddrs;
     std::vector<std::shared_ptr<Open5GSSBIServer>> srvs = servers[MBS_USER_SERVICES];
-    if(!srvs.empty()) {
+    if (!srvs.empty()) {
         for (const auto &srv: srvs) {
             sockAddrs.emplace_back(new Open5GSSockAddr(srv->ogsSBIServer()->node.addr));
         }
@@ -528,7 +528,7 @@ std::vector <std::shared_ptr<Open5GSSockAddr> > Context::MBSFUserDataIngestSessi
 {
     std::vector<std::shared_ptr<Open5GSSockAddr> > sockAddrs;
     std::vector<std::shared_ptr<Open5GSSBIServer>> srvs = servers[MBS_USER_DATA_INGEST_SESSION];
-    if(!srvs.empty()) {
+    if (!srvs.empty()) {
         for (const auto &srv: srvs) {
             sockAddrs.emplace_back(new Open5GSSockAddr(srv->ogsSBIServer()->node.addr));
         }
@@ -557,7 +557,7 @@ int Context::parseNotificationConfig(const std::string &pc_key, Open5GSYamlIter 
 
                 if (!end_ptr || *end_ptr || num >= 65536) {
                     ogs_error("Notification port (%s) must be 0-65535", v);
-		    return OGS_ERROR;
+                    return OGS_ERROR;
                 } else {
                     port = (uint16_t)num;
                 }

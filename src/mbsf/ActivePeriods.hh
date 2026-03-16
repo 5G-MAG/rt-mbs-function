@@ -58,7 +58,7 @@ public:
 
     ActivePeriods(const ActPeriodsType &act_periods);
     ActivePeriods(ActPeriodsType &&act_periods);
-    
+
     virtual ~ActivePeriods() {};
     virtual const DistSessionState &currentState(const MbsDistSessStateType &dist_session_state) const;
     virtual TimestampAndActiveFlag nextTransition() const;

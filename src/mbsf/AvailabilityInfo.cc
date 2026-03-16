@@ -87,9 +87,9 @@ AvailabilityInfo::~AvailabilityInfo()
 AvailabilityInfo &AvailabilityInfo::setMbsServiceAreas(const std::list<std::shared_ptr< ServiceArea > > &service_areas)
 {
     for(const auto &service_area: service_areas) {
-        if(!service_area) continue;
-	std::shared_ptr<reftools::mbsf::MbsServiceArea>  mbs_service_area = service_area->getMbsServiceArea();
-	if(!mbs_service_area) continue;
+        if (!service_area) continue;
+        std::shared_ptr<reftools::mbsf::MbsServiceArea>  mbs_service_area = service_area->getMbsServiceArea();
+        if (!mbs_service_area) continue;
         m_availabilityInformation->addMbsServiceAreas(mbs_service_area);
     }
     return *this;

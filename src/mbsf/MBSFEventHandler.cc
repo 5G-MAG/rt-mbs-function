@@ -167,7 +167,7 @@ void MBSFEventHandler::dispatch(Open5GSFSM &fsm, Open5GSEvent &event)
                           ogs_assert_if_reached();
                     }
 
-                    if(sbi_xact) UserDataIngSession::removeXact(sbi_xact);
+                    if (sbi_xact) UserDataIngSession::removeXact(sbi_xact);
                     sbi_xact = NULL;
                 }
 
@@ -284,13 +284,13 @@ void MBSFEventHandler::dispatch(Open5GSFSM &fsm, Open5GSEvent &event)
                     }
 
                     ogs_sbi_stream_t *ogs_stream = reinterpret_cast<ogs_sbi_stream_t*>(ogs_sbi_stream_find_by_id(sbi_xact->assoc_stream_id));
-                    if(!ogs_stream) {
-                        if(sbi_xact) UserDataIngSession::removeXact(sbi_xact);
+                    if (!ogs_stream) {
+                        if (sbi_xact) UserDataIngSession::removeXact(sbi_xact);
                         return;
                      }
 
                     Open5GSSBIStream stream(sbi_xact->assoc_stream_id);
-                    if(sbi_xact) UserDataIngSession::removeXact(sbi_xact);
+                    if (sbi_xact) UserDataIngSession::removeXact(sbi_xact);
                     ogs_error("Cannot receive SBI message");
                     if (stream) {
                         ogs_assert(true == Open5GSSBIServer::sendError(stream, std::nullopt, ProblemCause::TIMED_OUT_REQUEST,

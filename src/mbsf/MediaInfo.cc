@@ -117,14 +117,14 @@ const std::unordered_map<std::string, mb_smf_sc_mbs_media_type_e> MediaInfo::med
 void MediaInfo::codecs(mb_smf_sc_mbs_media_info_t *media_info) {
     //std::optional<std::list<std::optional<std::string >, fiveg_mag_reftools::OgsAllocator<std::optional<std::string > > > > CodecsType;
     reftools::mbsf::MbsMediaInfo::CodecsType codecs = m_mbsMediaInfo->getCodecs();
-    if(!codecs.has_value()) return;
+    if (!codecs.has_value()) return;
     int i = 0;
     for(const auto &codec: codecs.value()) {
-        if(codec.has_value()) {
+        if (codec.has_value()) {
             const std::string &media_codec = codec.value();
             media_info->codecs[i++] = ogs_strdup(media_codec.c_str());
         }
-        if(i>2) break;
+        if (i>2) break;
     }
 
 }
@@ -141,7 +141,7 @@ mb_smf_sc_mbs_media_info_t *MediaInfo::populateMediaInfo() {
 mb_smf_sc_mbs_media_type_e MediaInfo::lookup() {
   const auto &map = MediaInfo::mediaType();
   const std::optional<std::shared_ptr< MediaType > > &media_type = getMediaType();
-  if(!media_type.has_value()) return MEDIA_TYPE_NULL;
+  if (!media_type.has_value()) return MEDIA_TYPE_NULL;
   const std::shared_ptr< MediaType > &mbs_media_type = media_type.value();
   const std::string &type = mbs_media_type->getString();
   auto it = map.find(type);

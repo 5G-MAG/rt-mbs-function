@@ -82,7 +82,7 @@ public:
     const std::shared_ptr<UserDataIngSession> &findUserDataIngSession(const std::string &id) const;
     void removeUserDataIngSession(const std::string &userIngSessionId);
     void removeAllUserDataIngSessions();
-    std::list<std::shared_ptr<UserServiceDesc::serviceNameLanguageDescription>> UserServiceDescriptionDescs(); 
+    std::list<std::shared_ptr<UserServiceDesc::serviceNameLanguageDescription>> UserServiceDescriptionDescs();
     std::list<std::shared_ptr<UserServiceDesc::serviceNameLanguageDescription>> UserServiceDescriptionNames();
 
 private:

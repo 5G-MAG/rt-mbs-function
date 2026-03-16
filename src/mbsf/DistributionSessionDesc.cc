@@ -50,7 +50,7 @@ MBSF_NAMESPACE_START
 
 DistributionSessionDesc::DistributionSessionDesc(CJson &json, bool as_request)
     :m_distributionSessionDescription(new DistributionSessionDescription(json, as_request))
-	
+
 {
 }
 
@@ -66,21 +66,21 @@ DistributionSessionDesc::DistributionSessionDesc(const std::shared_ptr<reftools:
                     std::optional<std::list<std::shared_ptr<AvailabilityInfo>>> availabilty_infos,
                     std::optional<std::list<std::string>> conformance_profiles)
     :m_distributionSessionDescription(new DistributionSessionDescription())
-	
+
 {
     m_distributionSessionDescription->setDistributionMethod(distribution_method);
     m_distributionSessionDescription->setSessionDescriptionLocator(Session_description_locator);
-    if(application_service_descriptions.has_value() && !application_service_descriptions->empty()) {
-        populateAndSetApplicationServiceDescriptions(application_service_descriptions.value()); 
+    if (application_service_descriptions.has_value() && !application_service_descriptions->empty()) {
+        populateAndSetApplicationServiceDescriptions(application_service_descriptions.value());
     }
-    if(object_repair_parameters.has_value()) {
+    if (object_repair_parameters.has_value()) {
         m_distributionSessionDescription->setPostSessionObjectRepairParameters(object_repair_parameters.value()->objectRepairParameters());
     }
-    if(availabilty_infos.has_value() && !availabilty_infos->empty()) {
+    if (availabilty_infos.has_value() && !availabilty_infos->empty()) {
         populateAndSetApplicationInfos(availabilty_infos.value());
 
     }
-    if(conformance_profiles.has_value() && !conformance_profiles->empty()) {
+    if (conformance_profiles.has_value() && !conformance_profiles->empty()) {
         populateAndSetConformanceProfiles(conformance_profiles);
     }
 
@@ -98,10 +98,10 @@ CJson DistributionSessionDesc::json(bool as_request = false) const
 DistributionSessionDesc &DistributionSessionDesc::populateAndSetApplicationServiceDescriptions(const std::list<std::shared_ptr<ApplicationServiceDesc>> &application_service_descriptions)
 {
     for(const auto &application_service_description: application_service_descriptions) {
-        if(!application_service_description) continue;
-	const std::shared_ptr<reftools::mbsf::ApplicationServiceDescription> &application_service_desc = application_service_description->applicationServiceDescription();
-	if(!application_service_desc) continue;
-	m_distributionSessionDescription->addApplicationServiceDescriptions(application_service_desc);
+        if (!application_service_description) continue;
+        const std::shared_ptr<reftools::mbsf::ApplicationServiceDescription> &application_service_desc = application_service_description->applicationServiceDescription();
+        if (!application_service_desc) continue;
+        m_distributionSessionDescription->addApplicationServiceDescriptions(application_service_desc);
     }
     return *this;
 
@@ -110,9 +110,9 @@ DistributionSessionDesc &DistributionSessionDesc::populateAndSetApplicationServi
 DistributionSessionDesc &DistributionSessionDesc::populateAndSetApplicationInfos(const std::list<std::shared_ptr<AvailabilityInfo>> &availability_infos)
 {
     for(const auto &availability_info : availability_infos) {
-        if(!availability_info) continue;
+        if (!availability_info) continue;
         const std::shared_ptr<reftools::mbsf::AvailabilityInformation> &avail_info = availability_info->availabilityInformation();
-        if(!avail_info) continue;
+        if (!avail_info) continue;
         m_distributionSessionDescription->addAvailabilityInfos(avail_info);
     }
     return *this;
@@ -121,13 +121,13 @@ DistributionSessionDesc &DistributionSessionDesc::populateAndSetApplicationInfos
 
 DistributionSessionDesc &DistributionSessionDesc::populateAndSetConformanceProfiles(std::optional<std::list<std::string>> conformance_profiles)
 {
-    if(!conformance_profiles.has_value()) {
+    if (!conformance_profiles.has_value()) {
         m_distributionSessionDescription->addConformanceProfiles("urn:3GPP:26517:17:baseline");
     } else {
-	const std::list<std::string> &profiles = conformance_profiles.value();
-	for(const auto &profile : profiles) {
+        const std::list<std::string> &profiles = conformance_profiles.value();
+        for(const auto &profile : profiles) {
             m_distributionSessionDescription->addConformanceProfiles(profile);
-	}
+        }
     }
     return *this;
 }

@@ -122,9 +122,9 @@ public:
     } capacity;
 
     struct {
-	int32_t backOffParametersOffsetTime;    
-	int32_t backOffParametersRandomTimePeriod;
-        std::optional<std::string > objectRepairBaseLocator;	
+        int32_t backOffParametersOffsetTime;
+        int32_t backOffParametersRandomTimePeriod;
+        std::optional<std::string > objectRepairBaseLocator;
     } objectRepairParameters;
 
     std::int64_t actPeriodEstablishedStateDuration = 60;

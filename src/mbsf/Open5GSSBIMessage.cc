@@ -310,7 +310,7 @@ void Open5GSSBIMessage::resetHeader()
 static void clear_header(ogs_sbi_header_t *header)
 {
 
-    if(header->uri) {
+    if (header->uri) {
        char *method = ogs_strdup(header->method);
        ogs_sbi_header_free(header);
        header->method = nullptr;

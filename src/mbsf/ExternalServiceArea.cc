@@ -85,12 +85,12 @@ void ExternalServiceArea::geographicAreas(mb_smf_sc_ext_mbs_service_area_t *ext_
 
     //std::optional<std::list<std::optional<std::shared_ptr< GeographicArea > >
     const reftools::mbsf::ExternalMbsServiceArea::GeographicAreaListType &geo_areas = getGeographicAreaList();
-    if(!geo_areas.has_value()) return;
+    if (!geo_areas.has_value()) return;
 
     ogs_list_init(&ext_mbs_service_area->geographic_areas);
 
     for(const auto &geo_area: geo_areas.value()) {
-        if(geo_area.has_value()) {
+        if (geo_area.has_value()) {
             std::shared_ptr< GeographicalArea > geographical_area = nullptr;
             std::shared_ptr< GeographicArea > recv_geo_area = geo_area.value();
             geographical_area.reset(new GeographicalArea(recv_geo_area));
@@ -106,12 +106,12 @@ void ExternalServiceArea::civicAddresses(mb_smf_sc_ext_mbs_service_area_t *ext_m
 
     //std::optional<std::list<std::optional<std::shared_ptr< CivicAddress > >
     const reftools::mbsf::ExternalMbsServiceArea::CivicAddressListType &civic_addresses = getCivicAddressList();
-    if(!civic_addresses.has_value()) return;
+    if (!civic_addresses.has_value()) return;
 
     ogs_list_init(&ext_mbs_service_area->civic_addresses);
 
     for(const auto &civic_address: civic_addresses.value()) {
-        if(civic_address.has_value()) {
+        if (civic_address.has_value()) {
             std::shared_ptr< CivicAddr > civic_addr = nullptr;
             std::shared_ptr< CivicAddress > recv_civic_address = civic_address.value();
             civic_addr.reset(new CivicAddr(recv_civic_address));

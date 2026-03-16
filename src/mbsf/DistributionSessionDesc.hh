@@ -37,11 +37,11 @@ public:
     DistributionSessionDesc(fiveg_mag_reftools::CJson &json, bool as_request);
     DistributionSessionDesc(const std::shared_ptr<reftools::mbsf::DistributionSessionDescription> &description_session_description);
     DistributionSessionDesc(const std::shared_ptr<reftools::mbsf::DistributionMethod>& distribution_method,
-		    const std::string& Session_description_locator,
-		    std::optional<std::list<std::shared_ptr<ApplicationServiceDesc>>> application_service_descriptions = std::nullopt,
-		    std::optional<std::shared_ptr<ObjRepairParameters>> object_repair_parameters = std::nullopt,
-		    std::optional<std::list<std::shared_ptr<AvailabilityInfo>>> availabilty_infos = std::nullopt,
-		    std::optional<std::list<std::string>> conformance_profiles = std::nullopt
+                    const std::string& Session_description_locator,
+                    std::optional<std::list<std::shared_ptr<ApplicationServiceDesc>>> application_service_descriptions = std::nullopt,
+                    std::optional<std::shared_ptr<ObjRepairParameters>> object_repair_parameters = std::nullopt,
+                    std::optional<std::list<std::shared_ptr<AvailabilityInfo>>> availabilty_infos = std::nullopt,
+                    std::optional<std::list<std::string>> conformance_profiles = std::nullopt
     );
 
     DistributionSessionDesc(DistributionSessionDesc &&other) = delete;
@@ -57,12 +57,12 @@ public:
     DistributionSessionDesc &addApplicationServiceDesc(const std::string &entry_point_locator, const std::string &content_type);
 
     DistributionSessionDesc &setObjRepairParameters(std::shared_ptr<ObjRepairParameters> &obj_repair_parameters);
-    
+
     DistributionSessionDesc &addAvailabilityInfo(std::shared_ptr<AvailabilityInfo> &availability_info);
     DistributionSessionDesc &addAvailabilityInfo(const std::list<std::shared_ptr< ServiceArea > > &service_areas, const std::optional<std::string> &mbs_fas_id = std::nullopt);
     DistributionSessionDesc &addAvailabilityInfo(const std::shared_ptr< ServiceArea > &service_areas, const std::optional<std::string> &mbs_fas_id = std::nullopt);
- 
-    DistributionSessionDesc &populateAndSetApplicationServiceDescriptions(const std::list<std::shared_ptr<ApplicationServiceDesc>> &application_service_descriptions);    
+
+    DistributionSessionDesc &populateAndSetApplicationServiceDescriptions(const std::list<std::shared_ptr<ApplicationServiceDesc>> &application_service_descriptions);
     DistributionSessionDesc &populateAndSetApplicationInfos(const std::list<std::shared_ptr<AvailabilityInfo>> &availabilty_infos);
     DistributionSessionDesc &populateAndSetConformanceProfiles(std::optional<std::list<std::string>> conformance_profiles = std::nullopt);
 
@@ -70,7 +70,7 @@ public:
     const std::shared_ptr< reftools::mbsf::DistributionMethod > &distributionMethod() const {return m_distributionSessionDescription->getDistributionMethod();};
     const reftools::mbsf::DistributionSessionDescription::ConformanceProfilesType &conformanceProfile() const {return m_distributionSessionDescription->getConformanceProfiles();};
     const std::string &sessionDescriptionLocator() const {return m_distributionSessionDescription->getSessionDescriptionLocator();};
-    const reftools::mbsf::DistributionSessionDescription::ApplicationServiceDescriptionsType &applicationServiceDescriptions() const 
+    const reftools::mbsf::DistributionSessionDescription::ApplicationServiceDescriptionsType &applicationServiceDescriptions() const
        {return m_distributionSessionDescription->getApplicationServiceDescriptions();};
 
     const reftools::mbsf::DistributionSessionDescription::PostSessionObjectRepairParametersType &objectRepairParameters() const {return m_distributionSessionDescription->getPostSessionObjectRepairParameters();};

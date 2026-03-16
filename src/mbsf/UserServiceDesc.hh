@@ -37,12 +37,12 @@ public:
 
     UserServiceDesc(fiveg_mag_reftools::CJson &json, bool as_request);
     UserServiceDesc(const std::shared_ptr<reftools::mbsf::UserServiceDescription> &user_service_description);
-    UserServiceDesc(const reftools::mbsf::UserServiceDescription::ServiceIdsType &service_ids, 
-		    const std::string &r_class, const std::list<std::shared_ptr<UserServiceDesc::serviceNameLanguageDescription>> &names, 
-		    const std::list<std::shared_ptr<UserServiceDesc::serviceNameLanguageDescription>> &descriptions, 
-		    const std::list<std::shared_ptr< DistributionSessionDesc > > &distribution_session_decs, 
-		    std::optional<std::list<std::shared_ptr< ServiceScheduleDesc > >> service_schedule_desc = std::nullopt, 
-		    std::optional<std::string > service_language = std::nullopt);
+    UserServiceDesc(const reftools::mbsf::UserServiceDescription::ServiceIdsType &service_ids,
+                    const std::string &r_class, const std::list<std::shared_ptr<UserServiceDesc::serviceNameLanguageDescription>> &names,
+                    const std::list<std::shared_ptr<UserServiceDesc::serviceNameLanguageDescription>> &descriptions,
+                    const std::list<std::shared_ptr< DistributionSessionDesc > > &distribution_session_decs,
+                    std::optional<std::list<std::shared_ptr< ServiceScheduleDesc > >> service_schedule_desc = std::nullopt,
+                    std::optional<std::string > service_language = std::nullopt);
     UserServiceDesc() = delete;
     UserServiceDesc(UserServiceDesc &&other) = delete;
     UserServiceDesc(const UserServiceDesc &other) = delete;
@@ -55,9 +55,9 @@ public:
 
     UserServiceDesc &addDistributionSessionDesc(std::shared_ptr<DistributionSessionDesc> &distribution_session_desc);
     UserServiceDesc &addServiceScheduleDesc(std::shared_ptr<ServiceScheduleDesc> &service_schedule_desc);
- 
-    UserServiceDesc &populateAndSetDistributionSessionDescriptions(const std::list<std::shared_ptr<DistributionSessionDesc>> &distribution_session_descs);    
-    UserServiceDesc &populateAndSetNames(const std::list<std::shared_ptr<UserServiceDesc::serviceNameLanguageDescription>> &names);    
+
+    UserServiceDesc &populateAndSetDistributionSessionDescriptions(const std::list<std::shared_ptr<DistributionSessionDesc>> &distribution_session_descs);
+    UserServiceDesc &populateAndSetNames(const std::list<std::shared_ptr<UserServiceDesc::serviceNameLanguageDescription>> &names);
     UserServiceDesc &populateAndSetDescriptions(const std::list<std::shared_ptr<UserServiceDesc::serviceNameLanguageDescription>> &descriptions);
     UserServiceDesc &populateAndSetServiceScheduleDescriptions(std::list<std::shared_ptr<ServiceScheduleDesc>> &service_schedule_descs);
 

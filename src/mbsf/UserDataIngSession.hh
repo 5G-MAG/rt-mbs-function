@@ -205,8 +205,8 @@ public:
     std::map<std::string, std::shared_ptr< ContextData >> &distributionSessionInfos();
     std::map<std::string, std::shared_ptr<ServiceScheduleDesc> > &getServiceScheduleDescs();
     void serviceScheduleDescsUpdate(std::shared_ptr<reftools::mbsf::MBSUserDataIngSession> mbs_user_data_ing_session);
-    std::list<ActivePeriods::versionedActivePeriod> versionedActPeriods(const std::list<ActivePeriods::versionedActivePeriod> &versioned_active_periods, 
-		    const ActPeriodsType &active_periods);
+    std::list<ActivePeriods::versionedActivePeriod> versionedActPeriods(const std::list<ActivePeriods::versionedActivePeriod> &versioned_active_periods,
+                    const ActPeriodsType &active_periods);
 
     std::shared_ptr<ActivePeriodsRepRule::versionedRepetitionRule > versionedActPeriodsRepRule(const std::shared_ptr<ActivePeriodsRepRule::versionedRepetitionRule> &versioned_repetition_rule, const ActPeriodsRepRuleType &act_periods_rep_rule);
 

@@ -47,7 +47,7 @@ typedef enum {
     DIST_SESS_STARTED = 0x0004,
     DIST_SESS_SERV_MNGT_FAILURE = 0x0008,
     DIST_SESS_STARTING = 0x0010,
-    SESSION_TERMINATED = 0x0020, 
+    SESSION_TERMINATED = 0x0020,
     USER_DATA_ING_SESS_TERMINATED = 0x0040,
     USER_DATA_ING_SESS_STARTING = 0x0080,
     USER_DATA_ING_SESS_STARTED = 0x0100,
@@ -78,12 +78,12 @@ typedef enum {
     std::optional<DateTime> distSessActivated;
     std::optional<DateTime> distSessEstFailure;
     std::optional<DateTime> userSerAd;
-    
+
     /* Constructors and Destructor */
     SubscribedEvents();
     SubscribedEvents(const SubscribedEvents &other);
     SubscribedEvents(SubscribedEvents &&other);
-    
+
     virtual ~SubscribedEvents();
 
     /* operators */
@@ -102,10 +102,10 @@ typedef enum {
     std::optional<DateTime> *subscribedEventType(std::shared_ptr< Event > event);
     SubscribedEvents &setSubscribedEventTime(std::shared_ptr< Event > event, std::optional<DateTime> time_point);
     const std::optional<DateTime> &timepointForSubscribedEvent(std::shared_ptr< Event > event) const;
-    
+
     std::optional<DateTime> &timepointForEventType(EventTypeBitMask event_type);
     const std::optional<DateTime> &tpForEventType(EventTypeBitMask event_type) const;
-    
+
     static bool isSubscribedEventNotificationStimulatedByMbsf(std::shared_ptr< Event > status_event);
 
     private:

@@ -98,7 +98,7 @@ mb_smf_sc_mbs_qos_req_t *QoSReq::populateQoSReq() {
     qos_req->max_bit_rate = bitrate(getMaxBitRate());
     qos_req->averaging_window = averagingWindow();
     const std::optional<std::shared_ptr< Arp > > &arp = getReqMbsArp();
-    if(arp.has_value()) {
+    if (arp.has_value()) {
         alloc_retention_priority.reset(new AllocationRetentionPriority(arp.value()));
         qos_req->req_mbs_arp =  alloc_retention_priority->populateArp();
     } else {

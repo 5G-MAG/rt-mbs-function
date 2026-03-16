@@ -63,7 +63,7 @@ ogs_sbi_xact_t *Open5GSSBIObject::discoverAndSend(ogs_pool_id_t stream_id, ogs_s
     int rv;
     ogs_pool_id_t xact_id = 0;
 
-    if(!m_ogsObject) {
+    if (!m_ogsObject) {
         m_ogsObject = new ogs_sbi_object_t{};
     }
 
@@ -90,7 +90,7 @@ ogs_sbi_xact_t *Open5GSSBIObject::discoverOnly(ogs_pool_id_t stream_id, ogs_sbi_
     int rv;
     ogs_pool_id_t xact_id = 0;
 
-    if(!m_ogsObject) {
+    if (!m_ogsObject) {
         m_ogsObject = new ogs_sbi_object_t{};
     }
 

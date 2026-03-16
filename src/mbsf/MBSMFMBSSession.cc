@@ -69,11 +69,11 @@ MBSMFMBSSession::~MBSMFMBSSession()
 void MBSMFMBSSession::deleteSession()
 {
     if (m_session) {
-        if(m_subscription) mb_smf_sc_mbs_status_subscription_delete(m_subscription);
+        if (m_subscription) mb_smf_sc_mbs_status_subscription_delete(m_subscription);
         mb_smf_sc_mbs_session_delete(m_session);
         mb_smf_sc_mbs_session_push_changes(m_session);
         m_subscription = nullptr;
-	m_session = nullptr;
+        m_session = nullptr;
     }
 }
 
@@ -119,7 +119,7 @@ bool MBSMFMBSSession::getLocationDependent() const
 
 MBSMFMBSSession &MBSMFMBSSession::setSession(mb_smf_sc_mbs_session_t *session)
 {
-    if(!m_session) {
+    if (!m_session) {
         m_session = session;
     }
     return *this;
@@ -127,7 +127,7 @@ MBSMFMBSSession &MBSMFMBSSession::setSession(mb_smf_sc_mbs_session_t *session)
 
 MBSMFMBSSession &MBSMFMBSSession::setSubscription(mb_smf_sc_mbs_status_subscription_t *subscription)
 {
-    if(!m_subscription) {
+    if (!m_subscription) {
         m_subscription = subscription;
     }
     return *this;
@@ -225,9 +225,9 @@ bool MBSMFMBSSession::processEvent(Open5GSEvent &MBSMFEvent)
                             ogs_sockaddr_t *sa;
                             for (sa = mbsf_event->mbs_session->mb_upf_udp_tunnel; sa; sa = sa->next) {
 
-                                if(sa->ogs_sa_family == AF_INET) {
+                                if (sa->ogs_sa_family == AF_INET) {
                                     ogs_debug("Recieved IPv4 tunnel address");
-                                } else if(sa->ogs_sa_family == AF_INET6) {
+                                } else if (sa->ogs_sa_family == AF_INET6) {
                                     ogs_debug("Recieved IPv6 tunnel address");
                                 }
 
@@ -244,10 +244,10 @@ bool MBSMFMBSSession::processEvent(Open5GSEvent &MBSMFEvent)
 
                         cJSON *problem = OpenAPI_problem_details_convertToJSON((OpenAPI_problem_details_t*)mbsf_event->problem_details);
                         CJson problem_detail(problem, true);
-                        if(mbsf_event->problem_details->cause) {
+                        if (mbsf_event->problem_details->cause) {
                             std::optional<fiveg_mag_reftools::ProblemCause> cause =
                                         MBSProblemCause::lookup(std::string(mbsf_event->problem_details->cause));
-                            if(cause.has_value()) {
+                            if (cause.has_value()) {
                                 UserDataIngSession::setMBSSessionFailureFlag(event->sbi.data, cause.value(), problem_detail);
                                 return true;
                             }
@@ -402,7 +402,7 @@ void MBSMFMBSSession::processMbsSessionNotify(const mb_smf_sc_mbs_status_notific
 MBSMFMBSSession &MBSMFMBSSession::createStatusSubscription(uint16_t area_session_id, mb_smf_sc_mbs_session_event_type_e event_type, const char *correlation_id, time_t expiry_time, void *callback_data)
 {
     m_subscription = mb_smf_sc_mbs_status_subscription_new( area_session_id /* area_session_id */, event_type /* event_type_flags */,
-		    correlation_id /* correlation_id */, expiry_time /* expiry_time */, mbsSessionNotifyCallback /* notify_cb */, callback_data /* cb_data */);
+                    correlation_id /* correlation_id */, expiry_time /* expiry_time */, mbsSessionNotifyCallback /* notify_cb */, callback_data /* cb_data */);
 
     mb_smf_sc_mbs_session_add_subscription(m_session, m_subscription);
     return *this;

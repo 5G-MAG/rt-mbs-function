@@ -61,9 +61,9 @@ Open5GSSBIClient::Open5GSSBIClient(const std::string &url)
      }
      m_ogsClient = ogs_sbi_client_add(scheme, fqdn, fqdn_port, addr, addr6);
      ogs_assert(m_ogsClient);
-     if(fqdn) ogs_free(fqdn);
-     if(addr) ogs_freeaddrinfo(addr);
-     if(addr6) ogs_freeaddrinfo(addr6);
+     if (fqdn) ogs_free(fqdn);
+     if (addr) ogs_freeaddrinfo(addr);
+     if (addr6) ogs_freeaddrinfo(addr6);
 }
 
 Open5GSSBIClient::Open5GSSBIClient(const char *hostname, int port)
@@ -87,7 +87,7 @@ Open5GSSBIClient::Open5GSSBIClient(const char *hostname, int port)
                                      (addr->ogs_sa_family == AF_INET)?addr:NULL, (addr->ogs_sa_family == AF_INET6)?addr:NULL);
     ogs_assert(m_ogsClient);
 
-    if(addr) ogs_freeaddrinfo(addr);
+    if (addr) ogs_freeaddrinfo(addr);
 }
 
 Open5GSSBIClient::~Open5GSSBIClient()

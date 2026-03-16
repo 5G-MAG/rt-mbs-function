@@ -49,7 +49,7 @@ std::string time_point_to_iso8601_utc_str(const std::chrono::system_clock::time_
     return oss.str();
 }
 
-std::chrono::system_clock::time_point to_time_point_iso8601(const std::string &datetime) 
+std::chrono::system_clock::time_point to_time_point_iso8601(const std::string &datetime)
 {
     using sys_us = std::chrono::time_point<std::chrono::system_clock, std::chrono::microseconds>;
     sys_us tp_us;

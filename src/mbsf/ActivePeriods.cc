@@ -174,7 +174,7 @@ static void convert_act_periods(const fiveg_mag_reftools::remove_std_optional<Ac
         std::optional<std::chrono::system_clock::time_point> start_time = parse_date_time(time_win->getStartTime());
         std::optional<std::chrono::system_clock::time_point> stop_time = parse_date_time(time_win->getStopTime());
 
-        if(!start_time.has_value() || !stop_time.has_value()) continue;
+        if (!start_time.has_value() || !stop_time.has_value()) continue;
 
         if (start_time.has_value() && stop_time.has_value()) {
             act_periods_tp.emplace_back(std::make_pair(start_time.value(), stop_time.value()));

@@ -58,7 +58,7 @@ static std::optional<std::chrono::system_clock::time_point> parse_date_time(cons
 ActivePeriodsRepRule::ActivePeriodsRepRule(const ActPeriodsRepRuleType &act_periods_rep_rule)
     :m_repetitionRule(nullptr)
 {
-    if(act_periods_rep_rule.has_value()) {
+    if (act_periods_rep_rule.has_value()) {
         m_repetitionRule = act_periods_rep_rule.value();
     }
 }
@@ -76,7 +76,7 @@ const DistSessionState &ActivePeriodsRepRule::currentState(const MbsDistSessStat
     std::chrono::seconds dur{duration};
     std::chrono::seconds rep_interval{repetition_interval};
 
-    if(!start.has_value()) {
+    if (!start.has_value()) {
 
         ogs_info("REP RULE START TIME HAS NO VAL");
          dist_session_state = DistSessionState::NO_VAL;
@@ -130,7 +130,7 @@ TimestampAndActiveFlag ActivePeriodsRepRule::nextTransition () const
     std::chrono::seconds dur{duration};
     std::chrono::seconds rep_interval{repetition_interval};
 
-    if(!start.has_value()) {
+    if (!start.has_value()) {
          dist_session_state = DistSessionState::NO_VAL;
          return {std::nullopt, dist_session_state};
     }

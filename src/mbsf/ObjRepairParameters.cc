@@ -70,22 +70,22 @@ ObjRepairParameters::ObjRepairParameters(const std::optional<std::string > &obje
 ObjRepairParameters::ObjRepairParameters(const std::string &user_data_ing_session_id, const std::string &distribution_session_info_key, const std::optional<std::string > &object_distribution_base_locator)
     :m_objectRepairParameters(new ObjectRepairParameters())
 {
-    if(App::self().context()->objectRepairParameters.objectRepairBaseLocator.has_value() && 
-		    App::self().context()->objectRepairParameters.backOffParametersOffsetTime && 
-		    App::self().context()->objectRepairParameters.backOffParametersRandomTimePeriod)
+    if (App::self().context()->objectRepairParameters.objectRepairBaseLocator.has_value() &&
+                    App::self().context()->objectRepairParameters.backOffParametersOffsetTime &&
+                    App::self().context()->objectRepairParameters.backOffParametersRandomTimePeriod)
     {
-        if(App::self().context()->objectRepairParameters.objectRepairBaseLocator.has_value()) {
-	    std::string obj_repair_base_locator = remove_trailing_slash(App::self().context()->objectRepairParameters.objectRepairBaseLocator.value()) + "/" + user_data_ing_session_id + "/"+ distribution_session_info_key;
-        
+        if (App::self().context()->objectRepairParameters.objectRepairBaseLocator.has_value()) {
+            std::string obj_repair_base_locator = remove_trailing_slash(App::self().context()->objectRepairParameters.objectRepairBaseLocator.value()) + "/" + user_data_ing_session_id + "/"+ distribution_session_info_key;
+
             m_objectRepairParameters->setObjectRepairBaseLocator(obj_repair_base_locator);
-	}
-	m_objectRepairParameters->setObjectDistributionBaseLocator(object_distribution_base_locator);
-         
+        }
+        m_objectRepairParameters->setObjectDistributionBaseLocator(object_distribution_base_locator);
+
         std::shared_ptr< reftools::mbsf::BackOffParameters > back_off_params(new BackOffParameters());
         back_off_params->setOffsetTime(App::self().context()->objectRepairParameters.backOffParametersOffsetTime);
         back_off_params->setRandomTimePeriod(App::self().context()->objectRepairParameters.backOffParametersRandomTimePeriod);
-        
-	m_objectRepairParameters->setBackOffParameters(back_off_params);
+
+        m_objectRepairParameters->setBackOffParameters(back_off_params);
     }
 }
 

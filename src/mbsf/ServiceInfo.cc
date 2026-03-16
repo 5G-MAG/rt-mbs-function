@@ -94,7 +94,7 @@ ogs_hash_t *ServiceInfo::populateMediaComps()
     const reftools::mbsf::MbsServiceInfo::MbsMediaCompsType &mbs_media_comps = m_mbsServiceInfo->getMbsMediaComps();
     ogs_hash_t *mb_smf_media_comps = ogs_hash_make();
     for(const auto &[key, mbs_media_comp]: mbs_media_comps) {
-        if(mbs_media_comp.has_value()) {
+        if (mbs_media_comp.has_value()) {
             std::shared_ptr<MediaComp> media_comp = nullptr;
 
             std::shared_ptr<MbsMediaCompRm> comp = mbs_media_comp.value();
@@ -102,7 +102,7 @@ ogs_hash_t *ServiceInfo::populateMediaComps()
             media_comp.reset(new MediaComp(mbs_media_comp.value()));
 
             mb_smf_sc_mbs_media_comp_t *mb_smf_media_comp = media_comp->populateMediaComp();
-            if(mb_smf_media_comp) {
+            if (mb_smf_media_comp) {
                 ogs_hash_set(mb_smf_media_comps, &mb_smf_media_comp->id, sizeof(mb_smf_media_comp->id), mb_smf_media_comp);
             }
 
@@ -115,7 +115,7 @@ ogs_hash_t *ServiceInfo::populateMediaComps()
 /*
 uint64_t *ServiceInfo::ambr() {
     const std::optional<std::string > &ambr = getMbsSessionAmbr();
-    if(!ambr.has_value()) return nullptr;
+    if (!ambr.has_value()) return nullptr;
     static uint64_t br;
     br = std::stoull(ambr.value());
     return &br;
@@ -124,7 +124,7 @@ uint64_t *ServiceInfo::ambr() {
 
 uint64_t *ServiceInfo::ambr() {
     const std::optional<std::string > &ambr = getMbsSessionAmbr();
-    if(!ambr.has_value()) return nullptr;
+    if (!ambr.has_value()) return nullptr;
     std::string br = ambr.value();
 
     // Trim leading/trailing spaces
@@ -167,7 +167,7 @@ mb_smf_sc_mbs_service_info_t *ServiceInfo::populateServiceInfo()
     mb_smf_sc_mbs_service_info_t *service_info = mb_smf_sc_mbs_service_info_new();
     service_info->mbs_media_comps = populateMediaComps();
     const std::optional<std::string > &af_app_id = getAfAppId();
-    if(af_app_id.has_value()) {
+    if (af_app_id.has_value()) {
         service_info->af_app_id = ogs_strdup(af_app_id.value().c_str());
     } else {
         service_info->af_app_id = nullptr;
@@ -175,7 +175,7 @@ mb_smf_sc_mbs_service_info_t *ServiceInfo::populateServiceInfo()
     service_info->mbs_session_ambr = ambr();
 
     const std::optional<std::shared_ptr< ReservPriority > > &reserv_priority =  getSdfResPrio();
-    if(reserv_priority.has_value()) {
+    if (reserv_priority.has_value()) {
         std::shared_ptr< ReservPriority > priority = reserv_priority.value();
         service_info->mbs_sdf_reserve_priority = static_cast<uint8_t>(priority->getValue());
     } else {

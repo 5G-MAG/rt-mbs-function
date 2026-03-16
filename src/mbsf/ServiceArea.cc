@@ -85,12 +85,12 @@ void ServiceArea::ncgiTais(mb_smf_sc_mbs_service_area_t *mbs_service_area) {
 
     //std::optional<std::list<std::optional<std::shared_ptr< NcgiTai > >
     const reftools::mbsf::MbsServiceArea::NcgiListType &ncgi_tais = getNcgiList();
-    if(!ncgi_tais.has_value()) return;
+    if (!ncgi_tais.has_value()) return;
 
     ogs_list_init(&mbs_service_area->ncgi_tais);
 
     for(const auto &ncgi_tai: ncgi_tais.value()) {
-        if(ncgi_tai.has_value()) {
+        if (ncgi_tai.has_value()) {
             std::shared_ptr< MBSNcgiTai > mbs_ncgi_tai = nullptr;
             std::shared_ptr< NcgiTai > recv_ncgi_tai = ncgi_tai.value();
             mbs_ncgi_tai.reset(new MBSNcgiTai(recv_ncgi_tai));
@@ -105,12 +105,12 @@ void ServiceArea::tais(mb_smf_sc_mbs_service_area_t *mbs_service_area) {
 
     //std::optional<std::list<std::optional<std::shared_ptr< Tai > >
     const reftools::mbsf::MbsServiceArea::TaiListType &tais = getTaiList();
-    if(!tais.has_value()) return;
+    if (!tais.has_value()) return;
 
     ogs_list_init(&mbs_service_area->tais);
 
     for(const auto &tai: tais.value()) {
-        if(tai.has_value()) {
+        if (tai.has_value()) {
             std::shared_ptr< TrackingAreaIdentity > tracking_area_identity = nullptr;
             std::shared_ptr< Tai > recv_tai = tai.value();
             tracking_area_identity.reset(new TrackingAreaIdentity(recv_tai));

@@ -97,7 +97,7 @@ uint64_t MBSNcgi::nrCellId() {
 
 uint64_t *MBSNcgi::nid() {
     const std::optional<std::string > &nid = getNid();
-    if(!nid.has_value()) return nullptr;
+    if (!nid.has_value()) return nullptr;
     uint64_t value = std::stoull(nid.value(), nullptr, 16);
     uint64_t *result = static_cast<uint64_t*>(std::malloc(sizeof(uint64_t)));
     if (result != nullptr) {

@@ -119,15 +119,15 @@ void AssociatedSessId::populateSsm(mb_smf_sc_associated_session_id_t *session_id
     std::optional<std::string > dest_ipv4_addr = dest_ip_addr->getIpv4Addr();
     std::optional<std::shared_ptr< std::string > > dest_ipv6_addr = dest_ip_addr->getIpv6Addr();
 
-    if(!src_ip_addr && !dest_ip_addr) {
+    if (!src_ip_addr && !dest_ip_addr) {
         return;
     } else if (src_ipv4_addr.has_value() && dest_ipv4_addr.has_value()) {
         struct addrinfo *ai_src = NULL, *ai_dest = NULL;
         void *src_addr = NULL, *dest_addr = NULL;
 
-        if(resolve_src_dest_addr(src_ipv4_addr.value(), dest_ipv4_addr.value(), &ai_src, &ai_dest))
+        if (resolve_src_dest_addr(src_ipv4_addr.value(), dest_ipv4_addr.value(), &ai_src, &ai_dest))
         {
-            if(get_src_dest_of_same_addr_family(AF_INET, ai_src, ai_dest, &src_addr, &dest_addr))
+            if (get_src_dest_of_same_addr_family(AF_INET, ai_src, ai_dest, &src_addr, &dest_addr))
             {
                 session_id->ssm.family = AF_INET;
                 if (src_addr != nullptr) {
@@ -142,24 +142,24 @@ void AssociatedSessId::populateSsm(mb_smf_sc_associated_session_id_t *session_id
 
            } else {
                ogs_error("Unable to resolve SSM addresses for IPv4 address family");
-               if(ai_src) {
+               if (ai_src) {
                    freeaddrinfo(ai_src);
                    ai_src = NULL;
                }
 
-               if(ai_dest) {
+               if (ai_dest) {
                    freeaddrinfo(ai_dest);
                    ai_dest = NULL;
                 }
                 return;
             }
         }
-        if(ai_src) {
+        if (ai_src) {
             freeaddrinfo(ai_src);
             ai_src = NULL;
         }
 
-        if(ai_dest) {
+        if (ai_dest) {
             freeaddrinfo(ai_dest);
             ai_dest = NULL;
         }
@@ -171,9 +171,9 @@ void AssociatedSessId::populateSsm(mb_smf_sc_associated_session_id_t *session_id
        std::shared_ptr< std::string >  src_ipv6 = src_ipv6_addr.value();
        std::shared_ptr< std::string >  dest_ipv6 = dest_ipv6_addr.value();
 
-       if(resolve_src_dest_addr(*src_ipv6, *dest_ipv6, &ai_src, &ai_dest))
+       if (resolve_src_dest_addr(*src_ipv6, *dest_ipv6, &ai_src, &ai_dest))
        {
-           if(get_src_dest_of_same_addr_family(AF_INET6, ai_src, ai_dest, &src_addr, &dest_addr))
+           if (get_src_dest_of_same_addr_family(AF_INET6, ai_src, ai_dest, &src_addr, &dest_addr))
            {
                session_id->ssm.family = AF_INET6;
                 if (src_addr != nullptr) {
@@ -189,13 +189,13 @@ void AssociatedSessId::populateSsm(mb_smf_sc_associated_session_id_t *session_id
 
            } else {
                ogs_error("Unable to resolve SSM addresses for IPv6 address family");
-               if(ai_src) freeaddrinfo(ai_src);
-               if(ai_dest) freeaddrinfo(ai_dest);
+               if (ai_src) freeaddrinfo(ai_src);
+               if (ai_dest) freeaddrinfo(ai_dest);
                return;
            }
        }
-       if(ai_src) freeaddrinfo(ai_src);
-       if(ai_dest) freeaddrinfo(ai_dest);
+       if (ai_src) freeaddrinfo(ai_src);
+       if (ai_dest) freeaddrinfo(ai_dest);
 
     } else {
        ogs_error("Unable to resolve SSM addresses");

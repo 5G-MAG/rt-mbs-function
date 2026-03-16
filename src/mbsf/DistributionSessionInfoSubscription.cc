@@ -49,7 +49,7 @@ MBSF_NAMESPACE_START
 /* Constructors and Destructor */
 DistributionSessionInfoSubscription::DistributionSessionInfoSubscription(const std::weak_ptr<DistributionSessionInfo> &dist_session, const std::weak_ptr<UserDataIngStatSubsc> &stat_subscription)
     :m_distributionSession(dist_session)
-    ,m_userDataIngStatSubsc(stat_subscription)	
+    ,m_userDataIngStatSubsc(stat_subscription)
     ,m_events(0)
 {
 }
@@ -119,7 +119,7 @@ DistributionSessionInfoSubscription &DistributionSessionInfoSubscription::setEve
         break;
     case Event::VAL_DIST_SESS_SERV_MNGT_FAILURE:
         m_events |= SubscribedEvents::DIST_SESS_SERV_MNGT_FAILURE;
-        break;	
+        break;
     case Event::VAL_DIST_SESS_STARTING:
         m_events |= SubscribedEvents::DIST_SESS_STARTING;
         break;
@@ -131,7 +131,7 @@ DistributionSessionInfoSubscription &DistributionSessionInfoSubscription::setEve
         break;
     case Event::VAL_USER_DATA_ING_SESS_STARTING:
         m_events |= SubscribedEvents::USER_DATA_ING_SESS_STARTING;
-        break;	
+        break;
     case Event::VAL_USER_DATA_ING_SESS_STARTED:
         m_events |= SubscribedEvents::USER_DATA_ING_SESS_STARTED;
         break;

@@ -72,7 +72,7 @@ UserServiceDesc::UserServiceDesc(const reftools::mbsf::UserServiceDescription::S
     m_userServiceDescription->setServiceIds(service_ids);
     m_userServiceDescription->setRClass(r_class);
     populateAndSetDistributionSessionDescriptions(distribution_session_descs);
-    if(service_schedule_descs.has_value()) {
+    if (service_schedule_descs.has_value()) {
         populateAndSetServiceScheduleDescriptions(service_schedule_descs.value());
     }
     populateAndSetNames(names);
@@ -92,9 +92,9 @@ CJson UserServiceDesc::json(bool as_request = false) const
 UserServiceDesc &UserServiceDesc::populateAndSetDistributionSessionDescriptions(const std::list<std::shared_ptr<DistributionSessionDesc>> &distribution_session_descs)
 {
     for(const auto &distribution_session_desc : distribution_session_descs) {
-        if(!distribution_session_desc) continue;
+        if (!distribution_session_desc) continue;
         const std::shared_ptr<reftools::mbsf::DistributionSessionDescription> &distribution_session_description = distribution_session_desc->distributionSessionDescription();
-        if(!distribution_session_description) continue;
+        if (!distribution_session_description) continue;
         m_userServiceDescription->addDistributionSessionDescriptions(distribution_session_description);
     }
     return *this;
@@ -104,9 +104,9 @@ UserServiceDesc &UserServiceDesc::populateAndSetDistributionSessionDescriptions(
 UserServiceDesc &UserServiceDesc::populateAndSetServiceScheduleDescriptions(std::list<std::shared_ptr<ServiceScheduleDesc>> &service_schedule_descs)
 {
     for(const auto &service_schedule_desc : service_schedule_descs) {
-        if(!service_schedule_desc) continue;
+        if (!service_schedule_desc) continue;
         const std::shared_ptr<reftools::mbsf::ServiceScheduleDescription> &service_schedule_description = service_schedule_desc->serviceScheduleDescription();
-        if(!service_schedule_description) continue;
+        if (!service_schedule_description) continue;
         m_userServiceDescription->addServiceScheduleDescriptions(service_schedule_description);
     }
     return *this;
@@ -116,12 +116,12 @@ UserServiceDesc &UserServiceDesc::populateAndSetServiceScheduleDescriptions(std:
 UserServiceDesc &UserServiceDesc::populateAndSetNames(const std::list<std::shared_ptr<UserServiceDesc::serviceNameLanguageDescription>> &names)
 {
      for(const auto &name: names) {
-	std::shared_ptr<reftools::mbsf::UserServiceDescription_names_inner> user_service_description_names = nullptr;
-        if(!name) continue;
-	
-	user_service_description_names.reset(new UserServiceDescription_names_inner());
-	user_service_description_names->setName(name->first);
-	user_service_description_names->setLang(name->second);
+        std::shared_ptr<reftools::mbsf::UserServiceDescription_names_inner> user_service_description_names = nullptr;
+        if (!name) continue;
+
+        user_service_description_names.reset(new UserServiceDescription_names_inner());
+        user_service_description_names->setName(name->first);
+        user_service_description_names->setLang(name->second);
 
         m_userServiceDescription->addNames(std::move(user_service_description_names));
     }
@@ -132,7 +132,7 @@ UserServiceDesc &UserServiceDesc::populateAndSetDescriptions(const std::list<std
 {
      for(const auto &description: descriptions) {
         std::shared_ptr<reftools::mbsf::UserServiceDescription_descriptions_inner> user_service_description_descriptions = nullptr;
-        if(!description) continue;
+        if (!description) continue;
 
         user_service_description_descriptions.reset(new UserServiceDescription_descriptions_inner());
         user_service_description_descriptions->setDescription(description->first);

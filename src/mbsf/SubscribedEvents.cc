@@ -105,7 +105,7 @@ SubscribedEvents::SubscribedEvents(SubscribedEvents &&other)
 }
 
 
-    
+
 SubscribedEvents::~SubscribedEvents()
 {
 }
@@ -177,7 +177,7 @@ bool SubscribedEvents::operator==(const SubscribedEvents &other) const
 bool SubscribedEvents::isUpdated(std::shared_ptr< Event > status_event, const SubscribedEvents &other) const {
  const std::optional<DateTime> &time_point = timepointForSubscribedEvent(status_event);
  const std::optional<DateTime> &other_time_point = other.timepointForSubscribedEvent(status_event);
- if(time_point.has_value() &&(!other_time_point.has_value() || other_time_point.value() < time_point.value())) {
+ if (time_point.has_value() &&(!other_time_point.has_value() || other_time_point.value() < time_point.value())) {
      return true;
  }
  return false;
@@ -210,25 +210,25 @@ int SubscribedEvents::updatedSince(const SubscribedEvents &other) const
 
     if (distSessTerminated && (!other.distSessTerminated || other.distSessTerminated.value() < distSessTerminated.value()))
         event_types |= DIST_SESS_TERMINATED;
-    
+
     if (distSessStarted && (!other.distSessStarted || other.distSessStarted.value() < distSessStarted.value()))
         event_types |= DIST_SESS_STARTED;
-    
+
     if (distSessServMngtFailure && (!other.distSessServMngtFailure || other.distSessServMngtFailure.value() < distSessServMngtFailure.value()))
         event_types |= DIST_SESS_SERV_MNGT_FAILURE;
-    
+
     if (distSessStarting && (!other.distSessStarting || other.distSessStarting.value() < distSessStarting.value()))
         event_types |= DIST_SESS_STARTING;
-    
+
     if (sessionTerminated && (!other.sessionTerminated || other.sessionTerminated.value() < sessionTerminated.value()))
         event_types |= SESSION_TERMINATED;
-    
+
     if (userDataIngSessTerminated && (!other.userDataIngSessTerminated || other.userDataIngSessTerminated.value() < userDataIngSessTerminated.value()))
         event_types |= USER_DATA_ING_SESS_TERMINATED;
-    
+
     if (userDataIngSessStarting && (!other.userDataIngSessStarting || other.userDataIngSessStarting.value() < userDataIngSessStarting.value()))
         event_types |= USER_DATA_ING_SESS_STARTING;
-    
+
     if (userDataIngSessStarted && (!other.userDataIngSessStarted || other.userDataIngSessStarted.value() < userDataIngSessStarted.value()))
         event_types |= USER_DATA_ING_SESS_STARTED;
 
@@ -237,16 +237,16 @@ int SubscribedEvents::updatedSince(const SubscribedEvents &other) const
 
     if (deliveryStarted && (!other.deliveryStarted || other.deliveryStarted.value() < deliveryStarted.value()))
         event_types |= DELIVERY_STARTED;
-    
+
     if (sessionStarted && (!other.sessionStarted || other.sessionStarted.value() < sessionStarted.value()))
         event_types |= SESSION_STARTED;
-    
+
     if (sessionReleased && (!other.sessionReleased || other.sessionReleased.value() < sessionReleased.value()))
         event_types |= SESSION_RELEASED;
-    
+
     if (distSessActivated && (!other.distSessActivated || other.distSessActivated.value() < distSessActivated.value()))
         event_types |= DIST_SESS_ACTIVATED;
-    
+
     if (distSessEstFailure && (!other.distSessEstFailure || other.distSessEstFailure.value() < distSessEstFailure.value()))
         event_types |= DIST_SESS_EST_FAILURE;
 
@@ -277,7 +277,7 @@ SubscribedEvents &SubscribedEvents::setSubscribedEventTime(std::shared_ptr< Even
     } else {
         ogs_info("Invalid Timestamp");
     }
-    return *this;	
+    return *this;
 }
 
 const std::optional<SubscribedEvents::DateTime> &SubscribedEvents::registerEvent(std::shared_ptr<DistSessionEventReport> dist_sess_event_report)
@@ -286,12 +286,12 @@ const std::optional<SubscribedEvents::DateTime> &SubscribedEvents::registerEvent
     const std::optional<std::string > &time_stamp = dist_sess_event_report->getTimeStamp();
     SubscribedEvents::EventTypeBitMask event_type = getEventTypeBitMask(*distribution_session_event_type);
     auto &tp = timepointForEventType(event_type);
-    if(time_stamp.has_value()) {
-	tp = to_time_point_iso8601(time_stamp.value());
-	if (tp == std::chrono::system_clock::time_point{}) { 
-	    ogs_info("epoch parse failed");
+    if (time_stamp.has_value()) {
+        tp = to_time_point_iso8601(time_stamp.value());
+        if (tp == std::chrono::system_clock::time_point{}) {
+            ogs_info("epoch parse failed");
             tp = DateTime::clock::now();
-	}
+        }
     } else {
         tp = DateTime::clock::now();
     }
@@ -318,7 +318,7 @@ std::optional<SubscribedEvents::DateTime> *SubscribedEvents::subscribedEventType
     case Event::VAL_USER_DATA_ING_SESS_STARTING:
         return &this->userDataIngSessStarting;
     case Event::VAL_USER_DATA_ING_SESS_STARTED:
-	return &this->userDataIngSessStarted;
+        return &this->userDataIngSessStarted;
     case Event::VAL_DIST_SESS_POL_CRTL_FAILURE:
         return &this->distSessPolCrtlFailure;
     case Event::VAL_DELIVERY_STARTED:
@@ -359,7 +359,7 @@ const std::optional<SubscribedEvents::DateTime> &SubscribedEvents::timepointForS
     case Event::VAL_USER_DATA_ING_SESS_STARTING:
         return userDataIngSessStarting;
     case Event::VAL_USER_DATA_ING_SESS_STARTED:
-	return userDataIngSessStarted;
+        return userDataIngSessStarted;
     case Event::VAL_DIST_SESS_POL_CRTL_FAILURE:
         return distSessPolCrtlFailure;
     case Event::VAL_DELIVERY_STARTED:

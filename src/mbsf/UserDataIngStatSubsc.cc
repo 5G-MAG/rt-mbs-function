@@ -222,11 +222,11 @@ UserDataIngStatSubsc &UserDataIngStatSubsc::modify(CJson &json, bool as_request)
 UserDataIngStatSubsc &UserDataIngStatSubsc::update(CJson &json, bool as_request)
 {
     MBSUserDataIngStatSubsc tmp(json, as_request);
-    
+
     if (tmp.getMbsIngSessionId() != m_mbsUserDataIngStatSubsc.getMbsIngSessionId()) {
         throw ModelException("Cannot update MBSUserDataIngStatSubsc.mbsIngSessionId", "UserDataIngStatSubsc", "mbsIngSessionId", ProblemCause::MODIFICATION_NOT_ALLOWED);
     }
-    
+
     std::swap(m_mbsUserDataIngStatSubsc, tmp);
     resetEventSubscriptions();
     processEventSubscs();
@@ -242,8 +242,8 @@ void UserDataIngStatSubsc::setUserDataIngSession()
     m_userDataIngSession = session;
 }
 
-std::shared_ptr< EventNotification > UserDataIngStatSubsc::makeEventNotification(std::shared_ptr< Event > event, std::string time_stamp, 
-		std::optional<std::string > mbs_dist_session_id, std::optional<std::string > status_add_info) const
+std::shared_ptr< EventNotification > UserDataIngStatSubsc::makeEventNotification(std::shared_ptr< Event > event, std::string time_stamp,
+                std::optional<std::string > mbs_dist_session_id, std::optional<std::string > status_add_info) const
 {
     std::shared_ptr<EventNotification> event_notification = nullptr;
 
@@ -252,26 +252,26 @@ std::shared_ptr< EventNotification > UserDataIngStatSubsc::makeEventNotification
     event_notification->setMbsDisSessionId(mbs_dist_session_id);
     event_notification->setStatusAddInfo(status_add_info);
     event_notification->setTimeStamp(time_stamp);
-    
+
     return event_notification;
 }
 
 std::shared_ptr<MBSUserDataIngStatNotif > UserDataIngStatSubsc::makeMbsUserDataIngStatNotif(std::list<std::shared_ptr< EventNotification > > event_notifications) const
 {
     using NotifType = reftools::mbsf::MBSUserDataIngStatNotif::EventNotifsType;
-    
-    NotifType event_notifs; 
+
+    NotifType event_notifs;
     event_notifs.clear();
-    
+
     std::shared_ptr<MBSUserDataIngStatNotif > mbs_user_data_ing_stat_notif = nullptr;
     mbs_user_data_ing_stat_notif.reset(new MBSUserDataIngStatNotif());
     mbs_user_data_ing_stat_notif->setMbsIngSessionId(m_mbsUserDataIngStatSubsc.getMbsIngSessionId());
 
-    for (const auto &event_notification : event_notifications) { 
-	event_notifs.emplace_back(std::optional<std::shared_ptr<EventNotification>>(event_notification)); 
+    for (const auto &event_notification : event_notifications) {
+        event_notifs.emplace_back(std::optional<std::shared_ptr<EventNotification>>(event_notification));
     }
-    
-    
+
+
     mbs_user_data_ing_stat_notif->setEventNotifs(std::move(event_notifs));
 
     return mbs_user_data_ing_stat_notif;
@@ -287,36 +287,36 @@ void UserDataIngStatSubsc::sendNotifications() const
         ogs_info("UserDataIngStatSubsc[%p]: notify URL = %s", this, notify_uri.c_str());
         std::list<std::shared_ptr< EventNotification > > event_notifications = makeEventNotifications();
         if (!event_notifications.empty()) {
-	    {
-	        ogs_info("UserDataIngStatSubsc[%p]: building notify request", this);
+            {
+                ogs_info("UserDataIngStatSubsc[%p]: building notify request", this);
                 std::shared_ptr<MBSUserDataIngStatNotif > stat_notif = makeMbsUserDataIngStatNotif(event_notifications);
                 CJson json = stat_notif->toJSON(true);
                 std::string body(json.serialise());
                 ogs_info("UserDataIngStatSubsc[%p]: SENDING: %s", this, body.c_str());
-	    
-	    }
+
+            }
             ogs_debug("UserDataIngStatSubsc[%p]: have events to send", this);
             if (!m_cache->client) {
                 ogs_debug("UserDataIngStatSubsc[%p]: create new client", this);
-		m_cache->notifyUri = notify_uri;
+                m_cache->notifyUri = notify_uri;
                 m_cache->client.reset(new Open5GSSBIClient(notify_uri));
             }
             ogs_debug("UserDataIngStatSubsc[%p]: building notify request", this);
-	    std::shared_ptr<MBSUserDataIngStatNotif > stat_notif = makeMbsUserDataIngStatNotif(event_notifications);
+            std::shared_ptr<MBSUserDataIngStatNotif > stat_notif = makeMbsUserDataIngStatNotif(event_notifications);
             CJson json = stat_notif->toJSON(true);
             std::string body(json.serialise());
             ogs_debug("UserDataIngStatSubsc[%p]: sending: %s", this, body.c_str());
             static const std::string post_method(OGS_SBI_HTTP_METHOD_POST);
             static const std::string api_version(std::format("{}/{}", MBSUserDataIngStatNotif::apiName, MBSUserDataIngStatNotif::apiVersion));
             std::shared_ptr<Open5GSSBIRequest> request = nullptr;
- 
-	    request.reset(new Open5GSSBIRequest(post_method, notify_uri, api_version,
+
+            request.reset(new Open5GSSBIRequest(post_method, notify_uri, api_version,
                                                 body, OGS_SBI_CONTENT_JSON_TYPE));
-	   // std::shared_ptr<Open5GSSBIRequest> request(new Open5GSSBIRequest(post_method, notify_uri, api_version,
+           // std::shared_ptr<Open5GSSBIRequest> request(new Open5GSSBIRequest(post_method, notify_uri, api_version,
             //                                    body, OGS_SBI_CONTENT_JSON_TYPE));
-	    RequestData *data = new RequestData{this, request};
-	    request->setOwner(false);
-	    m_cache->client->sendRequest(notify_client_callback, request, data);
+            RequestData *data = new RequestData{this, request};
+            request->setOwner(false);
+            m_cache->client->sendRequest(notify_client_callback, request, data);
         }
     }
 }
@@ -333,43 +333,43 @@ void UserDataIngStatSubsc::resetClient()
 
 void UserDataIngStatSubsc::checkAndSetUserDataIngSessStartedTerminatedEvent(std::shared_ptr<UserDataIngSession> user_data_ing_session) const
 {
-    if(!user_data_ing_session) return;
+    if (!user_data_ing_session) return;
     const std::string &user_data_ing_session_id = user_data_ing_session->userDataIngSessionId();
     const std::map<std::string, std::shared_ptr<UserDataIngStatSubsc> > &user_data_ing_stat_subscs = App::self().context()->userDataIngStatSubscs();
     for(const auto &user_data_ing_stat_subsc : user_data_ing_stat_subscs) {
         const std::shared_ptr<UserDataIngStatSubsc> &stat_subsc = user_data_ing_stat_subsc.second;
         const std::string &id = stat_subsc->userDataIngSessionId();
-	if(user_data_ing_session_id == id && user_data_ing_session->checkIfAllMBSDistributionSessionsEstablished()) {
-            
-	    std::shared_ptr< Event > event = nullptr;
+        if (user_data_ing_session_id == id && user_data_ing_session->checkIfAllMBSDistributionSessionsEstablished()) {
+
+            std::shared_ptr< Event > event = nullptr;
             event.reset(new Event());
-	    *event = Event::VAL_USER_DATA_ING_SESS_STARTED;
+            *event = Event::VAL_USER_DATA_ING_SESS_STARTED;
 
-	    std::optional<SubscribedEvents::DateTime> tp = timeOfLatestDistributionSessionEvent(user_data_ing_session, SubscribedEvents::DIST_SESS_STARTING);
+            std::optional<SubscribedEvents::DateTime> tp = timeOfLatestDistributionSessionEvent(user_data_ing_session, SubscribedEvents::DIST_SESS_STARTING);
 
-            if(tp.has_value()) {
+            if (tp.has_value()) {
                 stat_subsc->setSubscribedEventTime(event, tp.value());
                 user_data_ing_session->resetMBSDistributionSessionsEstablishedFlag();
-	    }
+            }
             //stat_subsc->setSubscribedEventTime(event, DateTime::clock::now());
         }
-	if(user_data_ing_session_id == id && user_data_ing_session->checkIfAllMBSDistributionSessionsTerminated()) {
-            
-	    std::shared_ptr< Event > ev = nullptr;
+        if (user_data_ing_session_id == id && user_data_ing_session->checkIfAllMBSDistributionSessionsTerminated()) {
+
+            std::shared_ptr< Event > ev = nullptr;
             ev.reset(new Event());
 
-	    
+
             std::shared_ptr< Event > e = nullptr;
             e.reset(new Event());
-	    
-	    *e = Event::VAL_SESSION_TERMINATED;
 
-	    *ev = Event::VAL_USER_DATA_ING_SESS_TERMINATED;
+            *e = Event::VAL_SESSION_TERMINATED;
 
-	    std::optional<SubscribedEvents::DateTime> tp = timeOfLatestDistributionSessionEvent(user_data_ing_session, SubscribedEvents::DIST_SESS_TERMINATED);
-            if(tp.has_value()) {
-	        stat_subsc->setSubscribedEventTime(ev, tp.value());
-	        stat_subsc->setSubscribedEventTime(e, tp.value());
+            *ev = Event::VAL_USER_DATA_ING_SESS_TERMINATED;
+
+            std::optional<SubscribedEvents::DateTime> tp = timeOfLatestDistributionSessionEvent(user_data_ing_session, SubscribedEvents::DIST_SESS_TERMINATED);
+            if (tp.has_value()) {
+                stat_subsc->setSubscribedEventTime(ev, tp.value());
+                stat_subsc->setSubscribedEventTime(e, tp.value());
                 user_data_ing_session->resetMBSDistributionSessionsTerminatedFlag();
             }
         }
@@ -385,32 +385,32 @@ std::list<std::shared_ptr< EventNotification > > UserDataIngStatSubsc::makeEvent
     std::shared_ptr<UserDataIngSession> user_data_ing_session(m_userDataIngSession.lock());
 
     if (m_cache && user_data_ing_session) {
-        //std::list<std::optional<std::shared_ptr< SubscribedEvent > >    
+        //std::list<std::optional<std::shared_ptr< SubscribedEvent > >
         const reftools::mbsf::MBSUserDataIngStatSubsc::EventSubscsType &subscribed_events = m_mbsUserDataIngStatSubsc.getEventSubscs();
         for (const auto &subscribed_event : subscribed_events) {
-            if(!subscribed_event) continue;
+            if (!subscribed_event) continue;
             std::shared_ptr<SubscribedEvent> subsc_event = *subscribed_event;
-            if(!subsc_event) continue;
-	    /*
-	    if(SubscribedEvents::isSubscribedEventNotificationStimulatedByMbsf(subsc_event->getStatusEvent())) 
-	    {
-	        const std::optional<SubscribedEvents::DateTime> &timepoint = m_cache->lastReportedEventTimes.timepointForSubscribedEvent(subsc_event->getStatusEvent()); 
-		if(!timepoint.has_value()) continue;
-		const std::string &timestamp = time_point_to_iso8601_utc_str(timepoint.value());
-		std::shared_ptr< EventNotification > notification = makeEventNotification(subsc_event->getStatusEvent(), timestamp, std::nullopt, std::nullopt);
+            if (!subsc_event) continue;
+            /*
+            if (SubscribedEvents::isSubscribedEventNotificationStimulatedByMbsf(subsc_event->getStatusEvent()))
+            {
+                const std::optional<SubscribedEvents::DateTime> &timepoint = m_cache->lastReportedEventTimes.timepointForSubscribedEvent(subsc_event->getStatusEvent());
+                if (!timepoint.has_value()) continue;
+                const std::string &timestamp = time_point_to_iso8601_utc_str(timepoint.value());
+                std::shared_ptr< EventNotification > notification = makeEventNotification(subsc_event->getStatusEvent(), timestamp, std::nullopt, std::nullopt);
                 result.push_back(std::move(notification));
-	    }
-	    */
-	    checkAndSetUserDataIngSessStartedTerminatedEvent(user_data_ing_session);
-	    
-	    if(SubscribedEvents::isSubscribedEventNotificationStimulatedByMbsf(subsc_event->getStatusEvent()) && 
-			    m_subscribedEventTimestamps.isUpdated(subsc_event->getStatusEvent(), m_cache->lastReportedEventTimes))
-            
-	    {
-	
+            }
+            */
+            checkAndSetUserDataIngSessStartedTerminatedEvent(user_data_ing_session);
+
+            if (SubscribedEvents::isSubscribedEventNotificationStimulatedByMbsf(subsc_event->getStatusEvent()) &&
+                            m_subscribedEventTimestamps.isUpdated(subsc_event->getStatusEvent(), m_cache->lastReportedEventTimes))
+
+            {
+
                 const std::optional<SubscribedEvents::DateTime> &timepoint = m_subscribedEventTimestamps.timepointForSubscribedEvent(subsc_event->getStatusEvent());
-                if(!timepoint.has_value()) continue;
-		auto evt = m_cache->lastReportedEventTimes.subscribedEventType(subsc_event->getStatusEvent());
+                if (!timepoint.has_value()) continue;
+                auto evt = m_cache->lastReportedEventTimes.subscribedEventType(subsc_event->getStatusEvent());
                 if (evt) {
                     *evt = timepoint;
                 }
@@ -418,34 +418,34 @@ std::list<std::shared_ptr< EventNotification > > UserDataIngStatSubsc::makeEvent
                 std::shared_ptr< EventNotification > notification = makeEventNotification(subsc_event->getStatusEvent(), timestamp, std::nullopt, std::nullopt);
                 result.push_back(std::move(notification));
             }
-			   
+
             const std::optional<std::string > &mbs_dist_session_id = subsc_event->getMbsDistSessionId();
-            if(!mbs_dist_session_id.has_value()) continue;
+            if (!mbs_dist_session_id.has_value()) continue;
             const std::string &dist_session_id = mbs_dist_session_id.value();
             const std::shared_ptr< Event > status_event= subsc_event->getStatusEvent();
-	    if(!status_event) continue;
+            if (!status_event) continue;
 
             std::shared_ptr< UserDataIngSession::ContextData > context_data = user_data_ing_session->getDistributionSessionInfoData(dist_session_id);
             /* get list of registered events from the DistributionSession in the User Data Ing Session */
             const auto &dist_sess_event_timestamps = context_data->distributionSessionInfo->eventTimestamps();
-            
-	    if(dist_sess_event_timestamps.isUpdated(status_event, m_cache->lastReportedEventTimes)) {
-		const std::optional<SubscribedEvents::DateTime> &time_point = dist_sess_event_timestamps.timepointForSubscribedEvent(subsc_event->getStatusEvent());    
-	        if(!time_point.has_value()) continue;
-		// get pointer to the appropriate variable std::optional<SubscribedEvents::DateTime> *;
-		auto p = m_cache->lastReportedEventTimes.subscribedEventType(subsc_event->getStatusEvent());
-		if (p) {
-		    *p = time_point;
-		}
-		const std::string &time_stamp = time_point_to_iso8601_utc_str(time_point.value());
-		std::shared_ptr< EventNotification > event_notification = makeEventNotification(status_event, time_stamp, dist_session_id, std::nullopt);
-		result.push_back(std::move(event_notification));
-	    } 
+
+            if (dist_sess_event_timestamps.isUpdated(status_event, m_cache->lastReportedEventTimes)) {
+                const std::optional<SubscribedEvents::DateTime> &time_point = dist_sess_event_timestamps.timepointForSubscribedEvent(subsc_event->getStatusEvent());
+                if (!time_point.has_value()) continue;
+                // get pointer to the appropriate variable std::optional<SubscribedEvents::DateTime> *;
+                auto p = m_cache->lastReportedEventTimes.subscribedEventType(subsc_event->getStatusEvent());
+                if (p) {
+                    *p = time_point;
+                }
+                const std::string &time_stamp = time_point_to_iso8601_utc_str(time_point.value());
+                std::shared_ptr< EventNotification > event_notification = makeEventNotification(status_event, time_stamp, dist_session_id, std::nullopt);
+                result.push_back(std::move(event_notification));
+            }
         }
- 
+
     }
     return result;
-    
+
 }
 
 static bool check_for_user_data_ing_session_and_distributions_sessions(CJson &subsc)
@@ -459,22 +459,22 @@ static bool check_for_user_data_ing_session_and_distributions_sessions(CJson &su
     } catch (const std::out_of_range &e) {
         std::ostringstream err;
         err << "MBS User Data Ingest Session [" << mbs_user_data_ing_session_id << "] does not exist.";
-        ogs_error("%s", err.str().c_str()); 
-	return false;
+        ogs_error("%s", err.str().c_str());
+        return false;
     }
-    
+
     const reftools::mbsf::MBSUserDataIngStatSubsc::EventSubscsType &subscribed_events = mbs_user_data_ing_stat_subsc->getEventSubscs();
     for (const auto &subscribed_event : subscribed_events) {
-        if(!subscribed_event) continue;
+        if (!subscribed_event) continue;
         std::shared_ptr<SubscribedEvent> subsc_event = *subscribed_event;
-        if(!subsc_event) continue;
+        if (!subsc_event) continue;
         const std::optional<std::string > mbs_dist_session_id = subsc_event->getMbsDistSessionId();
-        if(!mbs_dist_session_id.has_value()) continue;
-	std::shared_ptr< UserDataIngSession::ContextData > context_data = ing_session->getDistributionSessionInfoData(mbs_dist_session_id.value());
-        if(!context_data) return false;
+        if (!mbs_dist_session_id.has_value()) continue;
+        std::shared_ptr< UserDataIngSession::ContextData > context_data = ing_session->getDistributionSessionInfoData(mbs_dist_session_id.value());
+        if (!context_data) return false;
     }
     return true;
-}	
+}
 
 static int notify_client_callback(int status, ogs_sbi_response_t *response, void *data)
 {
@@ -559,12 +559,12 @@ bool UserDataIngStatSubsc::processEvent(Open5GSEvent &event)
                 if (resource0 == "status-subscriptions") {
                     std::string method(message.method());
                     const char *ptr_resource1 = message.resourceComponent(1);
-		    if(ptr_resource1) {
-		        /* .../status-subscriptions/{subscriptionId}... */
-			std::string subscription_id(ptr_resource1);
-		        std::shared_ptr<UserDataIngStatSubsc> user_data_ing_stat_subsc = nullptr;
-        
-                        try {   
+                    if (ptr_resource1) {
+                        /* .../status-subscriptions/{subscriptionId}... */
+                        std::string subscription_id(ptr_resource1);
+                        std::shared_ptr<UserDataIngStatSubsc> user_data_ing_stat_subsc = nullptr;
+
+                        try {
                             //user_data_ing_stat_subsc = UserDataIngStatSubsc::find(subscription_id);
                             user_data_ing_stat_subsc = UserDataIngStatSubsc::locate(subscription_id);
                         } catch (std::out_of_range &ex) {
@@ -577,27 +577,27 @@ bool UserDataIngStatSubsc::processEvent(Open5GSEvent &event)
                                 "User Data Ing Status Subscription not found", err.str(), std::nullopt, invalid_params));
                             return true;
                         }
-			if (method == OGS_SBI_HTTP_METHOD_GET) {
-                             user_data_ing_stat_subsc->sendResponse(stream, api, app_meta);            
-			    return true;
-			} else if (method == OGS_SBI_HTTP_METHOD_PUT) {
-		       	    user_data_ing_stat_subsc->subscriptionUpdate(stream, message, request, api, app_meta);
+                        if (method == OGS_SBI_HTTP_METHOD_GET) {
+                             user_data_ing_stat_subsc->sendResponse(stream, api, app_meta);
+                            return true;
+                        } else if (method == OGS_SBI_HTTP_METHOD_PUT) {
+                                   user_data_ing_stat_subsc->subscriptionUpdate(stream, message, request, api, app_meta);
                             return true;
 
-			} else if (method == OGS_SBI_HTTP_METHOD_PATCH) {
-			    user_data_ing_stat_subsc->subscriptionPatch(stream, message, request, api, app_meta);
-			    return true;
-			} else if (method == OGS_SBI_HTTP_METHOD_DELETE) {
-			     user_data_ing_stat_subsc->subscriptionDelete(stream, message, request, api, app_meta);	
-                            return true; 
-			} else if (method == OGS_SBI_HTTP_METHOD_OPTIONS) {
+                        } else if (method == OGS_SBI_HTTP_METHOD_PATCH) {
+                            user_data_ing_stat_subsc->subscriptionPatch(stream, message, request, api, app_meta);
+                            return true;
+                        } else if (method == OGS_SBI_HTTP_METHOD_DELETE) {
+                             user_data_ing_stat_subsc->subscriptionDelete(stream, message, request, api, app_meta);
+                            return true;
+                        } else if (method == OGS_SBI_HTTP_METHOD_OPTIONS) {
                             std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(std::nullopt, std::nullopt, std::nullopt, std::nullopt, 0, OGS_SBI_HTTP_METHOD_GET ", " OGS_SBI_HTTP_METHOD_PUT ", " OGS_SBI_HTTP_METHOD_PATCH ", " OGS_SBI_HTTP_METHOD_DELETE ", " OGS_SBI_HTTP_METHOD_OPTIONS, api, app_meta));
                             NfServer::populateResponse(response, "", OGS_SBI_HTTP_STATUS_NO_CONTENT);
                             ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *response));
                             return true;
-                                                                   
-                        } 
-			else {
+
+                        }
+                        else {
                             std::ostringstream err;
 
                             err << "Invalid method [" << message.method() << "] for " << message.serviceName() << "/"
@@ -607,12 +607,12 @@ bool UserDataIngStatSubsc::processEvent(Open5GSEvent &event)
                                                                 app_meta, api, "Bad request", err.str()));
                             return true;
                         }
-	
-		    } else {
-			/* is .../status-subscriptions */
-			/* POST method allowed by TS 29.580 */
+
+                    } else {
+                        /* is .../status-subscriptions */
+                        /* POST method allowed by TS 29.580 */
                         /* Also include OPTIONS method for RESTful introspection */
-    
+
                         if (method == OGS_SBI_HTTP_METHOD_POST) {
                             ogs_debug("POST response: status = %i", message.resStatus());
                             std::shared_ptr<UserDataIngStatSubsc> user_data_ing_stat_subsc = nullptr;
@@ -639,7 +639,7 @@ bool UserDataIngStatSubsc::processEvent(Open5GSEvent &event)
                                 ogs_debug("Request Parsed JSON: %s", txt.c_str());
                             }
 
-			    if(!check_for_user_data_ing_session_and_distributions_sessions(subsc)) {
+                            if (!check_for_user_data_ing_session_and_distributions_sessions(subsc)) {
                                 std::ostringstream err;
                                 err << "Invalid User Data Ing Session or Distribution session present in User Data Ingest Stat Subsc";
                                 ogs_error("%s", err.str().c_str());
@@ -666,7 +666,7 @@ bool UserDataIngStatSubsc::processEvent(Open5GSEvent &event)
                             App::self().context()->addUserDataIngStatSubsc(user_data_ing_stat_subsc);
                             user_data_ing_stat_subsc->processEventSubscs();
 
-			    CJson user_data_ing_stat_subsc_json(user_data_ing_stat_subsc->json(false));
+                            CJson user_data_ing_stat_subsc_json(user_data_ing_stat_subsc->json(false));
                             std::string body(user_data_ing_stat_subsc_json.serialise());
                             ogs_debug("Response Parsed JSON: %s", body.c_str());
                             std::ostringstream location;
@@ -682,7 +682,7 @@ bool UserDataIngStatSubsc::processEvent(Open5GSEvent &event)
                                 ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *response));
 
                             return true;
-		        } else if (method == OGS_SBI_HTTP_METHOD_OPTIONS) {
+                        } else if (method == OGS_SBI_HTTP_METHOD_OPTIONS) {
                             std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(std::nullopt, std::nullopt, std::nullopt, std::nullopt, 0, OGS_SBI_HTTP_METHOD_POST ", " OGS_SBI_HTTP_METHOD_OPTIONS, api, app_meta));
                             NfServer::populateResponse(response, "", OGS_SBI_HTTP_STATUS_NO_CONTENT);
                             ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *response));
@@ -698,81 +698,81 @@ bool UserDataIngStatSubsc::processEvent(Open5GSEvent &event)
                                                                 app_meta, api, "Bad request", err.str()));
                             return true;
                         }
-		    }
+                    }
 
-		}  else {
+                }  else {
                     return false;
-		    /*
-		    std::ostringstream err;
+                    /*
+                    std::ostringstream err;
                     err << "Unknown object type \"" << message.resourceComponent(0) << "\" in MBSF User Data Ingest Stat Subsc";
                     ogs_error("%s", err.str().c_str());
                     ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 1, message, app_meta,
                                                             api, "Bad request", err.str()));
                     return true;
-		    */
+                    */
                 }
 
-	    } else {
+            } else {
                 static const char *err = "Missing service name from URL path";
                 ogs_error("%s", err);
                 ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 0, message, app_meta, std::nullopt,
                                                 "Missing service name", err));
             }
-	    return true;
+            return true;
 
-	}
-	
+        }
+
     case OGS_EVENT_SBI_CLIENT:
         {
             for(auto &[user_data_ing_stat_subsc_id, user_data_ing_stat_subsc] : App::self().context()->userDataIngStatSubscs()) {
-                if(user_data_ing_stat_subsc->processClientResponse(event)) return true;
+                if (user_data_ing_stat_subsc->processClientResponse(event)) return true;
             }
-	    return false;
+            return false;
             //break;
         }
-	
-                   	
+
+
      case LocalEvents::SEND_NOTIFICATION:
         {
             DistributionSessionNotificationEvent dist_event(event);
             const auto &subsc = dist_event.distributionSessionInfoSubscription();
             ogs_info("Sending notifications for subscription %p", &subsc);
-	    const std::weak_ptr<UserDataIngStatSubsc> stat_subsc = subsc.userDataIngStatSubsc();
-	    if (auto sp = stat_subsc.lock()) { 
-	        // sp is std::shared_ptr<UserDataIngStatSubsc> 
-	        sp->sendNotifications(); // call the method on the shared_ptr 
-            } else { 
-                ogs_info("subscription object expired; handle accordingly"); 
-	    }
+            const std::weak_ptr<UserDataIngStatSubsc> stat_subsc = subsc.userDataIngStatSubsc();
+            if (auto sp = stat_subsc.lock()) {
+                // sp is std::shared_ptr<UserDataIngStatSubsc>
+                sp->sendNotifications(); // call the method on the shared_ptr
+            } else {
+                ogs_info("subscription object expired; handle accordingly");
+            }
             dist_event.releaseEventData();
             return true;
         }
-	case LocalEvents::SEND_USER_DATA_ING_SESS_NOTIFICATION:
+        case LocalEvents::SEND_USER_DATA_ING_SESS_NOTIFICATION:
         {
             UserDataIngSessionNotificationEvent user_data_ing_session_event(event);
             const auto &user_data_ing_session = user_data_ing_session_event.userDataIngSession();
             ogs_info("Sending notifications for ing session %p", &user_data_ing_session);
             const std::string &user_data_ing_session_id = user_data_ing_session.userDataIngSessionId();
-	    const std::map<std::string, std::shared_ptr<UserDataIngStatSubsc> > &user_data_ing_stat_subscs = App::self().context()->userDataIngStatSubscs(); 
-	    for(const auto &user_data_ing_stat_subsc : user_data_ing_stat_subscs) {
+            const std::map<std::string, std::shared_ptr<UserDataIngStatSubsc> > &user_data_ing_stat_subscs = App::self().context()->userDataIngStatSubscs();
+            for(const auto &user_data_ing_stat_subsc : user_data_ing_stat_subscs) {
                 const std::shared_ptr<UserDataIngStatSubsc> &stat_subsc = user_data_ing_stat_subsc.second;
-		const std::string &id = stat_subsc->userDataIngSessionId();
-	        if(user_data_ing_session_id == id && stat_subsc->checkForUserDataIngSessStarting()) {
-		    std::shared_ptr< Event > event = nullptr;
-	            event.reset(new Event());
-	            *event = Event::VAL_USER_DATA_ING_SESS_STARTING; 	    
-	            stat_subsc->setSubscribedEventTime(event, DateTime::clock::now());
-		    stat_subsc->sendNotifications();    
-	
-		}	
-	    
-	    }
-	  
+                const std::string &id = stat_subsc->userDataIngSessionId();
+                if (user_data_ing_session_id == id && stat_subsc->checkForUserDataIngSessStarting()) {
+                    std::shared_ptr< Event > event = nullptr;
+                    event.reset(new Event());
+                    *event = Event::VAL_USER_DATA_ING_SESS_STARTING;
+                    stat_subsc->setSubscribedEventTime(event, DateTime::clock::now());
+                    stat_subsc->sendNotifications();
+
+                }
+
+            }
+
             user_data_ing_session_event.releaseEventData();
             return true;
         }
 
-	default:
+        default:
             return false;
 
     }
@@ -781,7 +781,7 @@ bool UserDataIngStatSubsc::processEvent(Open5GSEvent &event)
 
 void UserDataIngStatSubsc::setSubscribedEventTime(std::shared_ptr< Event > event, std::optional<DateTime> time_point)
 {
-     m_subscribedEventTimestamps.setSubscribedEventTime(event, time_point); 
+     m_subscribedEventTimestamps.setSubscribedEventTime(event, time_point);
 }
 
 bool UserDataIngStatSubsc::processClientResponse(const Open5GSEvent &event)
@@ -809,10 +809,10 @@ bool UserDataIngStatSubsc::processClientResponse(const Open5GSEvent &event)
                     ogs_debug("Problem sending notification(s) to %s", req_data->request->uri());
                 }
 
-		req_data->request->setOwner(true);
-		req_data->request.reset();
+                req_data->request->setOwner(true);
+                req_data->request.reset();
                 delete req_data;
-	
+
                 return true;
             }
             // If pointer doesn't match this subscription, fall through and return false.
@@ -834,11 +834,11 @@ bool UserDataIngStatSubsc::checkForUserDataIngSessStarting() {
     //std::list<std::optional<std::shared_ptr< SubscribedEvent > >
     const reftools::mbsf::MBSUserDataIngStatSubsc::EventSubscsType &subscribed_events = m_mbsUserDataIngStatSubsc.getEventSubscs();
     for (const auto &subscribed_event : subscribed_events) {
-        if(!subscribed_event) continue;
+        if (!subscribed_event) continue;
         std::shared_ptr<SubscribedEvent> subsc_event = *subscribed_event;
-        if(!subsc_event) continue;
+        if (!subsc_event) continue;
         std::shared_ptr< Event > event = subsc_event->getStatusEvent();
-	if(event->getValue() == Event::VAL_USER_DATA_ING_SESS_STARTING) return true;
+        if (event->getValue() == Event::VAL_USER_DATA_ING_SESS_STARTING) return true;
     }
     return false;
 }
@@ -850,20 +850,20 @@ const std::string &UserDataIngStatSubsc::userDataIngSessionId() const {
 
 void UserDataIngStatSubsc::processEventSubscs() {
     std::shared_ptr<UserDataIngSession> user_data_ing_session(m_userDataIngSession.lock());
-    //std::list<std::optional<std::shared_ptr< SubscribedEvent > >	
+    //std::list<std::optional<std::shared_ptr< SubscribedEvent > >
     const reftools::mbsf::MBSUserDataIngStatSubsc::EventSubscsType &subscribed_events = m_mbsUserDataIngStatSubsc.getEventSubscs();
     for (const auto &subscribed_event : subscribed_events) {
-        if(!subscribed_event) continue;
+        if (!subscribed_event) continue;
         std::shared_ptr<SubscribedEvent> subsc_event = *subscribed_event;
-        if(!subsc_event) continue;
+        if (!subsc_event) continue;
         const std::optional<std::string > mbs_dist_session_id = subsc_event->getMbsDistSessionId();
-        if(!mbs_dist_session_id.has_value()) continue;
+        if (!mbs_dist_session_id.has_value()) continue;
         std::string dist_session_id = mbs_dist_session_id.value();
-	std::shared_ptr< Event > event = subsc_event->getStatusEvent();
+        std::shared_ptr< Event > event = subsc_event->getStatusEvent();
         std::shared_ptr< UserDataIngSession::ContextData > context_data = user_data_ing_session->getDistributionSessionInfoData(dist_session_id);
-        if(!context_data) continue;
-	std::shared_ptr<DistributionSessionInfo> distribution_session_info = context_data->distributionSessionInfo;
-	distribution_session_info->addEventSubscription(weak_from_this(), event);
+        if (!context_data) continue;
+        std::shared_ptr<DistributionSessionInfo> distribution_session_info = context_data->distributionSessionInfo;
+        distribution_session_info->addEventSubscription(weak_from_this(), event);
     }
 
 }
@@ -873,14 +873,14 @@ void UserDataIngStatSubsc::resetEventSubscriptions() {
     //std::list<std::optional<std::shared_ptr< SubscribedEvent > >
     const reftools::mbsf::MBSUserDataIngStatSubsc::EventSubscsType &subscribed_events = m_mbsUserDataIngStatSubsc.getEventSubscs();
     for (const auto &subscribed_event : subscribed_events) {
-        if(!subscribed_event) continue;
+        if (!subscribed_event) continue;
         std::shared_ptr<SubscribedEvent> subsc_event = *subscribed_event;
-        if(!subsc_event) continue;
+        if (!subsc_event) continue;
         const std::optional<std::string > mbs_dist_session_id = subsc_event->getMbsDistSessionId();
-        if(!mbs_dist_session_id.has_value()) continue;
+        if (!mbs_dist_session_id.has_value()) continue;
         std::string dist_session_id = mbs_dist_session_id.value();
         std::shared_ptr< UserDataIngSession::ContextData > context_data = user_data_ing_session->getDistributionSessionInfoData(dist_session_id);
-        if(!context_data) continue;
+        if (!context_data) continue;
         std::shared_ptr<DistributionSessionInfo> distribution_session_info = context_data->distributionSessionInfo;
         distribution_session_info->resetEventSubscription();
     }
@@ -892,14 +892,14 @@ void UserDataIngStatSubsc::removeEventSubscriptions() {
     //std::list<std::optional<std::shared_ptr< SubscribedEvent > >
     const reftools::mbsf::MBSUserDataIngStatSubsc::EventSubscsType &subscribed_events = m_mbsUserDataIngStatSubsc.getEventSubscs();
     for (const auto &subscribed_event : subscribed_events) {
-        if(!subscribed_event) continue;
+        if (!subscribed_event) continue;
         std::shared_ptr<SubscribedEvent> subsc_event = *subscribed_event;
-        if(!subsc_event) continue;
+        if (!subsc_event) continue;
         const std::optional<std::string > mbs_dist_session_id = subsc_event->getMbsDistSessionId();
-        if(!mbs_dist_session_id.has_value()) continue;
+        if (!mbs_dist_session_id.has_value()) continue;
         std::string dist_session_id = mbs_dist_session_id.value();
         std::shared_ptr< UserDataIngSession::ContextData > context_data = user_data_ing_session->getDistributionSessionInfoData(dist_session_id);
-        if(!context_data) continue;
+        if (!context_data) continue;
         std::shared_ptr<DistributionSessionInfo> distribution_session_info = context_data->distributionSessionInfo;
         distribution_session_info->removeEventSubscription();
     }
@@ -930,18 +930,18 @@ const std::shared_ptr<UserDataIngStatSubsc> &UserDataIngStatSubsc::locate(const 
 
     if (!it->second->hasUserDataIngSession()) {
         it->second->removeEventSubscriptions();
-        App::self().context()->deleteUserDataIngStatSubsc(id);	    
+        App::self().context()->deleteUserDataIngStatSubsc(id);
         throw std::out_of_range("MBS Subscription not found");
     }
     return it->second;
 }
 
 bool UserDataIngStatSubsc::hasUserDataIngSession() {
-    std::shared_ptr<UserDataIngSession> ing_session = nullptr;	
+    std::shared_ptr<UserDataIngSession> ing_session = nullptr;
     const std::string &mbs_user_data_ing_session_id = m_mbsUserDataIngStatSubsc.getMbsIngSessionId();
     try {
         ing_session = UserDataIngSession::find(mbs_user_data_ing_session_id);
-	if(ing_session) return true;
+        if (ing_session) return true;
     } catch (const std::out_of_range &e) {
         std::ostringstream err;
         err << "MBS User Data Ingest Session [" << mbs_user_data_ing_session_id << "] does not exist.";
@@ -959,7 +959,7 @@ void UserDataIngStatSubsc::subscriptionPatch(Open5GSSBIStream &stream, Open5GSSB
 
     if (request.headerValue(OGS_SBI_CONTENT_TYPE, std::string()) != "application/merge-patch+json") {
         ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_UNSUPPORTED_MEDIA_TYPE,
-				1, message, app_meta, api, "Unsupported Media Type", "Expected content type: application/merge-patch+json"));
+                                1, message, app_meta, api, "Unsupported Media Type", "Expected content type: application/merge-patch+json"));
         return;
     }
 
@@ -968,7 +968,7 @@ void UserDataIngStatSubsc::subscriptionPatch(Open5GSSBIStream &stream, Open5GSSB
         req_json = CJson::parse(request.content());
         //updateSubscription(req_json, true);
         modify(req_json, true);
-	sendResponse(stream, api, app_meta);
+        sendResponse(stream, api, app_meta);
     } catch (ModelException &ex) {
         send_model_error(ex, stream, 1, message, app_meta, api, "Bad Request",
                             "Unable to parse MBS User Data Ing Status Subscription Patch as JSON");
@@ -985,7 +985,7 @@ void UserDataIngStatSubsc::subscriptionUpdate(Open5GSSBIStream &stream, Open5GSS
     try {
         req_json = CJson::parse(request.content());
         update(req_json, true);
-	sendResponse(stream, api, app_meta);
+        sendResponse(stream, api, app_meta);
     } catch (ModelException &ex) {
         send_model_error(ex, stream, 1, message, app_meta, api, "Bad Request",
                             "Unable to parse MBS User Data Ing Status Subscription Patch as JSON");
@@ -1013,10 +1013,10 @@ void UserDataIngStatSubsc::sendResponse(Open5GSSBIStream &stream, const std::opt
     std::string body(m_mbsUserDataIngStatSubsc.toJSON(false).serialise());
     std::optional<std::string> content_type;
     if (!body.empty()) content_type = "application/json";
-    std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(std::nullopt, content_type, 
-			    std::nullopt /* last-modified */, std::nullopt /* etag */,
-			    App::self().context()->cacheControl.defaultMaxAge,
-			    std::nullopt, api, app_meta));
+    std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(std::nullopt, content_type,
+                            std::nullopt /* last-modified */, std::nullopt /* etag */,
+                            App::self().context()->cacheControl.defaultMaxAge,
+                            std::nullopt, api, app_meta));
     ogs_assert(response);
     NfServer::populateResponse(response, body, OGS_SBI_HTTP_STATUS_OK);
     ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *response));
@@ -1031,10 +1031,10 @@ std::optional<SubscribedEvents::DateTime> UserDataIngStatSubsc::timeOfLatestDist
     for (const auto &distribution_session_info : distribution_session_infos) {
         std::shared_ptr<DistributionSessionInfo> distribution_sess_info = distribution_session_info.second->distributionSessionInfo;
         const SubscribedEvents &subscribed_events = distribution_sess_info->eventTimestamps();
-	const std::optional<UserDataIngStatSubsc::DateTime> &timepoint = subscribed_events.timepointForEventType(event_type);
+        const std::optional<UserDataIngStatSubsc::DateTime> &timepoint = subscribed_events.timepointForEventType(event_type);
         // const std::optional<SubscribedEvents::DateTime> &timepoint = subscribed_events.timepointForSubscribedEvent(event);
-        if(timepoint.has_value()) {
-	    dist_session_event_reports.emplace(timepoint.value(), distribution_sess_info);
+        if (timepoint.has_value()) {
+            dist_session_event_reports.emplace(timepoint.value(), distribution_sess_info);
         }
     }
     if (dist_session_event_reports.empty()) {

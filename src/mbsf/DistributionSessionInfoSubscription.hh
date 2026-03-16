@@ -79,7 +79,7 @@ public:
 private:
     std::weak_ptr<DistributionSessionInfo> m_distributionSession; /* Parent distribution session */
     std::weak_ptr<UserDataIngStatSubsc> m_userDataIngStatSubsc; /* Parent User Data Ing Stat subscription */
-    
+
     int m_events; /* ORed EventTypeBitMask */
 
 };

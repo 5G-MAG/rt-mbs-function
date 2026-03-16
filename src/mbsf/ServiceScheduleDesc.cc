@@ -63,7 +63,7 @@ ServiceScheduleDesc::ServiceScheduleDesc(const std::string &id, const int32_t ve
     m_serviceScheduleDescription->setId(id);
     m_serviceScheduleDescription->setStart(start);
     m_serviceScheduleDescription->setStop(stop);
-    m_serviceScheduleDescription->setVersion(version);    
+    m_serviceScheduleDescription->setVersion(version);
 }
 
 ServiceScheduleDesc::ServiceScheduleDesc(const std::string &id, const int32_t version, const std::optional<std::shared_ptr< reftools::mbsf::RepetitionRule > > &repetition_rule)

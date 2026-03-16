@@ -73,7 +73,7 @@ public:
 
     const std::shared_ptr<reftools::mbsf::MBSDistributionSessionInfo> &getMBSDistributionSessionInfo() const {return m_mbsDistributionSessionInfo;};
     std::shared_ptr<reftools::mbsf::MBSDistributionSessionInfo> &updateMBSDistributionSessionInfo(std::shared_ptr<reftools::mbsf::MBSDistributionSessionInfo> new_mbs_dist_session_infos);
-    const std::shared_ptr<reftools::mbsf::DistributionMethod> &getDistributionMethod() const { return m_mbsDistributionSessionInfo->getDistrMethod();}; 
+    const std::shared_ptr<reftools::mbsf::DistributionMethod> &getDistributionMethod() const { return m_mbsDistributionSessionInfo->getDistrMethod();};
     const std::optional<std::shared_ptr< reftools::mbsf::DistSessionState > > &distSessionState() const {return m_mbsDistributionSessionInfo->getMbsDistSessState();};
     UniqueMbsSessionId getUniqueMbsSessionId() const;
     std::shared_ptr<reftools::mbsf::MbsSessionId> getMbsSessionId() const;
@@ -103,8 +103,8 @@ public:
     std::optional<std::list<std::shared_ptr<AvailabilityInfo>>> availabilityInfos();
     std::optional<std::list<std::shared_ptr<ApplicationServiceDesc>>> applicationServiceDescriptions();
     std::shared_ptr<DistributionSessionDesc> populateDistributionSessionDesc(const std::string &user_data_ing_session_id, const std::string &distribution_session_info_key);
-    std::optional<std::shared_ptr<ObjRepairParameters>> populateObjRepairParameters(const std::string &user_data_ing_session_id, const std::string &distribution_session_info_key); 
-    std::optional<std::string> objectAcqIdsContentType(const std::string &url);  
+    std::optional<std::shared_ptr<ObjRepairParameters>> populateObjRepairParameters(const std::string &user_data_ing_session_id, const std::string &distribution_session_info_key);
+    std::optional<std::string> objectAcqIdsContentType(const std::string &url);
 
 private:
     void setState(std::shared_ptr< reftools::mbsf::DistSessionState > dist_session_state);

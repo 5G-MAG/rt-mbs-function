@@ -235,7 +235,7 @@ ogs_sbi_request_t *Nmb2Build::buildNmb2DistSessionPatch(void *context, void *dat
 
     std::shared_ptr<UserDataIngSession> ing_session = UserDataIngSession::find(session_ids->second->first);
     std::shared_ptr< UserDataIngSession::ContextData > context_data_ptr(ing_session->getDistributionSessionInfoData(session_ids->second->second));
-    if(context_data_ptr->needsUpdate) {
+    if (context_data_ptr->needsUpdate) {
         status_item.path = (char *)"/distSession";
         std::shared_ptr< DistSession > dist_session = build_nmb2_create_dist_session(ing_session, context_data_ptr);
 
@@ -245,7 +245,7 @@ ogs_sbi_request_t *Nmb2Build::buildNmb2DistSessionPatch(void *context, void *dat
         UserDataIngSession::addToRegistry(sess_id, session_ids->second);
 
         patch_val = dist_session->toJSON(true);
-    } else if(context_data_ptr->stateUpdate) {
+    } else if (context_data_ptr->stateUpdate) {
         //patch_val = ing_session->distSessionState();
         patch_val = ing_session->getdistSessState().toJSON();
         ing_session->currentDistSessionState(ing_session->distSessionState());
@@ -260,12 +260,12 @@ ogs_sbi_request_t *Nmb2Build::buildNmb2DistSessionPatch(void *context, void *dat
     status_item.op = OpenAPI_patch_operation_replace;
     cJSON *value = patch_val.exportCJSON();
 
-    if(value)status_item.value = OpenAPI_any_type_create(value);
+    if (value)status_item.value = OpenAPI_any_type_create(value);
     if (!status_item.value) {
         ogs_error("No status item.value");
     }
 
-    if(value) cJSON_Delete(value);
+    if (value) cJSON_Delete(value);
 
     OpenAPI_list_add(patch_item_list, &status_item);
 
@@ -306,13 +306,13 @@ std::shared_ptr < TunnelAddress > populate_mbstf_mb_upf_tunnel_addr(ogs_sockaddr
     std::shared_ptr< TunnelAddress > tun_addr(new TunnelAddress());
 
     for (sa = tunnel_addr; sa; sa = sa->next) {
-        if(sa->ogs_sa_family == AF_INET) {
+        if (sa->ogs_sa_family == AF_INET) {
           OGS_ADDR(sa, buf);
           std::string ipv4_addr = std::string(buf, strnlen(buf, sizeof(buf)));
           tun_addr->setIpv4Addr(ipv4_addr);
           ogs_info("  UDP Tunnel = %s:%u", buf, OGS_PORT(sa));
           ogs_info("Recieved IPv4 tunnel address");
-        } else if(sa->ogs_sa_family == AF_INET6) {
+        } else if (sa->ogs_sa_family == AF_INET6) {
             std::shared_ptr < Ipv6Addr > ipv6_addr;
 
             OGS_ADDR(sa, buf);
@@ -348,10 +348,10 @@ static std::shared_ptr< ObjDistributionData > populate_mbstf_obj_distribution_da
     mbstf_obj_dist_data->setObjAcquisitionMethod(acquisition_method);
     mbstf_obj_dist_data->setObjIngestBaseUrl(obj_ingest_url);
     mbstf_obj_dist_data->setObjDistributionBaseUrl(obj_disribution_url);
-    if(acquisition_method) { 
-        if(acquisition_method->getString() == "PULL") {
+    if (acquisition_method) {
+        if (acquisition_method->getString() == "PULL") {
             mbstf_obj_dist_data->setObjAcquisitionIdsPull(obj_acquisition_ids);
-        } else if(acquisition_method->getString() == "PUSH") {
+        } else if (acquisition_method->getString() == "PUSH") {
             if (!obj_acquisition_ids.empty()) {
                 mbstf_obj_dist_data->setObjAcquisitionIdPush(obj_acquisition_ids.front());
             }
@@ -365,7 +365,7 @@ static std::shared_ptr< ObjDistributionData > populate_mbstf_obj_distribution_da
 static std::shared_ptr< DistSessionState > populate_mbstf_dist_session_state(std::shared_ptr<UserDataIngSession> ing_session, std::shared_ptr< UserDataIngSession::ContextData > context_data_ptr)
 {
     std::optional<std::shared_ptr< DistSessionState > > dist_session_state = context_data_ptr->info->getMbsDistSessState();
-    if(dist_session_state.has_value()) {
+    if (dist_session_state.has_value()) {
         return dist_session_state.value();
     }
     return ing_session->getDistSessionState();
@@ -376,7 +376,7 @@ static std::optional<std::shared_ptr< PktDistributionData > >  populate_mbstf_pk
 
     std::shared_ptr< PktDistributionData > mbstf_pkt_dist_data = nullptr;
     std::optional<std::shared_ptr< PacketDistrMethInfo > > pkt_distr_meth_info = UserDataIngSession::getPktDistributionInfo(mbs_dist_session_info);
-    if(!pkt_distr_meth_info.has_value()) return std::nullopt;
+    if (!pkt_distr_meth_info.has_value()) return std::nullopt;
     std::shared_ptr< PktDistributionOperatingMode > operating_mode = UserDataIngSession::getPktDistributionOperatingMode(mbs_dist_session_info);
     std::shared_ptr< PktIngestMethod > pkt_ingest_method = UserDataIngSession::getPktIngestMethod(mbs_dist_session_info);
     std::shared_ptr< MbStfIngestAddr > ingest_addr = UserDataIngSession::getMbstfIngestAddr(mbs_dist_session_info);
@@ -458,12 +458,12 @@ static std::string make_dist_session_subscription_notif_url(const std::string &u
 
         header.resource.component[0] = (char*)user_data_ing_session_id.c_str();
         header.resource.component[1] = (char*)dist_session_info_key.c_str();
-	notification_url =  ogs_sbi_server_uri(server->ogsSBIServer(), &header);
+        notification_url =  ogs_sbi_server_uri(server->ogsSBIServer(), &header);
     }
-    if(notification_url) {
+    if (notification_url) {
 
-	notif_url = std::string(notification_url);
-	ogs_free(notification_url);
+        notif_url = std::string(notification_url);
+        ogs_free(notification_url);
     }
     return notif_url;
 #else
@@ -487,10 +487,10 @@ static std::shared_ptr< DistSession > build_nmb2_create_dist_session(std::shared
     std::shared_ptr< CreateReqData > create_req_data = nullptr;
 
     std::shared_ptr< DistributionMethod > distribution_method = context_data_ptr->distributionSessionInfo->getDistributionMethod();
-    if(distribution_method && distribution_method->getString() == "OBJECT") {
+    if (distribution_method && distribution_method->getString() == "OBJECT") {
         mbstf_obj_distribution_data = populate_mbstf_obj_distribution_data(context_data_ptr->info);
     }
-    if(distribution_method && distribution_method->getString() == "PACKET") {
+    if (distribution_method && distribution_method->getString() == "PACKET") {
         mbstf_pkt_distribution_data = populate_mbstf_pkt_distribution_data(context_data_ptr->info);
     }
     std::shared_ptr< IpAddr  > dest_addr = context_data_ptr->ssm->getDestIpAddr();
@@ -507,8 +507,8 @@ static std::shared_ptr< DistSession > build_nmb2_create_dist_session(std::shared
     std::shared_ptr<DistSessionSubscription> subscription = make_mbstf_dist_session_subscription(ing_session->userDataIngSessionId(), context_data_ptr);
 
     dist_session.reset(new DistSession());
-    if(mbstf_obj_distribution_data) dist_session->setObjDistributionData(mbstf_obj_distribution_data);
-    if(mbstf_pkt_distribution_data) dist_session->setPktDistributionData(mbstf_pkt_distribution_data);
+    if (mbstf_obj_distribution_data) dist_session->setObjDistributionData(mbstf_obj_distribution_data);
+    if (mbstf_pkt_distribution_data) dist_session->setPktDistributionData(mbstf_pkt_distribution_data);
     dist_session->setUpTrafficFlowInfo(mbstf_up_traffic_flow_info);
     dist_session->setMbUpfTunAddr(mbstf_mb_upf_tunnel_addr);
     dist_session->setDistSessionState(dist_session_state);
