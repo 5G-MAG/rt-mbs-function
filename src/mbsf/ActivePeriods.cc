@@ -30,163 +30,197 @@
 #include "App.hh"
 #include "Context.hh"
 #include "ActivePeriodsBase.hh"
+#include "ServiceScheduleDesc.hh"
+#include "UserDataIngSession.hh"
+#include "utilities.hh"
 
 #include "openapi/model/TimeWindow.h"
 #include "openapi/model/DistSessionState.h"
 #include "openapi/model/MBSUserDataIngSession.h"
 
-namespace reftools::mbsf {
-    class TimeWindow;
-    class MBSUserDataIngSession;
-    class DistSessionState;
-}
+#include "ActivePeriods.hh"
 
 using reftools::mbsf::TimeWindow;
 using reftools::mbsf::MBSUserDataIngSession;
 using reftools::mbsf::DistSessionState;
-
-#include "ActivePeriods.hh"
-
 
 MBSF_NAMESPACE_START
 
 using TimestampAndActiveFlag = ActivePeriodsBase::TimestampAndActiveFlag;
 using ActPeriodsType = MBSUserDataIngSession::ActPeriodsType;
 
+static DistSessionState dist_session_state_active;
+static DistSessionState dist_session_state_inactive;
+static DistSessionState dist_session_state_established;
+static DistSessionState dist_session_state_no_val;
+
 static std::optional<std::chrono::system_clock::time_point> parse_date_time(const std::string& date_time);
 static fiveg_mag_reftools::remove_std_optional<ActPeriodsType>::type extract_time_windows(const ActPeriodsType &actPeriods);
 static fiveg_mag_reftools::remove_std_optional<ActPeriodsType>::type extract_time_windows(ActPeriodsType &&actPeriods);
-static void convert_act_periods(const ActPeriodsType& act_periods, std::list<ActivePeriods::TimeWindowTP> &act_periods_tp);
-static void convert_act_periods(ActPeriodsType&& act_periods, std::list<ActivePeriods::TimeWindowTP> &act_periods_tp);
-static void convert_act_periods(const fiveg_mag_reftools::remove_std_optional<ActPeriodsType>::type& act_periods_list,
-                                  std::list<ActivePeriods::TimeWindowTP> &act_periods_tp);
+static void ensure_dist_session_state_statics();
 
-ActivePeriods::ActivePeriods(const ActPeriodsType &act_periods)
+ActivePeriods::ActivePeriods(const ActPeriodsType &act_periods, const std::shared_ptr<ActivePeriodsBase> &old_active_periods, UserDataIngSession &user_data_ing_session)
+    :ActivePeriodsBase(user_data_ing_session.userDataIngSessionId())
+    ,m_actPeriodsTP()
 {
-    convert_act_periods(act_periods, m_actPeriodsTP);
+    convertActPeriods(act_periods, old_active_periods, user_data_ing_session);
 }
 
-ActivePeriods::ActivePeriods(ActPeriodsType &&act_periods)
+ActivePeriods::ActivePeriods(ActPeriodsType &&act_periods, const std::shared_ptr<ActivePeriodsBase> &old_active_periods, UserDataIngSession &user_data_ing_session)
+    :ActivePeriodsBase(user_data_ing_session.userDataIngSessionId())
+    ,m_actPeriodsTP()
 {
-    convert_act_periods(std::move(act_periods), m_actPeriodsTP);
+    convertActPeriods(std::move(act_periods), old_active_periods, user_data_ing_session);
 }
 
 const DistSessionState &ActivePeriods::currentState(const MbsDistSessStateType &dist_sess_state) const
 {
     std::chrono::seconds establish_pre_start_seconds{App::self().context()->actPeriodEstablishedStateDuration};
     std::chrono::system_clock::time_point now = std::chrono::system_clock::now();
-    static DistSessionState dist_session_state;
+
+    ensure_dist_session_state_statics();
 
     // Evaluate first window with end > now
     for (auto &tw : m_actPeriodsTP) {
-        const auto& start = tw.first;
-        const auto& end = tw.second;
+        const auto& start = tw.start;
+        const auto& end = tw.end;
 
-        if (end <= now) continue; // already finished window
+        if (end <= now) continue; // already finished window, skip to next window
 
         if (start <= now) {
-            dist_session_state = DistSessionState::VAL_ACTIVE;
-            return dist_session_state;
+            // Inside current window, current state is active
+            //ogs_debug("Current state is ACTIVE");
+            return dist_session_state_active;
         }
 
         // start > now
+        // not in a window, next window starts in the future
         auto pre_establish_time = start - establish_pre_start_seconds;
         if (pre_establish_time <= now) {
-            dist_session_state = DistSessionState::VAL_ESTABLISHED;
-            return dist_session_state;
+            // After pre_establish_time, so within the establishing period before the next window, current state is established
+            //ogs_debug("Current state is ESTABLISHED");
+            return dist_session_state_established;
         } else {
-
-            dist_session_state = DistSessionState::VAL_INACTIVE;
-            return dist_session_state;
+            // Before pre_establish_time, so within the inactive time between windows
+            //ogs_debug("Current state is INACTIVE");
+            return dist_session_state_inactive;
         }
-
-
     }
-    dist_session_state = DistSessionState::VAL_INACTIVE;
-    return dist_session_state;
+
+    // we are past all windows so the current state is inactive
+    //ogs_debug("Past all windows, state is INACTIVE");
+    return dist_session_state_inactive;
 }
 
-TimestampAndActiveFlag ActivePeriods::nextTransition () const
+TimestampAndActiveFlag ActivePeriods::nextTransition() const
 {
     std::chrono::seconds establish_pre_start_seconds{App::self().context()->actPeriodEstablishedStateDuration};
     std::chrono::system_clock::time_point now = std::chrono::system_clock::now();
-    static DistSessionState dist_session_state;
+    DistSessionState dist_session_state;
 
     // Evaluate first window with end > now
     for (auto &tw : m_actPeriodsTP) {
-        const auto& start = tw.first;
-        const auto& end = tw.second;
+        const auto& end = tw.end;
+        if (end <= now) continue; // already finished this window, go to next
 
-        if (end <= now) continue; // already finished window
-
+        const auto& start = tw.start;
         if (start <= now) {
+            // In the window, so the next state change would be to inactive at the window end time
             dist_session_state = DistSessionState::VAL_INACTIVE;
+            //ogs_debug("%s", std::format("In the window, so the next state change would be to inactive at {}", end).c_str());
             return {end, dist_session_state};
         }
 
         // start > now
+        // outside a window, next window starts in the future
         auto pre_establish_time = start - establish_pre_start_seconds;
         if (pre_establish_time <= now) {
-
+            // Within establish_pre_start_seconds of the start time, so the next transition is active at the start time
             dist_session_state = DistSessionState::VAL_ACTIVE;
+            //ogs_debug("%s", std::format("Within {0} of {1}, so the next transition is active at {1}", establish_pre_start_seconds, start).c_str());
             return {start, dist_session_state};
         } else {
-
+            // Before establish_pre_start_seconds before the start time, so next transition is established at pre_establish_time
             dist_session_state = DistSessionState::VAL_ESTABLISHED;
+            //ogs_debug("%s", std::format("Before {} of {}, so next transition is established at {}", establish_pre_start_seconds, start, pre_establish_time).c_str());
             return {pre_establish_time, dist_session_state};
         }
-
     }
+
+    // All windows finished, remain inactive
     dist_session_state = DistSessionState::VAL_INACTIVE;
     return {std::nullopt, dist_session_state};
 }
 
-static void convert_act_periods(const ActPeriodsType& act_periods, std::list<ActivePeriods::TimeWindowTP> &act_periods_tp)
+std::optional<std::list<std::shared_ptr<ServiceScheduleDesc> > > ActivePeriods::serviceScheduleDescriptions() const
 {
-    auto act_periods_list = extract_time_windows(act_periods);
-    return convert_act_periods(act_periods_list, act_periods_tp);
+    if (m_actPeriodsTP.empty()) return std::nullopt;
+
+    std::list<std::shared_ptr<ServiceScheduleDesc> > ret_val;
+
+    for (const auto &ver_time_win : m_actPeriodsTP) {
+        ret_val.emplace_back(new ServiceScheduleDesc(m_id, ver_time_win.version, time_point_to_iso8601_utc_str(ver_time_win.start), time_point_to_iso8601_utc_str(ver_time_win.end)));
+    }
+
+    return ret_val;
 }
 
-static void convert_act_periods(ActPeriodsType&& act_periods, std::list<ActivePeriods::TimeWindowTP> &act_periods_tp)
+void ActivePeriods::convertActPeriods(const ActPeriodsType& act_periods,
+                                      const std::shared_ptr<ActivePeriodsBase> &old_active_periods,
+                                      UserDataIngSession &user_data_ing_session)
+{
+    auto act_periods_list = extract_time_windows(act_periods);
+    return convertActPeriods(act_periods_list, old_active_periods, user_data_ing_session);
+}
+
+void ActivePeriods::convertActPeriods(ActPeriodsType&& act_periods,
+                                      const std::shared_ptr<ActivePeriodsBase> &old_active_periods,
+                                      UserDataIngSession &user_data_ing_session)
 {
     auto act_periods_list = extract_time_windows(std::move(act_periods));
 
-    return convert_act_periods(act_periods_list, act_periods_tp);
+    return convertActPeriods(act_periods_list, old_active_periods, user_data_ing_session);
 }
 
-static void convert_act_periods(const fiveg_mag_reftools::remove_std_optional<ActPeriodsType>::type& act_periods_list,
-                                std::list<ActivePeriods::TimeWindowTP> &act_periods_tp)
+void ActivePeriods::convertActPeriods(const fiveg_mag_reftools::remove_std_optional<ActPeriodsType>::type& act_periods_list,
+                                      const std::shared_ptr<ActivePeriodsBase> &old_active_periods,
+                                      UserDataIngSession &user_data_ing_session)
 {
-    act_periods_tp.clear();
+    m_actPeriodsTP.clear();
+    auto old_act_periods = std::dynamic_pointer_cast<ActivePeriods>(old_active_periods);
     for (const auto &time_window : act_periods_list)
     {
-        if (!time_window.has_value())
-        {
-            continue;
-        }
+        if (!time_window || !time_window.value()) continue;
 
-        const std::shared_ptr<TimeWindow>& time_win = *time_window;
-        if (!time_win)
-        {
-            continue;
-        }
+        const std::shared_ptr<TimeWindow>& time_win = time_window.value();
 
         std::optional<std::chrono::system_clock::time_point> start_time = parse_date_time(time_win->getStartTime());
         std::optional<std::chrono::system_clock::time_point> stop_time = parse_date_time(time_win->getStopTime());
 
-        if (!start_time.has_value() || !stop_time.has_value()) continue;
+        if (!start_time || !stop_time) continue;
 
-        if (start_time.has_value() && stop_time.has_value()) {
-            act_periods_tp.emplace_back(std::make_pair(start_time.value(), stop_time.value()));
+        ActivePeriods::VersionedTimeWindowTP tw{.start = start_time.value(), .end = stop_time.value()};
+        if (old_act_periods) {
+            auto it = std::find_if(old_act_periods->m_actPeriodsTP.begin(), old_act_periods->m_actPeriodsTP.end(), [&tw](const ActivePeriods::VersionedTimeWindowTP &other) { return other.start == tw.start && other.end == tw.end; });
+            if (it != old_act_periods->m_actPeriodsTP.end()) {
+                tw.version = it->version;
+            } else {
+                tw.version = user_data_ing_session.serviceScheduleDescVersion();
+            }
+        } else {
+            tw.version = user_data_ing_session.serviceScheduleDescVersion();
         }
+
+        m_actPeriodsTP.push_back(std::move(tw));
     }
-    act_periods_tp.sort([](auto const& a, auto const& b) {
-        return a.first < b.first;
+    m_actPeriodsTP.sort([](auto const& a, auto const& b) {
+        return a.start < b.start;
     });
 
 }
 
 static std::optional<std::chrono::system_clock::time_point> parse_date_time(const std::string& date_time) {
+#if 0
     std::string dt = date_time;
 
     // Remove trailing 'Z' if present
@@ -220,6 +254,11 @@ static std::optional<std::chrono::system_clock::time_point> parse_date_time(cons
     auto tp = std::chrono::system_clock::from_time_t(time);
     tp += std::chrono::milliseconds(milliseconds);
     return tp;
+#else
+    std::chrono::system_clock::time_point result = to_time_point_iso8601(date_time);
+    if (result == std::chrono::system_clock::time_point{}) return std::nullopt;
+    return result;
+#endif
 }
 
 // conversion function
@@ -238,7 +277,14 @@ static fiveg_mag_reftools::remove_std_optional<ActPeriodsType>::type extract_tim
     return fiveg_mag_reftools::remove_std_optional<ActPeriodsType>::type(std::move(*actPeriods));
 }
 
-
+static void ensure_dist_session_state_statics()
+{
+    if (dist_session_state_active.getValue() != DistSessionState::VAL_ACTIVE) {
+        dist_session_state_active = DistSessionState::VAL_ACTIVE;
+        dist_session_state_inactive = DistSessionState::VAL_INACTIVE;
+        dist_session_state_established = DistSessionState::VAL_ESTABLISHED;
+    }
+}
 
 MBSF_NAMESPACE_STOP
 

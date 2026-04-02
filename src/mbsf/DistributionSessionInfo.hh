@@ -30,6 +30,7 @@
 #include "openapi/model/DistributionMethod.h"
 #include "openapi/model/MbsSessionId.h"
 #include "openapi/model/StatusNotifyReqData.h"
+#include "openapi/model/DistSessionState.h"
 #include "common.hh"
 
 #include "DistributionSessionInfoSubscription.hh"
@@ -40,7 +41,6 @@ namespace reftools::mbsf {
     class EventNotification;
     class MbsServiceArea;
     class ExternalMbsServiceArea;
-    class StatusNotifyReqData;
 }
 
 MBSF_NAMESPACE_START
@@ -85,6 +85,7 @@ public:
     void resetEventSubscription();
     void removeEventSubscription();
     void processDataIngestFailure(std::shared_ptr<DistSessionEventReport> dist_sess_event_report);
+    void processServiceManagementFailure(std::shared_ptr<DistSessionEventReport> dist_sess_event_report);
 
     DistributionSessionInfo &distributionSessionEventReportsSort();
     void displayEventReports();
@@ -112,6 +113,8 @@ private:
     void registerEvent(SubscribedEvents::EventTypeBitMask event_type);
     void sendSubscriptionNotifications();
     void validate() const;
+    void contextReportedState(const std::shared_ptr<UserDataIngSession> &ing_sess, reftools::mbsf::DistSessionState::Enum state);
+    void continueStateTransitions(const std::shared_ptr<UserDataIngSession> &ing_sess);
 
     std::shared_ptr<reftools::mbsf::MBSDistributionSessionInfo> m_mbsDistributionSessionInfo;
     std::map<std::string, DistributionSessionInfoSubscription> m_eventSubscriptions;
@@ -122,7 +125,8 @@ private:
     std::recursive_mutex m_mutex;
     bool m_dataIngestSessionEstablished;
     bool m_dataIngestSessionTerminated;
-
+    bool m_dataIngestSessionActivated;
+    bool m_dataIngestSessionDeactivated;
 };
 
 MBSF_NAMESPACE_STOP

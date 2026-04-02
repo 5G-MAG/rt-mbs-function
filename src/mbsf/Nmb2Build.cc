@@ -118,7 +118,8 @@ MBSF_NAMESPACE_START
 static std::shared_ptr<ObjDistributionData> populate_mbstf_obj_distribution_data(std::shared_ptr<MBSDistributionSessionInfo> mbs_dist_session_info);
 static std::shared_ptr<TunnelAddress> populate_mbstf_mb_upf_tunnel_addr(ogs_sockaddr_t *tunnel_addr);
 static std::shared_ptr<UpTrafficFlowInfo> populate_mbstf_up_traffic_flow_info(const std::shared_ptr<UserDataIngSession::ContextData> &ds_context);
-static std::shared_ptr<DistSessionState> populate_mbstf_dist_session_state(std::shared_ptr<UserDataIngSession> ing_session, std::shared_ptr<UserDataIngSession::ContextData> context_data_ptr);
+static std::shared_ptr<DistSessionState> populate_mbstf_dist_session_state(const std::shared_ptr<UserDataIngSession> &ing_session,
+                                                        const std::shared_ptr<UserDataIngSession::ContextData> &context_data_ptr);
 static std::optional<std::shared_ptr<PktDistributionData> >  populate_mbstf_pkt_distribution_data(std::shared_ptr<MBSDistributionSessionInfo> mbs_dist_session_info);
 static std::shared_ptr<DistSessionSubscription> make_mbstf_dist_session_subscription(const std::string &user_data_ing_session_id, std::shared_ptr<UserDataIngSession::ContextData> context_data_ptr);
 static std::shared_ptr<DistSession> build_nmb2_create_dist_session(const std::shared_ptr<UserDataIngSession> &ing_session, const std::shared_ptr<UserDataIngSession::ContextData> &context_data_ptr);
@@ -245,10 +246,19 @@ ogs_sbi_request_t *Nmb2Build::buildNmb2DistSessionPatch(void *context, void *dat
 
         patch_val = dist_session->toJSON(true);
     } else if (context_data_ptr->stateUpdate) {
-        //patch_val = ing_session->distSessionState();
-        patch_val = ing_session->getdistSessState().toJSON();
-        ing_session->currentDistSessionState(ing_session->distSessionState());
-        status_item.path = (char *)"/distSession/distSessionState";
+        auto &current_state = context_data_ptr->last_reported_state;
+        auto &want_state = ing_session->getDistSessionState(context_data_ptr->info->getMbsDistSessState());
+        if (want_state != current_state) {
+            if (want_state.getValue() == DistSessionState::VAL_ESTABLISHED &&
+                current_state.getValue() == DistSessionState::VAL_ACTIVE) {
+                DistSessionState inactive_state;
+                inactive_state = DistSessionState::VAL_INACTIVE;
+                patch_val = inactive_state.toJSON();
+            } else {
+                patch_val = want_state.toJSON();
+            }
+            status_item.path = (char *)"/distSession/distSessionState";
+        }
     }
 
     patch_item_list = OpenAPI_list_create();
@@ -308,7 +318,7 @@ std::shared_ptr < TunnelAddress > populate_mbstf_mb_upf_tunnel_addr(ogs_sockaddr
           std::string ipv4_addr = std::string(buf, strnlen(buf, sizeof(buf)));
           tun_addr->setIpv4Addr(ipv4_addr);
           ogs_info("  UDP Tunnel = %s:%u", buf, OGS_PORT(sa));
-          ogs_info("Recieved IPv4 tunnel address");
+          ogs_info("Received IPv4 tunnel address");
         } else if (sa->ogs_sa_family == AF_INET6) {
             std::shared_ptr < Ipv6Addr > ipv6_addr;
 
@@ -359,13 +369,11 @@ static std::shared_ptr< ObjDistributionData > populate_mbstf_obj_distribution_da
 
 }
 
-static std::shared_ptr< DistSessionState > populate_mbstf_dist_session_state(std::shared_ptr<UserDataIngSession> ing_session, std::shared_ptr< UserDataIngSession::ContextData > context_data_ptr)
+static std::shared_ptr<DistSessionState> populate_mbstf_dist_session_state(const std::shared_ptr<UserDataIngSession> &ing_session,
+                                                        const std::shared_ptr<UserDataIngSession::ContextData> &context_data_ptr)
 {
-    std::optional<std::shared_ptr< DistSessionState > > dist_session_state = context_data_ptr->info->getMbsDistSessState();
-    if (dist_session_state.has_value()) {
-        return dist_session_state.value();
-    }
-    return ing_session->getDistSessionState();
+    const auto &current_state = ing_session->getDistSessionState(context_data_ptr->info->getMbsDistSessState());
+    return std::shared_ptr<DistSessionState>(new DistSessionState(current_state));
 }
 
 static std::optional<std::shared_ptr< PktDistributionData > >  populate_mbstf_pkt_distribution_data(std::shared_ptr<MBSDistributionSessionInfo> mbs_dist_session_info)
@@ -512,8 +520,6 @@ static std::shared_ptr< DistSession > build_nmb2_create_dist_session(const std::
     dist_session->setFecInformation(context_data_ptr->info->getFecConfig());
     dist_session->setDscpMarking(context_data_ptr->info->getTrafficMarkingInfo());
     dist_session->setDistSessionSubscription(subscription);
-
-    ing_session->currentDistSessionState(*dist_session_state);
 
     return dist_session;
 }

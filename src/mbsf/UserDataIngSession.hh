@@ -30,6 +30,7 @@
 #include <memory>
 #include <tuple>
 #include <mutex>
+#include "openapi/model/DistSessionState.h"
 #include "openapi/model/MBSUserDataIngSession.h"
 #include "openapi/model/MBSDistributionSessionInfo.h"
 #include "common.hh"
@@ -109,6 +110,7 @@ public:
         mb_smf_sc_tmgi_t *tmgi = nullptr;
         std::string mbstfNotificationUrl = std::string{};
         uint64_t tsi;
+        reftools::mbsf::DistSessionState last_reported_state;
     };
 
     UserDataIngSession(fiveg_mag_reftools::CJson &json, bool as_request);
@@ -135,35 +137,21 @@ public:
     const SysTimeMS &generated() const {return m_generated;};
     const std::string &hash() const {return m_hash;};
     const int32_t serviceScheduleDescVersion() {return m_serviceScheduleDescriptionVersion++;};
-    const std::string &distSessionState() const ;
 
     ogs_sbi_xact_t *nmbstfDiscoverOnly(std::shared_ptr< ContextData > data);
     ogs_sbi_xact_t *nmbstfDiscoverAndSend( std::shared_ptr< UserDataIngSession::UserDataIngDistSessId> ids, ogs_sbi_build_f build, void *context, void *data);
     UserDataIngSession &setNFInstance(ogs_sbi_service_type_e service_type, ogs_sbi_nf_instance_t *nf_instance);
 
-    UserDataIngSession &alwaysActive() {m_alwaysActive.reset(new AlwaysActive()); return *this;};
-    UserDataIngSession &alwaysActive(std::shared_ptr<AlwaysActive> always_active) {m_alwaysActive = always_active; return *this;};
-    UserDataIngSession &resetAlwaysActive() {m_alwaysActive.reset(); m_alwaysActive = nullptr; return *this;};
+    UserDataIngSession &alwaysActive() {m_activePeriods.reset(new AlwaysActive(m_UserDataIngSessionId)); return *this;};
+    UserDataIngSession &activePeriods(const ActPeriodsType &act_periods) {m_activePeriods.reset(new ActivePeriods(act_periods, m_activePeriods, *this)); return *this;};
+    UserDataIngSession &activePeriodsRepRule(const ActPeriodsRepRuleType &act_periods_rep_rule) {m_activePeriods.reset(new ActivePeriodsRepRule(act_periods_rep_rule, m_activePeriods, *this)); return *this;};
 
-    UserDataIngSession &activePeriods(const ActPeriodsType &act_periods) {m_activePeriods.reset(new ActivePeriods(act_periods)); return *this;};
-    UserDataIngSession &activePeriods(std::shared_ptr<ActivePeriods> active_periods) {m_activePeriods = active_periods; return *this;};
-    UserDataIngSession &resetActivePeriods() {m_activePeriods.reset(); m_activePeriods = nullptr; return *this;};
-
-    UserDataIngSession &activePeriodsRepRule(const ActPeriodsRepRuleType &act_periods_rep_rule) {m_activePeriodsRepRule.reset(new ActivePeriodsRepRule(act_periods_rep_rule)); return *this;};
-    UserDataIngSession &activePeriodsRepRule(std::shared_ptr<ActivePeriodsRepRule> active_periods_rep_rule) {m_activePeriodsRepRule = active_periods_rep_rule; return *this;};
-    UserDataIngSession &resetActivePeriodsRepRule() {m_activePeriodsRepRule.reset(); m_activePeriodsRepRule = nullptr; return *this;};
-
-
-    UserDataIngSession &currentDistSessionState(const std::string &state) {m_currentDistSessionState = state; return *this;};
     UserDataIngSession &userServiceAnnouncement(const std::shared_ptr<reftools::mbsf::UserServiceDescription> &user_service_description);
 
     UserDataIngSession &createTimer();
     UserDataIngSession &createCurrentStateTimer();
     bool startTimer();
-    std::shared_ptr<reftools::mbsf::DistSessionState> getDistSessionState();
-    const reftools::mbsf::DistSessionState getNextDistSessionState() const;
-    const reftools::mbsf::DistSessionState getdistSessState() const;
-
+    const reftools::mbsf::DistSessionState &getDistSessionState(const std::optional<std::shared_ptr<reftools::mbsf::DistSessionState> > &user_state) const;
 
     void processUserDataIngSessionUpdate(ogs_pool_id_t stream_id, std::shared_ptr<Open5GSSBIRequest> &request, fiveg_mag_reftools::CJson &json);
     void processDistributionSessionInfo(ogs_pool_id_t stream_id, std::shared_ptr<Open5GSSBIRequest> &request);
@@ -207,10 +195,6 @@ public:
     std::map<std::string, std::shared_ptr< ContextData >> &distributionSessionInfos();
     std::map<std::string, std::shared_ptr<ServiceScheduleDesc> > &getServiceScheduleDescs();
     void serviceScheduleDescsUpdate(std::shared_ptr<reftools::mbsf::MBSUserDataIngSession> mbs_user_data_ing_session);
-    std::list<ActivePeriods::versionedActivePeriod> versionedActPeriods(const std::list<ActivePeriods::versionedActivePeriod> &versioned_active_periods,
-                    const ActPeriodsType &active_periods);
-
-    std::shared_ptr<ActivePeriodsRepRule::versionedRepetitionRule > versionedActPeriodsRepRule(const std::shared_ptr<ActivePeriodsRepRule::versionedRepetitionRule> &versioned_repetition_rule, const ActPeriodsRepRuleType &act_periods_rep_rule);
 
     static const char *localEventGetName( ogs_event_t *event);
 
@@ -281,6 +265,7 @@ public:
 
 private:
     void updateContexts(ogs_pool_id_t stream_id, std::shared_ptr<Open5GSSBIRequest> &request);
+    void _changeDistSessionState();
 
     static std::recursive_mutex s_registry_mutex;
     static std::map<ogs_sbi_xact_t *, std::shared_ptr< UserDataIngDistSessId >> s_xactRegistry;
@@ -292,13 +277,8 @@ private:
     SysTimeMS m_lastUsed;
     std::string m_hash;
     std::string m_UserDataIngSessionId;
-    std::shared_ptr<AlwaysActive> m_alwaysActive;
-    std::shared_ptr<ActivePeriods> m_activePeriods;
-    std::shared_ptr<ActivePeriodsRepRule> m_activePeriodsRepRule;
+    std::shared_ptr<ActivePeriodsBase> m_activePeriods;
     std::unique_ptr<Open5GSTimer> m_activePeriodsTimer;
-    reftools::mbsf::DistSessionState m_distSessionState;
-    reftools::mbsf::DistSessionState m_currentDistSessionState;
-    reftools::mbsf::DistSessionState m_desiredDistSessionState;
     bool m_startTimer;
     int32_t m_serviceScheduleDescriptionVersion; // next ver no.
 

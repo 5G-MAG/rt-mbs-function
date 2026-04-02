@@ -31,6 +31,7 @@
 #include "App.hh"
 #include "Context.hh"
 #include "ActivePeriodsBase.hh"
+#include "ServiceScheduleDesc.hh"
 
 #include "openapi/model/RepetitionRule.h"
 #include "openapi/model/DistSessionState.h"
@@ -55,115 +56,130 @@ using ActPeriodsRepRuleType = MBSUserDataIngSession::ActPeriodsRepRuleType;
 
 static std::optional<std::chrono::system_clock::time_point> parse_date_time(const std::string& date_time);
 
-ActivePeriodsRepRule::ActivePeriodsRepRule(const ActPeriodsRepRuleType &act_periods_rep_rule)
-    :m_repetitionRule(nullptr)
+static DistSessionState dist_session_state_active;
+static DistSessionState dist_session_state_inactive;
+static DistSessionState dist_session_state_established;
+static DistSessionState dist_session_state_no_val;
+
+static void ensure_dist_session_state_statics();
+
+ActivePeriodsRepRule::ActivePeriodsRepRule(const ActPeriodsRepRuleType &act_periods_rep_rule, const std::shared_ptr<ActivePeriodsBase> &old_active_periods, UserDataIngSession &user_data_ingest_session)
+    :ActivePeriodsBase(user_data_ingest_session.userDataIngSessionId())
+    ,m_repetitionRule(nullptr)
 {
     if (act_periods_rep_rule.has_value()) {
-        m_repetitionRule = act_periods_rep_rule.value();
+        uint32_t version;
+        auto old_act_periods_rep_rule = std::dynamic_pointer_cast<ActivePeriodsRepRule>(old_active_periods);
+        if (old_act_periods_rep_rule && *old_act_periods_rep_rule->m_repetitionRule->second == *act_periods_rep_rule.value()) {
+            version = old_act_periods_rep_rule->m_repetitionRule->first;
+        } else {
+            version = user_data_ingest_session.serviceScheduleDescVersion();
+        }
+        m_repetitionRule.reset(new VersionedRepetitionRule{version, act_periods_rep_rule.value()});
     }
 }
 
 const DistSessionState &ActivePeriodsRepRule::currentState(const MbsDistSessStateType &dist_sess_state) const
 {
+    ensure_dist_session_state_statics();
+
+    if (!m_repetitionRule) return dist_session_state_no_val;
+
     std::chrono::seconds establish_pre_start_seconds{App::self().context()->actPeriodEstablishedStateDuration};
     std::chrono::system_clock::time_point now = std::chrono::system_clock::now();
-    static DistSessionState dist_session_state;
 
-    std::optional<std::chrono::system_clock::time_point> start = parse_date_time(m_repetitionRule->getStartTime());
-    int32_t duration = m_repetitionRule->getDuration();
-    int32_t repetition_interval = m_repetitionRule->getRepetitionInterval();
+    std::optional<std::chrono::system_clock::time_point> start = parse_date_time(m_repetitionRule->second->getStartTime());
+    if (!start.has_value()) {
+        ogs_debug("REP RULE START TIME HAS NO VAL");
+        return dist_session_state_no_val;
+    }
+
+    int32_t duration = m_repetitionRule->second->getDuration();
+    int32_t repetition_interval = m_repetitionRule->second->getRepetitionInterval();
 
     std::chrono::seconds dur{duration};
     std::chrono::seconds rep_interval{repetition_interval};
-
-    if (!start.has_value()) {
-
-        ogs_info("REP RULE START TIME HAS NO VAL");
-         dist_session_state = DistSessionState::NO_VAL;
-         return dist_session_state;
-    }
 
     // Calculate time difference from the rule's start
     auto diff = now - start.value();
 
     if (diff < -establish_pre_start_seconds) {
-        dist_session_state = DistSessionState::VAL_INACTIVE;
-        return dist_session_state;
-    } else if (diff < std::chrono::milliseconds::zero()) {
-        dist_session_state = DistSessionState::VAL_ESTABLISHED;
-        return dist_session_state;
+        // rule has not started, and is more than establish_pre_start_seconds before the start
+        return dist_session_state_inactive;
+    } else if (diff < std::chrono::system_clock::duration::zero()) {
+        // rule has not started, but is within establish_pre_start_seconds of the start
+        return dist_session_state_established;
     } else {
-
+        // rule has started, so get our offset into the current rule window
         auto offset = std::chrono::duration_cast<std::chrono::seconds>(diff % rep_interval);
 
         if (offset < dur) {
-            dist_session_state = DistSessionState::VAL_ACTIVE;
-            return dist_session_state;
+            // within the first dur seconds of the current window, so the window is active
+            return dist_session_state_active;
         } else if (offset < rep_interval - establish_pre_start_seconds) {
-            dist_session_state = DistSessionState::VAL_INACTIVE;
-            return dist_session_state;
+            // greater than dur seconds but earlier than establish_pre_start_seconds before the next window, so inactive
+            return dist_session_state_inactive;
         } else {
-            dist_session_state = DistSessionState::VAL_ESTABLISHED;
-            return dist_session_state;
+            // within establish_pre_start_seconds of the next window, so we need to establish the session
+            return dist_session_state_established;
         }
-        dist_session_state = DistSessionState::VAL_INACTIVE;
-        return dist_session_state;
-
-
     }
 
-    dist_session_state = DistSessionState::VAL_INACTIVE;
-    return dist_session_state;
+    // Shouldn't reach here, but just incase
+    return dist_session_state_inactive;
 }
-
 
 TimestampAndActiveFlag ActivePeriodsRepRule::nextTransition () const
 {
     std::chrono::seconds establish_pre_start_seconds{App::self().context()->actPeriodEstablishedStateDuration};
     std::chrono::system_clock::time_point now = std::chrono::system_clock::now();
-    static DistSessionState dist_session_state;
 
-    std::optional<std::chrono::system_clock::time_point> start = parse_date_time(m_repetitionRule->getStartTime());
-    int32_t duration = m_repetitionRule->getDuration();
-    int32_t repetition_interval = m_repetitionRule->getRepetitionInterval();
+    ensure_dist_session_state_statics();
+
+    std::optional<std::chrono::system_clock::time_point> start = parse_date_time(m_repetitionRule->second->getStartTime());
+    if (!start.has_value()) {
+         return {std::nullopt, dist_session_state_no_val};
+    }
+
+    int32_t duration = m_repetitionRule->second->getDuration();
+    int32_t repetition_interval = m_repetitionRule->second->getRepetitionInterval();
 
     std::chrono::seconds dur{duration};
     std::chrono::seconds rep_interval{repetition_interval};
-
-    if (!start.has_value()) {
-         dist_session_state = DistSessionState::NO_VAL;
-         return {std::nullopt, dist_session_state};
-    }
 
     // Calculate time difference from the rule's start
     auto diff = now - start.value();
 
     if (diff < -establish_pre_start_seconds) {
-        dist_session_state = DistSessionState::VAL_ESTABLISHED;
-        return {(start.value() - establish_pre_start_seconds), dist_session_state} ;
-    } else if (diff < std::chrono::seconds::zero()) {
-        dist_session_state = DistSessionState::VAL_ACTIVE;
-        return {start.value(), dist_session_state};
+        // rule has not started and more than establish_pre_start_seconds before the rule start
+        return {(start.value() - establish_pre_start_seconds), dist_session_state_established} ;
+    } else if (diff < std::chrono::system_clock::duration::zero()) {
+        // rule has not started but is within establish_pre_start_seconds if the start
+        return {start.value(), dist_session_state_active};
     } else {
 
         auto offset = std::chrono::duration_cast<std::chrono::seconds>(diff % rep_interval);
 
-        auto active_start = now - offset;
+        auto active_start = start.value() + (rep_interval * (diff / rep_interval));
 
         if (offset < dur) {
-            dist_session_state = DistSessionState::VAL_INACTIVE;
-            return {(active_start + dur), dist_session_state};
+            return {(active_start + dur), dist_session_state_inactive};
         } else if (offset < (rep_interval - establish_pre_start_seconds)) {
-            dist_session_state = DistSessionState::VAL_ESTABLISHED;
-            return {active_start + rep_interval - establish_pre_start_seconds, dist_session_state};
+            return {active_start + rep_interval - establish_pre_start_seconds, dist_session_state_established};
         } else {
-            dist_session_state = DistSessionState::VAL_ACTIVE;
-            return {active_start + rep_interval, dist_session_state};
-         }
+            return {active_start + rep_interval, dist_session_state_active};
+        }
     }
 
-    dist_session_state = DistSessionState::VAL_INACTIVE;
-    return {std::nullopt, dist_session_state};
+    return {std::nullopt, dist_session_state_inactive};
+}
+
+std::optional<std::list<std::shared_ptr<ServiceScheduleDesc> > > ActivePeriodsRepRule::serviceScheduleDescriptions() const
+{
+    if (!m_repetitionRule) return std::nullopt;
+
+    std::shared_ptr<ServiceScheduleDesc> ssd(new ServiceScheduleDesc(m_id, m_repetitionRule->first, m_repetitionRule->second));
+    return std::list<std::shared_ptr<ServiceScheduleDesc> >{ssd};
 }
 
 static std::optional<std::chrono::system_clock::time_point> parse_date_time(const std::string& date_time) {
@@ -204,6 +220,15 @@ static std::optional<std::chrono::system_clock::time_point> parse_date_time(cons
     auto tp = std::chrono::system_clock::from_time_t(time);
     tp += std::chrono::milliseconds(milliseconds);
     return tp;
+}
+
+static void ensure_dist_session_state_statics()
+{
+    if (dist_session_state_active.getValue() != DistSessionState::VAL_ACTIVE) {
+        dist_session_state_active = DistSessionState::VAL_ACTIVE;
+        dist_session_state_inactive = DistSessionState::VAL_INACTIVE;
+        dist_session_state_established = DistSessionState::VAL_ESTABLISHED;
+    }
 }
 
 MBSF_NAMESPACE_STOP

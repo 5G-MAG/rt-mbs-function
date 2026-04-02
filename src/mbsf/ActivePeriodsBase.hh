@@ -3,8 +3,9 @@
 /******************************************************************************
  * 5G-MAG Reference Tools: MBS Function: MBS Active Periods Base class
  ******************************************************************************
- * Copyright: (C)2025 British Broadcasting Corporation
+ * Copyright: (C)2025-2026 British Broadcasting Corporation
  * Author(s): Dev Audsin <dev.audsin@bbc.co.uk>
+ *            David Waring <david.waring2@bbc.co.uk>
  * License: 5G-MAG Public License v1
  *
  * Licensed under the License terms and conditions for use, reproduction, and
@@ -33,27 +34,25 @@
 
 MBSF_NAMESPACE_START
 
+class ServiceScheduleDesc;
 
 class ActivePeriodsBase {
 public:
-
     using DistSessionState = reftools::mbsf::DistSessionState;
     using SysTimeMS = std::chrono::system_clock::time_point;
     using TimestampAndActiveFlag = std::pair<std::optional<SysTimeMS>, DistSessionState >;
     using ActPeriodsType = reftools::mbsf::MBSUserDataIngSession::ActPeriodsType;
     using MbsDistSessStateType = reftools::mbsf::MBSDistributionSessionInfo::MbsDistSessStateType;
 
+    ActivePeriodsBase(const std::string &user_data_ing_sess_id) : m_id(user_data_ing_sess_id) {};
+
     virtual ~ActivePeriodsBase() = default;
     virtual const DistSessionState &currentState(const MbsDistSessStateType &dist_session_state) const = 0;
     virtual TimestampAndActiveFlag nextTransition() const = 0;
+    virtual std::optional<std::list<std::shared_ptr<ServiceScheduleDesc> > > serviceScheduleDescriptions() const = 0;
 
-/*
 protected:
-    std::shared_ptr<TimestampAndActiveFlag> m_timestampAndActiveFlag;
-*/
-
-private:
-
+    std::string m_id;
 };
 
 MBSF_NAMESPACE_STOP

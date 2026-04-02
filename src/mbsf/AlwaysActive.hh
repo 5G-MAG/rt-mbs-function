@@ -3,8 +3,9 @@
 /******************************************************************************
  * 5G-MAG Reference Tools: MBS Function: MBS AlwaysActive class
  ******************************************************************************
- * Copyright: (C)2025 British Broadcasting Corporation
+ * Copyright: (C)2025-2026 British Broadcasting Corporation
  * Author(s): Dev Audsin <dev.audsin@bbc.co.uk>
+ *            David Waring <david.waring2@bbc.co.uk>
  * License: 5G-MAG Public License v1
  *
  * Licensed under the License terms and conditions for use, reproduction, and
@@ -41,26 +42,24 @@ namespace reftools::mbsf {
     class DistSessionState;
 }
 
-
 MBSF_NAMESPACE_START
 
-class AlwaysActive: public ActivePeriodsBase {
+class ServiceScheduleDesc;
 
+class AlwaysActive : public ActivePeriodsBase {
 public:
-
     using TimestampAndActiveFlag = ActivePeriodsBase::TimestampAndActiveFlag;
     using DistSessionState = ActivePeriodsBase::DistSessionState;
     using ActPeriodsType = reftools::mbsf::MBSUserDataIngSession::ActPeriodsType;
     using MbsDistSessStateType = reftools::mbsf::MBSDistributionSessionInfo::MbsDistSessStateType;
 
-    AlwaysActive() {};
+    AlwaysActive()  = delete;
+    AlwaysActive(const std::string &user_data_ing_sess_id) : ActivePeriodsBase(user_data_ing_sess_id) {};
     virtual ~AlwaysActive() {};
 
     virtual const DistSessionState &currentState(const MbsDistSessStateType &dist_session_state) const;
     virtual TimestampAndActiveFlag nextTransition() const;
-
-private:
-
+    virtual std::optional<std::list<std::shared_ptr<ServiceScheduleDesc> > > serviceScheduleDescriptions() const;
 };
 
 MBSF_NAMESPACE_STOP

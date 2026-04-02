@@ -3,8 +3,9 @@
 /******************************************************************************
  * 5G-MAG Reference Tools: MBS Function: MBS Active Periods class
  ******************************************************************************
- * Copyright: (C)2025 British Broadcasting Corporation
+ * Copyright: (C)2025-2026 British Broadcasting Corporation
  * Author(s): Dev Audsin <dev.audsin@bbc.co.uk>
+ *            David Waring <david.waring2@bbc.co.uk>
  * License: 5G-MAG Public License v1
  *
  * Licensed under the License terms and conditions for use, reproduction, and
@@ -41,9 +42,9 @@ namespace reftools::mbsf {
     class DistSessionState;
 }
 
-
 MBSF_NAMESPACE_START
 
+class ServiceScheduleDesc;
 class UserDataIngSession;
 
 class ActivePeriods: public ActivePeriodsBase {
@@ -51,24 +52,33 @@ public:
 
     using TimestampAndActiveFlag = ActivePeriodsBase::TimestampAndActiveFlag;
     using DistSessionState = ActivePeriodsBase::DistSessionState;
-    using TimeWindowTP = std::pair<std::chrono::system_clock::time_point, std::chrono::system_clock::time_point>;
+    struct VersionedTimeWindowTP {
+        std::chrono::system_clock::time_point start;
+        std::chrono::system_clock::time_point end;
+        int32_t version;
+    };
     using ActPeriodsType = reftools::mbsf::MBSUserDataIngSession::ActPeriodsType;
     using MbsDistSessStateType = reftools::mbsf::MBSDistributionSessionInfo::MbsDistSessStateType;
-    using versionedActivePeriod = std::pair<int32_t, std::shared_ptr< reftools::mbsf::TimeWindow >>;
 
-    ActivePeriods(const ActPeriodsType &act_periods);
-    ActivePeriods(ActPeriodsType &&act_periods);
+    ActivePeriods(const ActPeriodsType &act_periods, const std::shared_ptr<ActivePeriodsBase> &old_active_periods, UserDataIngSession &user_data_ing_session);
+    ActivePeriods(ActPeriodsType &&act_periods, const std::shared_ptr<ActivePeriodsBase> &old_active_periods, UserDataIngSession &user_data_ing_session);
 
     virtual ~ActivePeriods() {};
+
     virtual const DistSessionState &currentState(const MbsDistSessStateType &dist_session_state) const;
     virtual TimestampAndActiveFlag nextTransition() const;
-
-    ActivePeriods &versionedActPeriods(std::list<versionedActivePeriod > versioned_act_periods) {  m_versionedActPeriods = versioned_act_periods; return *this;};
-    const std::list<versionedActivePeriod > &versionedActPeriods() const { return m_versionedActPeriods;};
+    virtual std::optional<std::list<std::shared_ptr<ServiceScheduleDesc> > > serviceScheduleDescriptions() const;
 
 private:
-    std::list<TimeWindowTP > m_actPeriodsTP;
-    std::list<versionedActivePeriod > m_versionedActPeriods;
+    void convertActPeriods(const ActPeriodsType& act_periods, const std::shared_ptr<ActivePeriodsBase> &old_active_periods,
+                           UserDataIngSession &user_data_ing_session);
+    void convertActPeriods(ActPeriodsType&& act_periods, const std::shared_ptr<ActivePeriodsBase> &old_active_periods,
+                           UserDataIngSession &user_data_ing_session);
+    void convertActPeriods(const fiveg_mag_reftools::remove_std_optional<ActPeriodsType>::type& act_periods_list,
+                           const std::shared_ptr<ActivePeriodsBase> &old_active_periods,
+                           UserDataIngSession &user_data_ing_session);
+
+    std::list<VersionedTimeWindowTP> m_actPeriodsTP;
 };
 
 MBSF_NAMESPACE_STOP

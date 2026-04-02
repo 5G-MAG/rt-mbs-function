@@ -24,20 +24,15 @@
 #include <string>
 
 #include "common.hh"
+#include "ActivePeriodsBase.hh"
 #include "App.hh"
 #include "openapi/model/MBSUserDataIngSession.h"
 #include "openapi/model/TimeWindow.h"
 #include "openapi/model/DistSessionState.h"
 #include "openapi/model/MBSDistributionSessionInfo.h"
-#include "ActivePeriodsBase.hh"
+#include "ServiceScheduleDesc.hh"
 
 #include "AlwaysActive.hh"
-
-namespace reftools::mbsf {
-    class TimeWindow;
-    class MBSUserDataIngSession;
-    class DistSessionState;
-}
 
 using reftools::mbsf::TimeWindow;
 using reftools::mbsf::MBSUserDataIngSession;
@@ -62,6 +57,11 @@ const DistSessionState &AlwaysActive::currentState(const MbsDistSessStateType &d
 TimestampAndActiveFlag AlwaysActive::nextTransition() const {
     static const DistSessionState empty;
     return {std::nullopt, empty};
+}
+
+std::optional<std::list<std::shared_ptr<ServiceScheduleDesc> > > AlwaysActive::serviceScheduleDescriptions() const
+{
+    return std::nullopt;
 }
 
 MBSF_NAMESPACE_STOP

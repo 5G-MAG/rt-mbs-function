@@ -97,7 +97,8 @@ DistributionSessionInfo::DistributionSessionInfo(CJson &json, bool as_request)
     ,m_mutex()
     ,m_dataIngestSessionEstablished(false)
     ,m_dataIngestSessionTerminated(false)
-
+    ,m_dataIngestSessionActivated(false)
+    ,m_dataIngestSessionDeactivated(false)
 {
     validate();
 }
@@ -112,7 +113,8 @@ DistributionSessionInfo::DistributionSessionInfo(const std::shared_ptr<MBSDistri
     ,m_mutex()
     ,m_dataIngestSessionEstablished(false)
     ,m_dataIngestSessionTerminated(false)
-
+    ,m_dataIngestSessionActivated(false)
+    ,m_dataIngestSessionDeactivated(false)
 {
     validate();
 }
@@ -366,41 +368,69 @@ DistributionSessionInfo &DistributionSessionInfo::processEvents(std::shared_ptr<
         std::shared_ptr< DistSessionEventType > distribution_session_event_type = dist_sess_event_report->getEventType();
         DistSessionEventType dist_session_event_type = *distribution_session_event_type;
         switch (dist_session_event_type) {
+        case DistSessionEventType::VAL_SERVICE_MANAGEMENT_FAILURE:
+            processServiceManagementFailure(dist_sess_event_report);
+            break;
         case DistSessionEventType::VAL_DATA_INGEST_FAILURE:
             processDataIngestFailure(dist_sess_event_report);
             break;
         case DistSessionEventType::VAL_DATA_INGEST_SESSION_ESTABLISHED:
             m_dataIngestSessionEstablished = true;
+            contextReportedState(ing_sess, DistSessionState::VAL_ESTABLISHED);
             break;
         case DistSessionEventType::VAL_DATA_INGEST_SESSION_TERMINATED:
             m_dataIngestSessionTerminated = true;
+            contextReportedState(ing_sess, DistSessionState::VAL_DEACTIVATING);
+            break;
+        case DistSessionEventType::VAL_SESSION_DEACTIVATED:
+            m_dataIngestSessionDeactivated = true;
+            contextReportedState(ing_sess, DistSessionState::VAL_INACTIVE);
+            break;
+        case DistSessionEventType::VAL_SESSION_ACTIVATED:
+            m_dataIngestSessionActivated = true;
+            contextReportedState(ing_sess, DistSessionState::VAL_ACTIVE);
             break;
         default:
             continue;
        }
     }
+
+    continueStateTransitions(ing_sess);
+
     return *this;
 
 }
 
 void DistributionSessionInfo::processDataIngestFailure(std::shared_ptr<DistSessionEventReport> dist_sess_event_report)
 {
-    std::shared_ptr< DistSessionState > dist_session_state = nullptr;
-    dist_session_state.reset(new DistSessionState());
+    std::shared_ptr< DistSessionState > dist_session_state(new DistSessionState());
     *dist_session_state = DistSessionState::VAL_INACTIVE;
 
     setState(dist_session_state);
 
-    std::shared_ptr< DistSessionEventType > dist_session_event = nullptr;
-    dist_session_event.reset(new DistSessionEventType());
+    std::shared_ptr< DistSessionEventType > dist_session_event(new DistSessionEventType());
     *dist_session_event = DistSessionEventType::VAL_SESSION_DEACTIVATED;
 
-    std::shared_ptr<DistSessionEventReport> dist_session_event_report  = nullptr;
-    dist_session_event_report.reset(new DistSessionEventReport());
+    std::shared_ptr<DistSessionEventReport> dist_session_event_report(new DistSessionEventReport());
     dist_session_event_report->setEventType(dist_session_event);
     dist_session_event_report->setTimeStamp(dist_sess_event_report->getTimeStamp());
     registerEvent(dist_session_event_report);
+}
 
+void DistributionSessionInfo::processServiceManagementFailure(std::shared_ptr<DistSessionEventReport> dist_sess_event_report)
+{
+    std::shared_ptr< DistSessionState > dist_session_state(new DistSessionState());
+    *dist_session_state = DistSessionState::VAL_INACTIVE;
+
+    setState(dist_session_state);
+
+    std::shared_ptr< DistSessionEventType > dist_session_event(new DistSessionEventType());
+    *dist_session_event = DistSessionEventType::VAL_SESSION_DEACTIVATED;
+
+    std::shared_ptr<DistSessionEventReport> dist_session_event_report(new DistSessionEventReport());
+    dist_session_event_report->setEventType(dist_session_event);
+    dist_session_event_report->setTimeStamp(dist_sess_event_report->getTimeStamp());
+    registerEvent(dist_session_event_report);
 }
 
 void DistributionSessionInfo::setState(std::shared_ptr< DistSessionState > dist_session_state)
@@ -520,6 +550,33 @@ void DistributionSessionInfo::validate() const
         break;
     default:
         break;
+    }
+}
+
+void DistributionSessionInfo::contextReportedState(const std::shared_ptr<UserDataIngSession> &ing_sess,
+                                                   DistSessionState::Enum state)
+{
+    auto &dist_session_infos = ing_sess->distributionSessionInfos();
+    auto it = std::find_if(dist_session_infos.begin(), dist_session_infos.end(), [this](const std::remove_reference<decltype(dist_session_infos)>::type::value_type &val) -> bool { return val.second->distributionSessionInfo.get() == this; });
+    if (it == dist_session_infos.end()) return;
+    it->second->last_reported_state = state;
+}
+
+void DistributionSessionInfo::continueStateTransitions(const std::shared_ptr<UserDataIngSession> &ing_sess)
+{
+    auto &dist_session_infos = ing_sess->distributionSessionInfos();
+    auto it = std::find_if(dist_session_infos.begin(), dist_session_infos.end(), [this](const std::remove_reference<decltype(dist_session_infos)>::type::value_type &val) -> bool { return val.second->distributionSessionInfo.get() == this; });
+    if (it == dist_session_infos.end()) return;
+    auto &context = it->second;
+    const auto &want_state = context->info->getMbsDistSessState();
+    if (want_state) {
+        if (context->last_reported_state.getValue() == DistSessionState::VAL_INACTIVE &&
+            want_state.value()->getValue() == DistSessionState::VAL_ESTABLISHED) {
+            // transitioning through INACTIVE to ESTABLISHED
+            setState(want_state.value());
+            context->stateUpdate = true;
+            ing_sess->sendLocalEventPatch(context->distSessionInfoKey);
+        }
     }
 }
 

@@ -3,8 +3,9 @@
 /******************************************************************************
  * 5G-MAG Reference Tools: MBS Function: MBS Active Periods Rep Rule class
  ******************************************************************************
- * Copyright: (C)2025 British Broadcasting Corporation
+ * Copyright: (C)2025-2026 British Broadcasting Corporation
  * Author(s): Dev Audsin <dev.audsin@bbc.co.uk>
+ *            David Waring <david.waring2@bbc.co.uk>
  * License: 5G-MAG Public License v1
  *
  * Licensed under the License terms and conditions for use, reproduction, and
@@ -25,6 +26,8 @@
 
 #include <vector>
 #include <chrono>
+#include <list>
+#include <memory>
 #include <optional>
 
 #include "openapi/model/MBSUserDataIngSession.h"
@@ -41,8 +44,9 @@ namespace reftools::mbsf {
     class DistSessionState;
 }
 
-
 MBSF_NAMESPACE_START
+
+class ServiceScheduleDesc;
 
 class ActivePeriodsRepRule: public ActivePeriodsBase {
 public:
@@ -52,24 +56,17 @@ public:
     using ActPeriodsRepRuleType = reftools::mbsf::MBSUserDataIngSession::ActPeriodsRepRuleType;
     using MbsDistSessStateType = reftools::mbsf::MBSDistributionSessionInfo::MbsDistSessStateType;
     using RepetitionRule = reftools::mbsf::RepetitionRule;
-    using versionedRepetitionRule = std::pair<int32_t, std::shared_ptr< RepetitionRule >>;
+    using VersionedRepetitionRule = std::pair<int32_t, std::shared_ptr<RepetitionRule> >;
 
-    ActivePeriodsRepRule(const ActPeriodsRepRuleType &act_periods_rep_rule);
+    ActivePeriodsRepRule(const ActPeriodsRepRuleType &act_periods_rep_rule, const std::shared_ptr<ActivePeriodsBase> &old_active_periods, UserDataIngSession &user_data_ingest_session);
 
     virtual ~ActivePeriodsRepRule() {};
     virtual const DistSessionState &currentState(const MbsDistSessStateType &dist_session_state) const;
     virtual TimestampAndActiveFlag nextTransition() const;
-
-    ActivePeriodsRepRule &versionedActivePeriodsRepRule(std::shared_ptr<versionedRepetitionRule> versioned_repetition_rule ) { m_versionedRepetitionRule = versioned_repetition_rule; return *this;};
-    const std::shared_ptr<versionedRepetitionRule > &versionedActivePeriodsRepRule() const { return m_versionedRepetitionRule;};
-    std::shared_ptr<versionedRepetitionRule > &versionedActivePeriodsRepRule() { return m_versionedRepetitionRule;};
-
-
+    virtual std::optional<std::list<std::shared_ptr<ServiceScheduleDesc> > > serviceScheduleDescriptions() const;
 
 private:
-    std::shared_ptr< RepetitionRule > m_repetitionRule;
-    std::shared_ptr<versionedRepetitionRule >  m_versionedRepetitionRule;
-
+    std::shared_ptr<VersionedRepetitionRule> m_repetitionRule;
 };
 
 MBSF_NAMESPACE_STOP
