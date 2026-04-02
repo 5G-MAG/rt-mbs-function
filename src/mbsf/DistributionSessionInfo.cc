@@ -70,6 +70,7 @@
 
 using fiveg_mag_reftools::CJson;
 using fiveg_mag_reftools::ModelException;
+using reftools::mbsf::DistributionMethod;
 using reftools::mbsf::DistSessionState;
 using reftools::mbsf::DistSessionEventReportList;
 using reftools::mbsf::Event;
@@ -98,6 +99,7 @@ DistributionSessionInfo::DistributionSessionInfo(CJson &json, bool as_request)
     ,m_dataIngestSessionTerminated(false)
 
 {
+    validate();
 }
 
 DistributionSessionInfo::DistributionSessionInfo(const std::shared_ptr<MBSDistributionSessionInfo> &mbs_distribution_session_info)
@@ -112,6 +114,7 @@ DistributionSessionInfo::DistributionSessionInfo(const std::shared_ptr<MBSDistri
     ,m_dataIngestSessionTerminated(false)
 
 {
+    validate();
 }
 
 DistributionSessionInfo::~DistributionSessionInfo()
@@ -496,6 +499,28 @@ std::shared_ptr<DistributionSessionDesc> DistributionSessionInfo::populateDistri
 
     std::shared_ptr<DistributionSessionDesc> distribution_session_desc(new DistributionSessionDesc(m_mbsDistributionSessionInfo->getDistrMethod(), session_description_locator, applicationServiceDescriptions(), populateObjRepairParameters(user_data_ing_session_id, distribution_session_info_key), availabilityInfos()));
     return distribution_session_desc;
+}
+
+void DistributionSessionInfo::validate() const
+{
+    if (!m_mbsDistributionSessionInfo) throw std::runtime_error("No MBSDistributionSessionInfo to validate");
+    const auto &distr_method = m_mbsDistributionSessionInfo->getDistrMethod();
+    switch (distr_method->getValue()) {
+    case DistributionMethod::VAL_OBJECT:
+        {
+            const auto &obj_dist_method_info = m_mbsDistributionSessionInfo->getObjDistrInfo();
+            if (!obj_dist_method_info) throw std::runtime_error("Must specify objDistrInfo if distrMethod is OBJECT");
+        }
+        break;
+    case DistributionMethod::VAL_PACKET:
+        {
+            const auto &pkt_dist_method_info = m_mbsDistributionSessionInfo->getPckDistrInfo();
+            if (!pkt_dist_method_info) throw std::runtime_error("Must specify pktDistrInfo if distrMethod is PACKET");
+        }
+        break;
+    default:
+        break;
+    }
 }
 
 MBSF_NAMESPACE_STOP

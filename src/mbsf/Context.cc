@@ -93,6 +93,10 @@ Context::~Context()
         m_userDataIngStatSubscs.clear();
     }
 
+    if (notificationBindAddress) {
+        ogs_freeaddrinfo(notificationBindAddress);
+        notificationBindAddress = nullptr;
+    }
 }
 
 bool Context::parseConfig()

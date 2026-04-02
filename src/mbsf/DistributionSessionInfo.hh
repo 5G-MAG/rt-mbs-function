@@ -111,6 +111,7 @@ private:
     void registerEvent(std::shared_ptr<reftools::mbsf::DistSessionEventReport> dist_sess_event_report);
     void registerEvent(SubscribedEvents::EventTypeBitMask event_type);
     void sendSubscriptionNotifications();
+    void validate() const;
 
     std::shared_ptr<reftools::mbsf::MBSDistributionSessionInfo> m_mbsDistributionSessionInfo;
     std::map<std::string, DistributionSessionInfoSubscription> m_eventSubscriptions;

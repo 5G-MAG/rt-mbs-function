@@ -88,6 +88,7 @@ public:
         std::shared_ptr<DistributionSessionInfo> distributionSessionInfo;
         std::shared_ptr<reftools::mbsf::MBSDistributionSessionInfo> info;
         std::shared_ptr<reftools::mbsf::Ssm> ssm;
+        in_port_t ssm_port;
         std::shared_ptr<Open5GSSBIRequest> request;
         ogs_pool_id_t streamId;
         std::shared_ptr<MBSMFMBSSession> MBSSession = nullptr;
@@ -100,13 +101,14 @@ public:
         bool stateUpdate = false;
         bool needsUpdate = false;
         bool markForDeletion = false;
-        std::string distSessionId;
-        bool MBSTFDistSessionDeleted;
-        std::string mbstfNFInstanceId;
-        std::string mbstfDistSessionId;
-        bool distSessionState;
+        std::string distSessionId = std::string{};
+        bool MBSTFDistSessionDeleted = false;
+        std::string mbstfNFInstanceId = std::string{};
+        std::string mbstfDistSessionId = std::string{};
+        bool distSessionState = false;
         mb_smf_sc_tmgi_t *tmgi = nullptr;
-        std::string mbstfNotificationUrl;
+        std::string mbstfNotificationUrl = std::string{};
+        uint64_t tsi;
     };
 
     UserDataIngSession(fiveg_mag_reftools::CJson &json, bool as_request);
@@ -278,6 +280,8 @@ public:
     static void clearRegistries() { std::lock_guard<std::recursive_mutex> lock(s_registry_mutex); s_xactRegistry.clear(); s_distSessionIdRegistry.clear(); };
 
 private:
+    void updateContexts(ogs_pool_id_t stream_id, std::shared_ptr<Open5GSSBIRequest> &request);
+
     static std::recursive_mutex s_registry_mutex;
     static std::map<ogs_sbi_xact_t *, std::shared_ptr< UserDataIngDistSessId >> s_xactRegistry;
     static std::map<std::string, std::shared_ptr< UserDataIngDistSessId >> s_distSessionIdRegistry;

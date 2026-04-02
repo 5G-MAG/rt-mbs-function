@@ -31,8 +31,10 @@
 #include <netdb.h>
 
 // standard template library includes
+#include <atomic>
 #include <chrono>
 #include <memory>
+#include <random>
 #include <stdexcept>
 #include <string>
 #include <cstdint>
@@ -108,6 +110,7 @@ using fiveg_mag_reftools::CJson;
 using fiveg_mag_reftools::ModelException;
 using fiveg_mag_reftools::ProblemCause;
 using reftools::mbsf::AssociatedSessionId;
+using reftools::mbsf::DistributionMethod;
 using reftools::mbsf::DistSession;
 using reftools::mbsf::DistSessionState;
 using reftools::mbsf::ExternalMbsServiceArea;
@@ -150,18 +153,17 @@ static void process_mbs_distribution_session_info(std::shared_ptr< UserDataIngSe
 static std::string print_mbs_session_error(std::shared_ptr< UserDataIngSession::ContextData > context_data);
 static void handle_failed_mbstf_nf_instance_discover(ogs_sbi_xact_t *xact);
 static bool validate_state_setting_options(std::shared_ptr<UserDataIngSession> user_data_ing_session, Open5GSSBIStream &stream, Open5GSSBIMessage &message, const NfServer::AppMetadata &app_meta, std::optional<NfServer::InterfaceMetadata> api);
-static void send_invalid_user_data_ing_session_err(const std::out_of_range &e, Open5GSSBIStream &stream, size_t number_of_components,
-                const Open5GSSBIMessage &message, const NfServer::AppMetadata &app_meta, std::optional<NfServer::InterfaceMetadata> api, const std::string &user_data_ing_session_id);
-/*
-static std::shared_ptr<MBSDistributionSessionInfo> change_mbs_dist_session_infos(std::shared_ptr< UserDataIngSession::ContextData > context_data,
-    std::shared_ptr<MBSDistributionSessionInfo> current_mbs_dist_session_infos,
-    std::shared_ptr<MBSDistributionSessionInfo> new_mbs_dist_session_infos);
-*/
-
+static void send_invalid_user_data_ing_session_err(const std::out_of_range &e, Open5GSSBIStream &stream,
+                                                   size_t number_of_components, const Open5GSSBIMessage &message,
+                                                   const NfServer::AppMetadata &app_meta,
+                                                   const std::optional<NfServer::InterfaceMetadata> &api,
+                                                   const std::string &user_data_ing_session_id);
 static std::shared_ptr<MBSMFMBSSession> populate_mb_smf_mbs_session(std::shared_ptr< UserDataIngSession::ContextData > context_data,
                 std::shared_ptr<MBSMFMBSSession> mb_smf_mbs_session);
-
 static std::int64_t duration_timer(const std::chrono::system_clock::time_point &tp);
+static uint64_t get_next_tsi();
+
+static std::atomic<std::uint64_t> g_next_tsi = 2;
 
 std::recursive_mutex UserDataIngSession::s_registry_mutex;
 std::map<ogs_sbi_xact_t *, std::shared_ptr< UserDataIngSession::UserDataIngDistSessId >> UserDataIngSession::s_xactRegistry;
@@ -444,9 +446,7 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
                             ogs_assert(response);
                             NfServer::populateResponse(response, body, response_code);
                             ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *response));
-
                         } catch (const std::out_of_range &e) {
-
                             send_invalid_user_data_ing_session_err(e, stream, 3, message, app_meta, api, user_data_ing_session_id);
                         }
 
@@ -986,21 +986,39 @@ void UserDataIngSession::handleUserDataIngSessionUpdate(ogs_pool_id_t stream_id,
                     std::optional<std::shared_ptr< MbsSessionId > > mbs_session_id = info->getMbsSessionId();
                     if (mbs_session_id.has_value()) {
                         std::shared_ptr<MbsSessionId > mbs_sess_id = *mbs_session_id;
-                        std::optional<std::shared_ptr< Ssm > > ssm = mbs_sess_id->getSsm();
+                        std::optional<std::shared_ptr<Ssm> > ssm = mbs_sess_id->getSsm();
                         if (ssm.has_value()) {
-                            std::shared_ptr< Ssm > ssm_val = *ssm;
-                            std::shared_ptr< IpAddr > src_ip_addr = ssm_val->getSourceIpAddr();
-                            std::shared_ptr< IpAddr > dest_ip_addr = ssm_val->getDestIpAddr();
-                            std::optional<std::string > src_ipv4_addr = src_ip_addr->getIpv4Addr();
-                            std::optional<std::string > dest_ipv4_addr = dest_ip_addr->getIpv4Addr();
-                            std::optional<std::shared_ptr< std::string > > src_ipv6_addr = src_ip_addr->getIpv6Addr();
-                            std::optional<std::shared_ptr< std::string > > dest_ipv6_addr = dest_ip_addr->getIpv6Addr();
-                            std::shared_ptr< Ssm > ssm_data = nullptr;
+                            std::shared_ptr<Ssm> ssm_val = ssm.value();
+                            std::shared_ptr<IpAddr> dest_ip_addr = ssm_val->getDestIpAddr();
+                            std::optional<std::string> dest_ipv4_addr = dest_ip_addr->getIpv4Addr();
+                            std::optional<std::shared_ptr<std::string> > dest_ipv6_addr = dest_ip_addr->getIpv6Addr();
+                            std::shared_ptr<Ssm> ssm_data(new Ssm(*ssm_val));
+                            if (info->getDistrMethod()->getValue() == DistributionMethod::VAL_PACKET &&
+                                info->getPckDistrInfo().value()->getOperatingMode()->getValue() == PktDistributionOperatingMode::VAL_PACKET_FORWARD_ONLY) {
+                                /* Never pass source address in PACKET_FORWARD_ONLY mode */
+                                ssm_data->setSourceIpAddr(nullptr);
+                            }
+                            static std::random_device rd;
+                            static std::uniform_int_distribution<in_port_t> ud(32768, 65535);
+                            in_port_t port = ud(rd);
+                            uint64_t tsi = 0;
+                            if (info->getDistrMethod()->getValue() == DistributionMethod::VAL_OBJECT) {
+                                tsi = get_next_tsi();
+                            }
 
-                            ssm_data.reset(new Ssm(*ssm_val));
                             if (dest_ipv4_addr.has_value() || dest_ipv6_addr.has_value()) {
                                 distribution_session_info.reset(new DistributionSessionInfo(info));
-                                ctx_data.reset(new ContextData{m_UserDataIngSessionId, key, distribution_session_info, info, ssm_data, request, stream_id, nullptr});
+                                ctx_data.reset(new ContextData{
+                                        .ingSessionId = m_UserDataIngSessionId,
+                                        .distSessionInfoKey = key,
+                                        .distributionSessionInfo = distribution_session_info,
+                                        .info = info,
+                                        .ssm = ssm_data,
+                                        .ssm_port = port,
+                                        .request = request,
+                                        .streamId = stream_id,
+                                        .tsi = tsi
+                                });
                                 addToDistributionSessionInfos(key, ctx_data);
                                 nmbstfDiscoverOnly(ctx_data);
 
@@ -1009,25 +1027,16 @@ void UserDataIngSession::handleUserDataIngSessionUpdate(ogs_pool_id_t stream_id,
                                 continue;
                             }
                         }
-
                     }
-
                 }
-
             }
         }
     }
-    updateMbstfRemovedDistSession();
-    startTimer();
-
 }
 
 void UserDataIngSession::processUserDataIngSessionUpdate(ogs_pool_id_t stream_id, std::shared_ptr<Open5GSSBIRequest> &request, CJson &json)
 {
-
-    bool always_active = true;
     std::shared_ptr< DistSessionState > dist_sess_state = nullptr;
-
 
     std::shared_ptr<MBSUserDataIngSession> mbs_user_data_ing_session = nullptr;
     mbs_user_data_ing_session.reset(new MBSUserDataIngSession(json, true));
@@ -1286,22 +1295,31 @@ void UserDataIngSession::processDistributionSessionInfo( ogs_pool_id_t stream_id
                         auto &dest_ipv4_addr = dest_ip_addr->getIpv4Addr();
                         //auto &src_ipv6_addr = src_ip_addr->getIpv6Addr();
                         auto &dest_ipv6_addr = dest_ip_addr->getIpv6Addr();
-                        std::shared_ptr< Ssm > ssm_data = nullptr;
+                        std::shared_ptr<Ssm> ssm_data(new Ssm(*ssm_val));
+                        static std::random_device rd;
+                        static std::uniform_int_distribution<in_port_t> ud(32768, 65535);
+                        in_port_t port = ud(rd);
 
-                        ssm_data.reset(new Ssm(*ssm_val));
                         if (dest_ipv4_addr.has_value() || dest_ipv6_addr.has_value()) {
                             distribution_session_info.reset(new DistributionSessionInfo(info));
-                            ctx_data.reset(new ContextData{std::string(m_UserDataIngSessionId), std::string(key), distribution_session_info, info, ssm_data, request, stream_id, nullptr});
+                            ctx_data.reset(new ContextData{
+                                    .ingSessionId = m_UserDataIngSessionId,
+                                    .distSessionInfoKey = key,
+                                    .distributionSessionInfo = distribution_session_info,
+                                    .info = info,
+                                    .ssm = ssm_data,
+                                    .ssm_port = port,
+                                    .request = request,
+                                    .streamId = stream_id,
+                                    .tsi = get_next_tsi()
+                            });
                             addToDistributionSessionInfos(std::string(key), ctx_data);
                             nmbstfDiscoverOnly(ctx_data);
-
                         } else {
                             ogs_error("Unable to resolve SSM addresses");
                             continue;
                         }
-
                     }
-
                 }
                 std::optional<std::shared_ptr< DistSessionState > > received_dist_session_state = info->getMbsDistSessState();
                 if (!received_dist_session_state.has_value()) {
@@ -2790,7 +2808,7 @@ static std::shared_ptr<MBSMFMBSSession> populate_mb_smf_mbs_session(std::shared_
 static void send_invalid_user_data_ing_session_err(const std::out_of_range &e, Open5GSSBIStream &stream,
                                                    size_t number_of_components, const Open5GSSBIMessage &message,
                                                    const NfServer::AppMetadata &app_meta,
-                                                   std::optional<NfServer::InterfaceMetadata> api,
+                                                   const std::optional<NfServer::InterfaceMetadata> &api,
                                                    const std::string &user_data_ing_session_id)
 {
 
@@ -2807,6 +2825,13 @@ static void send_invalid_user_data_ing_session_err(const std::out_of_range &e, O
                                                                     err.str(), std::nullopt, invalid_params));
 
 
+}
+
+static uint64_t get_next_tsi()
+{
+    uint64_t ret = g_next_tsi++;
+    if (g_next_tsi < 2) g_next_tsi = 2;
+    return ret;
 }
 
 MBSF_NAMESPACE_STOP
