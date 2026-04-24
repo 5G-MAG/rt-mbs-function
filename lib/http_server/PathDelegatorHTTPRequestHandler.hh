@@ -1,7 +1,7 @@
 #ifndef _HTTPXPP_PATH_DELEGATER_HTTP_REQUEST_HANDLER_HH_
 #define _HTTPXPP_PATH_DELEGATER_HTTP_REQUEST_HANDLER_HH_
 /******************************************************************************
- * 5G-MAG Reference Tools: MBS Function: PathDelegatorHTTPRequestHandler class
+ * 5G-MAG Reference Tools: HTTPx Server: PathDelegatorHTTPRequestHandler class
  ******************************************************************************
  * Copyright: (C)2026 British Broadcasting Corporation
  * Author(s): David Waring <david.waring2@bbc.co.uk>
@@ -52,7 +52,7 @@ public:
     PathDelegatorHTTPRequestHandler &operator=(PathDelegatorHTTPRequestHandler &&other) = delete;
 
     virtual void serverShutdown(const HTTPServer &server);
-    virtual HTTPResponse doRequest(const HTTPRequest &request);
+    virtual HTTPResponse doRequest(const HTTPRequest &request, const HTTPServer &server);
 
     void setPathDelegate(const path_type &path, const delegate_type &delegate);
     void delPathDelegate(const path_type &path);

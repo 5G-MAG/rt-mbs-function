@@ -248,6 +248,7 @@ public:
     bool userDataIngSessionForServiceAnnChannel(std::shared_ptr<UserDataIngDistSessId> ids);
     bool isUserServiceAnnouncementChannel(const std::string &distribution_session_info_key);
     void userServiceAnnChannelDistributionSessionInfo();
+    const std::list<std::string> &getUserServiceAnnBundleFilesList() const;
 
     static void requiresUserServiceAnnouncement(std::shared_ptr<UserDataIngSession> user_data_ing_session);
     static void changeDistSessionState(void *data);

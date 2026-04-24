@@ -1,5 +1,5 @@
 /******************************************************************************
- * 5G-MAG Reference Tools: MBS Function: PathDelegatorHTTPRequestHandler class
+ * 5G-MAG Reference Tools: HTTPx Server: PathDelegatorHTTPRequestHandler class
  ******************************************************************************
  * Copyright: (C)2026 British Broadcasting Corporation
  * Author(s): David Waring <david.waring2@bbc.co.uk>
@@ -50,7 +50,7 @@ void PathDelegatorHTTPRequestHandler::serverShutdown(const HTTPServer &server)
     }
 }
 
-HTTPResponse PathDelegatorHTTPRequestHandler::doRequest(const HTTPRequest &request)
+HTTPResponse PathDelegatorHTTPRequestHandler::doRequest(const HTTPRequest &request, const HTTPServer &server)
 {
     for (auto &[path, delegate] : m_delegatedPaths) {
         if (request.url().starts_with(path)) {
@@ -58,20 +58,19 @@ HTTPResponse PathDelegatorHTTPRequestHandler::doRequest(const HTTPRequest &reque
             if (!subpath.starts_with('/')) subpath.insert(0, "/");
             HTTPRequest subpath_req{request};
             subpath_req.url(subpath);
-            auto resp = delegate->doRequest(subpath_req);
+            auto resp = delegate->doRequest(subpath_req, server);
             /* If redirection response, adjust Location header if needed */
             if (resp.statusCode() == 301 || resp.statusCode() == 302 || resp.statusCode() == 307 || resp.statusCode() == 308) {
                 auto locn = resp.getHeader("Location");
                 if (locn && locn.value().starts_with('/')) {
-                    resp.setHeader("Location", std::format("{}{}", path, locn.value()));
+                    resp.setHeader("Location", std::format("{}{}{}", path, path.ends_with('/')?"":"/", locn.value().substr(1)));
                 }
             }
             return resp;
         }
     }
 
-    HTTPResponse resp;
-    resp.statusCode(404);
+    HTTPResponse resp = server.makeResponse().statusCode(404);
     return resp;
 }
 

@@ -1,5 +1,5 @@
 /******************************************************************************
- * 5G-MAG Reference Tools: MBS Function: HTTPResponse class
+ * 5G-MAG Reference Tools: HTTPx Server: HTTPResponse class
  ******************************************************************************
  * Copyright: (C)2026 British Broadcasting Corporation
  * Author(s): David Waring <david.waring2@bbc.co.uk>
@@ -319,7 +319,7 @@ ssize_t HTTPResponse::__contentReaderCallback(void *cls, uint64_t pos, char *buf
 
 void HTTPResponse::__addDefaultHeaders()
 {
-    auto server_version = std::format("5G-MAG-HTTP-Server/{} (microhttpd/{})", HTTPXPP_SERVER_VERSION, MHD_get_version());
+    auto server_version = std::format("{} ({})", HTTPServer::httpLibraryVersion(), HTTPServer::httpLibraryVersionComment());
     addHeader("Server", server_version);
 }
 

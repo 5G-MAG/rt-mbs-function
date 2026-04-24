@@ -75,22 +75,20 @@ using reftools::mbsf::ObjAcquisitionMethod;
 MBSF_NAMESPACE_START
 
 UserServiceAnnBundle::UserServiceAnnBundle(std::shared_ptr<UserDataIngSession> user_data_ing_session)
-	:m_userDataIngSession(user_data_ing_session)
-	,m_pathForDocRootHandler() 
-	,m_nameOfFilesToServe()
-	,m_userServiceAnnChange() 
-	,m_userServiceAnnMutex(new std::recursive_mutex)
-	,m_userServiceAnnThreadCancel(false)
+        :m_userDataIngSession(user_data_ing_session)
+        ,m_nameOfFilesToServe()
+        ,m_userServiceAnnChange()
+        ,m_userServiceAnnMutex(new std::recursive_mutex)
+        ,m_userServiceAnnThreadCancel(false)
 
 {
-    m_pathForDocRootHandler = "/" + trim_slashes(App::self().context()->userServiceAnnDocRoot()) + "/" + m_userDataIngSession->userDataIngSessionId() + "/";
     startWorker();
 };
 
 void UserServiceAnnBundle::worker()
 {
     m_userServiceAnnThreadRunning = true;
-    
+
     std::lock_guard<decltype(m_userServiceAnnMutex)::element_type> lock(*m_userServiceAnnMutex);
 
     if(!writeAnnouncement()) {
@@ -116,13 +114,26 @@ bool UserServiceAnnBundle::writeAnnouncement()
     fiveg_mag_reftools::CJson json = user_service_desc->json(true);
     std::string json_str(json.serialise());
 
-    std::string err;
-
-    std::string abs_directory_path = "/" + trim_slashes(App::self().context()->userServiceAnnDocRoot()) + "/" + m_userDataIngSession->userDataIngSessionId() + "/";
+    std::filesystem::path abs_directory_path{App::self().context()->userServiceAnnDocRoot()};
+    try {
+        abs_directory_path = std::filesystem::absolute(abs_directory_path);
+    } catch (std::filesystem::filesystem_error &ex) {
+        ogs_error("Failed to write announcement.json, Error: %s", ex.what());
+        return false;
+    }
+    abs_directory_path /= m_userDataIngSession->userDataIngSessionId();
+    std::filesystem::path metadata_dir = abs_directory_path / ".metadata" / "";
+    abs_directory_path /= "";
     std::string user_service_announcement_file_name = "announcement.json";
-    bool rv = writeToFile(abs_directory_path, user_service_announcement_file_name, json_str, err);
+    std::string err;
+    bool rv = writeToFile(abs_directory_path.string(), user_service_announcement_file_name, json_str, err);
     if (rv) {
-        addToServingFiles(user_service_announcement_file_name);        
+        rv = writeToFile(metadata_dir.string(), user_service_announcement_file_name, "Content-Type: application/3gpp-mbs-user-service-descriptions+json;version=\"Rel17\"\r\n", err);
+        if (rv) {
+            addToServingFiles(user_service_announcement_file_name);
+        } else {
+            ogs_error("Failed to write metadata for %s, Error: %s", user_service_announcement_file_name.c_str(), err.c_str());
+        }
     } else {
         ogs_error("Failed to write %s, Error: %s", user_service_announcement_file_name.c_str(), err.c_str());
     }
@@ -130,8 +141,8 @@ bool UserServiceAnnBundle::writeAnnouncement()
 
 }
 
-bool UserServiceAnnBundle::writeToFile(const std::string &abs_directory_path, const std::string &file_name, 
-		const std::string &content, std::string &err) 
+bool UserServiceAnnBundle::writeToFile(const std::string &abs_directory_path, const std::string &file_name,
+                const std::string &content, std::string &err)
 {
     err.clear();
 

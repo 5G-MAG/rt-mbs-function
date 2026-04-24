@@ -30,65 +30,49 @@
 #include "common.hh"
 #include <DocrootHTTPRequestHandler.hh>
 #include <HTTPResponse.hh>
+#include <HTTPServer.hh>
 #include "MultipartMime.hh"
+#include "UserDataIngSession.hh"
 
 #include "AnnouncementBundleIndexHandler.hh"
 
 HTTPXPP_NAMESPACE_USING(DocrootHTTPRequestHandler);
 HTTPXPP_NAMESPACE_USING(HTTPResponse);
+HTTPXPP_NAMESPACE_USING(HTTPServer);
 
 MBSF_NAMESPACE_START
 
-static std::list<std::filesystem::path> get_bundle_filenames(const std::filesystem::path &dir_path /* const std::string &user_data_ing_sess_id*/);
-
-HTTPResponse AnnouncementBundleIndexHandler::makeResponseForDir(const std::string &dir_path, const std::string &url_path)
+HTTPResponse AnnouncementBundleIndexHandler::makeResponseForDir(const std::string &dir_path, const std::string &url_path, const HTTPServer &server)
 {
     if (url_path == "/" || url_path.starts_with("/.")) {
-        return HTTPResponse().statusCode(403);
+        return server.makeResponse().statusCode(403);
     }
 
     std::filesystem::path dp(dir_path);
     if (!dp.has_filename()) dp = dp.parent_path();
     auto user_data_ing_sess_id = dp.filename().string();
 
-    auto bundle_files = get_bundle_filenames(dp /*user_data_ing_sess_id*/);
     MultipartMime bundle(MultipartMime::RELATED);
 
-    /* bool disposition_inline = true; */
-    for (const auto &filename : bundle_files) {
-        bundle.addFile(dp, filename /*, disposition_inline?"inline":"attachment"*/);
-        /* disposition_inline = false; */
+    try {
+        auto user_dat_ing_session = UserDataIngSession::find(user_data_ing_sess_id);
+        auto &filenames = user_dat_ing_session->getUserServiceAnnBundleFilesList();
+        if (filenames.empty()) {
+            return server.makeResponse().statusCode(404);
+        }
+        for (const auto &filename : filenames) {
+            bundle.addFile(dp, filename);
+        }
+    } catch (std::out_of_range &ex) {
+        return server.makeResponse().statusCode(404);
     }
 
-    HTTPResponse resp(bundle.body());
+    HTTPResponse resp = server.makeResponse(bundle.body());
     for (const auto &hdr : bundle.headers()) {
         resp.addHeader(hdr.first, hdr.second);
     }
 
     return resp;
-}
-
-static std::list<std::filesystem::path> get_bundle_filenames(const std::filesystem::path &dir_path)
-{
-    std::list<std::filesystem::path> result;
-
-    auto *dirp = opendir(dir_path.string().c_str());
-    if (dirp) {
-        for (auto *entry = readdir(dirp); entry; entry = readdir(dirp)) {
-            if (entry->d_type == DT_REG) {           // Only include regular files in this dir
-                std::string name(entry->d_name);
-                if (name.starts_with('.')) continue; // ignore hidden files
-                if (name == "announcement.json") {
-                    result.emplace_front(name);
-                } else {
-                    result.emplace_back(name);
-                }
-            }
-        }
-        closedir(dirp);
-    }
-
-    return result;
 }
 
 MBSF_NAMESPACE_STOP

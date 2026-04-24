@@ -1,7 +1,7 @@
-#ifndef _MBSF_DOCROOT_HTTP_REQUEST_HANDLER_HH_
-#define _MBSF_DOCROOT_HTTP_REQUEST_HANDLER_HH_
+#ifndef _HTTPXPP_DOCROOT_HTTP_REQUEST_HANDLER_HH_
+#define _HTTPXPP_DOCROOT_HTTP_REQUEST_HANDLER_HH_
 /******************************************************************************
- * 5G-MAG Reference Tools: MBS Function: DocrootHTTPRequestHandler class
+ * 5G-MAG Reference Tools: HTTPx Server: DocrootHTTPRequestHandler class
  ******************************************************************************
  * Copyright: (C)2026 British Broadcasting Corporation
  * Author(s): David Waring <david.waring2@bbc.co.uk>
@@ -47,7 +47,7 @@ public:
         IndexHandler &operator=(const IndexHandler &) = delete;
         IndexHandler &operator=(IndexHandler &&) = delete;
 
-        virtual HTTPResponse makeResponseForDir(const std::string &dir_path, const std::string &url_path) = 0;
+        virtual HTTPResponse makeResponseForDir(const std::string &dir_path, const std::string &url_path, const HTTPServer &server) = 0;
     };
 
     DocrootHTTPRequestHandler() = delete;
@@ -69,7 +69,7 @@ public:
     DocrootHTTPRequestHandler &addMimeType(const std::string &ext, const std::string &mime_type);
 
     virtual void serverShutdown(const HTTPServer &server);
-    virtual HTTPResponse doRequest(const HTTPRequest &request);
+    virtual HTTPResponse doRequest(const HTTPRequest &request, const HTTPServer &server);
 
 private:
     std::string m_docroot;
@@ -81,4 +81,4 @@ HTTPXPP_NAMESPACE_STOP
 
 /* vim:ts=8:sts=4:sw=4:expandtab:
  */
-#endif /* _MBSF_DOCROOT_HTTP_REQUEST_HANDLER_HH_ */
+#endif /* _HTTPXPP_DOCROOT_HTTP_REQUEST_HANDLER_HH_ */

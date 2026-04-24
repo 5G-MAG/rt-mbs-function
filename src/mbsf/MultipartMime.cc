@@ -84,7 +84,7 @@ void MultipartMime::addFile(const std::filesystem::path &rootdir, const std::fil
         auto header_line = std::format("{}: {}\r\n", field, value);
         m_body.insert(m_body.end(), header_line.begin(), header_line.end());
     }
-    
+
     if (disposition_type) {
         std::string disposition_hdr = std::format("Content-Disposition: {}; filename=\"{}\"\r\n", disposition_type.value(), filename.filename().string());
         m_body.insert(m_body.end(), disposition_hdr.begin(), disposition_hdr.end());
@@ -97,7 +97,7 @@ void MultipartMime::addFile(const std::filesystem::path &rootdir, const std::fil
 
     m_body.insert(m_body.end(), infile.body().begin(), infile.body().end());
     m_body.insert(m_body.end(), crlf.begin(), crlf.end());
-    
+
     __insertFooterSep();
 }
 

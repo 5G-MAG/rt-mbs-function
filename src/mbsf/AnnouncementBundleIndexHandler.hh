@@ -27,6 +27,7 @@
 
 HTTPXPP_NAMESPACE_START
 class HTTPResponse;
+class HTTPServer;
 HTTPXPP_NAMESPACE_STOP
 
 MBSF_NAMESPACE_START
@@ -42,7 +43,7 @@ public:
     AnnouncementBundleIndexHandler &operator=(const AnnouncementBundleIndexHandler &other) = delete;
     AnnouncementBundleIndexHandler &operator=(AnnouncementBundleIndexHandler &&other) = delete;
 
-    virtual HTTPXPP_NAMESPACE_NAME(HTTPResponse) makeResponseForDir(const std::string &dir_path, const std::string &url_path);
+    virtual HTTPXPP_NAMESPACE_NAME(HTTPResponse) makeResponseForDir(const std::string &dir_path, const std::string &url_path, const HTTPXPP_NAMESPACE_NAME(HTTPServer) &server);
 };
 
 MBSF_NAMESPACE_STOP

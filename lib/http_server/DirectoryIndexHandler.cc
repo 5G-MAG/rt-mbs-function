@@ -1,5 +1,5 @@
 /******************************************************************************
- * 5G-MAG Reference Tools: MBS Function: DirectoryIndexHandler class
+ * 5G-MAG Reference Tools: HTTPx Server: DirectoryIndexHandler class
  ******************************************************************************
  * Copyright: (C)2026 British Broadcasting Corporation
  * Author(s): David Waring <david.waring2@bbc.co.uk>
@@ -29,12 +29,13 @@
 #include "common.hh"
 #include "DocrootHTTPRequestHandler.hh"
 #include "HTTPResponse.hh"
+#include "HTTPServer.hh"
 
 #include "DirectoryIndexHandler.hh"
 
 HTTPXPP_NAMESPACE_START
 
-HTTPResponse DirectoryIndexHandler::makeResponseForDir(const std::string &dir_path, const std::string &url_path)
+HTTPResponse DirectoryIndexHandler::makeResponseForDir(const std::string &dir_path, const std::string &url_path, const HTTPServer &server)
 {
     std::string body = std::format("<html><head><title>Index of {0}</title></head><body><h1>Index of {0}</h1><hr/><table><tr><th>Name</th><th>Type</th><th>Modified</th></tr>", url_path);
     std::filesystem::path url(url_path);
@@ -98,7 +99,7 @@ HTTPResponse DirectoryIndexHandler::makeResponseForDir(const std::string &dir_pa
         body += "</table></body></html>";
         closedir(dir);
     }
-    return HTTPResponse(std::vector<char>(body.begin(), body.end())).addHeader("Content-Type", "text/html");
+    return server.makeResponse(std::vector<char>(body.begin(), body.end())).addHeader("Content-Type", "text/html");
 }
 
 HTTPXPP_NAMESPACE_STOP

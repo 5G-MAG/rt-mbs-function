@@ -1,7 +1,7 @@
-#ifndef _MBSF_HTTP_RESPONSE_HH_
-#define _MBSF_HTTP_RESPONSE_HH_
+#ifndef _HTTPXPP_HTTP_RESPONSE_HH_
+#define _HTTPXPP_HTTP_RESPONSE_HH_
 /******************************************************************************
- * 5G-MAG Reference Tools: MBS Function: HTTPResponse class
+ * 5G-MAG Reference Tools: HTTPx Server: HTTPResponse class
  ******************************************************************************
  * Copyright: (C)2026 British Broadcasting Corporation
  * Author(s): David Waring <david.waring2@bbc.co.uk>
@@ -90,4 +90,4 @@ HTTPXPP_NAMESPACE_STOP
 
 /* vim:ts=8:sts=4:sw=4:expandtab:
  */
-#endif /* _MBSF_HTTP_RESPONSE_HH_ */
+#endif /* _HTTPXPP_HTTP_RESPONSE_HH_ */

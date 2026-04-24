@@ -1,5 +1,5 @@
-#ifndef _MBSF_HTTP_REQUEST_HH_
-#define _MBSF_HTTP_REQUEST_HH_
+#ifndef _HTTPXPP_HTTP_REQUEST_HH_
+#define _HTTPXPP_HTTP_REQUEST_HH_
 /******************************************************************************
  * 5G-MAG Reference Tools: HTTPx Server: HTTPRequest class
  ******************************************************************************
@@ -67,4 +67,4 @@ HTTPXPP_NAMESPACE_STOP
 
 /* vim:ts=8:sts=4:sw=4:expandtab:
  */
-#endif /* _MBSF_HTTP_REQUEST_HH_ */
+#endif /* _HTTPXPP_HTTP_REQUEST_HH_ */

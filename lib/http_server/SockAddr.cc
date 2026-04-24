@@ -1,5 +1,5 @@
 /******************************************************************************
- * 5G-MAG Reference Tools: MBS Function: SockAddr class
+ * 5G-MAG Reference Tools: HTTPx Server: SockAddr class
  ******************************************************************************
  * Copyright: (C)2026 British Broadcasting Corporation
  * Author(s): David Waring <david.waring2@bbc.co.uk>
@@ -36,11 +36,13 @@ HTTPXPP_NAMESPACE_START
 
 SockAddr::SockAddr()
     :m_sockaddr()
+    ,m_addrlen(0)
 {
 }
 
 SockAddr::SockAddr(int family, const std::string &hostname, in_port_t port)
     :m_sockaddr()
+    ,m_addrlen(0)
 {
     struct addrinfo *ai = nullptr;
     auto port_name = std::format("{}", port);
@@ -49,6 +51,7 @@ SockAddr::SockAddr(int family, const std::string &hostname, in_port_t port)
     for (auto *it = ai; it; it = it->ai_next) {
         if (it->ai_family == AF_INET || it->ai_family == AF_INET6) {
             m_sockaddr.reset(new sockaddr_storage);
+            m_addrlen = it->ai_addrlen;
             memcpy(m_sockaddr.get(), it->ai_addr, it->ai_addrlen);
             break;
         }
@@ -57,30 +60,34 @@ SockAddr::SockAddr(int family, const std::string &hostname, in_port_t port)
     if (ai) freeaddrinfo(ai);
 }
 
+SockAddr::SockAddr(int sock_fd)
+    :m_sockaddr()
+    ,m_addrlen(0)
+{
+    fromSockName(sock_fd);
+}
+
 SockAddr::SockAddr(const SockAddr &other)
     :m_sockaddr()
+    ,m_addrlen(other.m_addrlen)
 {
     if (other.m_sockaddr) {
-        if (other.m_sockaddr->ss_family == AF_INET) {
-            m_sockaddr.reset(new sockaddr_storage);
-            memcpy(m_sockaddr.get(), other.m_sockaddr.get(), sizeof(sockaddr_in));
-        } else if (other.m_sockaddr->ss_family == AF_INET6) {
-            m_sockaddr.reset(new sockaddr_storage);
-            memcpy(m_sockaddr.get(), other.m_sockaddr.get(), sizeof(sockaddr_in6));
-        } else {
-            throw std::out_of_range("Address type not handled");
-        }
+        m_sockaddr.reset(new sockaddr_storage);
+        memcpy(m_sockaddr.get(), other.m_sockaddr.get(), other.m_addrlen);
     }
 }
 
 SockAddr::SockAddr(const struct sockaddr &sa)
     :m_sockaddr()
+    ,m_addrlen(0)
 {
     if (sa.sa_family == AF_INET) {
         m_sockaddr.reset(new sockaddr_storage);
+        m_addrlen = sizeof(sockaddr_in);
         memcpy(m_sockaddr.get(), &sa, sizeof(sockaddr_in));
     } else if (sa.sa_family == AF_INET6) {
         m_sockaddr.reset(new sockaddr_storage);
+        m_addrlen = sizeof(sockaddr_in6);
         memcpy(m_sockaddr.get(), &sa, sizeof(sockaddr_in6));
     } else {
         throw std::out_of_range("Address type not handled");
@@ -89,48 +96,62 @@ SockAddr::SockAddr(const struct sockaddr &sa)
 
 SockAddr::SockAddr(const struct sockaddr_in &sin)
     :m_sockaddr(new sockaddr_storage)
+    ,m_addrlen(sizeof(sockaddr_in))
 {
     memcpy(m_sockaddr.get(), &sin, sizeof(sockaddr_in));
 }
 
 SockAddr::SockAddr(const struct sockaddr_in6 &sin6)
     :m_sockaddr(new sockaddr_storage)
+    ,m_addrlen(sizeof(sockaddr_in6))
 {
     memcpy(m_sockaddr.get(), &sin6, sizeof(sockaddr_in6));
 }
 
 SockAddr::SockAddr(SockAddr &&other)
     :m_sockaddr(std::move(other.m_sockaddr))
+    ,m_addrlen(other.m_addrlen)
 {
+    other.m_addrlen = 0;
 }
 
-SockAddr::SockAddr(struct sockaddr *sa)
-    :m_sockaddr(reinterpret_cast<sockaddr_storage*>(sa))
+SockAddr::SockAddr(struct sockaddr *sa, socklen_t sa_len)
+    :m_sockaddr()
+    ,m_addrlen(sa_len)
 {
+    if (sa_len == sizeof(sockaddr_storage)) {
+        m_sockaddr.reset(reinterpret_cast<struct sockaddr_storage*>(sa));
+    } else {
+        m_sockaddr.reset(new sockaddr_storage);
+        memcpy(m_sockaddr.get(), sa, m_addrlen);
+        free(sa);
+    }
 }
 
 SockAddr::SockAddr(struct sockaddr_in *sin)
-    :m_sockaddr(reinterpret_cast<sockaddr_storage*>(sin))
+    :m_sockaddr(new sockaddr_storage)
+    ,m_addrlen(sizeof(*sin))
 {
+    memcpy(m_sockaddr.get(), sin, m_addrlen);
+    free(sin);
 }
 
 SockAddr::SockAddr(struct sockaddr_in6 *sin6)
-    :m_sockaddr(reinterpret_cast<sockaddr_storage*>(sin6))
+    :m_sockaddr(new sockaddr_storage)
+    ,m_addrlen(sizeof(*sin6))
 {
+    memcpy(m_sockaddr.get(), sin6, m_addrlen);
+    free(sin6);
 }
 
 SockAddr &SockAddr::operator=(const SockAddr &other)
 {
+    m_addrlen = other.m_addrlen;
     if (!other.m_sockaddr) {
         m_sockaddr.reset();
-    } else if (other.m_sockaddr->ss_family == AF_INET) {
-        m_sockaddr.reset(new sockaddr_storage);
-        memcpy(m_sockaddr.get(), other.m_sockaddr.get(), sizeof(sockaddr_in));
-    } else if (other.m_sockaddr->ss_family == AF_INET6) {
-        m_sockaddr.reset(new sockaddr_storage);
-        memcpy(m_sockaddr.get(), other.m_sockaddr.get(), sizeof(sockaddr_in6));
     } else {
-        throw std::out_of_range("Address type not handled");
+        m_sockaddr.reset(new sockaddr_storage);
+        memcpy(m_sockaddr.get(), other.m_sockaddr.get(), m_addrlen);
     }
     return *this;
 }
@@ -138,17 +159,17 @@ SockAddr &SockAddr::operator=(const SockAddr &other)
 SockAddr &SockAddr::operator=(SockAddr &&other)
 {
     m_sockaddr = std::move(other.m_sockaddr);
+    m_addrlen = other.m_addrlen;
+    other.m_addrlen = 0;
     return *this;
 }
 
 SockAddr &SockAddr::operator=(const struct sockaddr &sa)
 {
-    if (sa.sa_family == AF_INET) {
+    if (sa.sa_family == AF_INET || sa.sa_family == AF_INET6) {
         m_sockaddr.reset(new sockaddr_storage);
-        memcpy(m_sockaddr.get(), &sa, sizeof(sockaddr_in));
-    } else if (sa.sa_family == AF_INET6) {
-        m_sockaddr.reset(new sockaddr_storage);
-        memcpy(m_sockaddr.get(), &sa, sizeof(sockaddr_in6));
+        m_addrlen = (sa.sa_family == AF_INET)?sizeof(sockaddr_in):sizeof(sockaddr_in6);
+        memcpy(m_sockaddr.get(), &sa, m_addrlen);
     } else {
         throw std::out_of_range("Address type not handled");
     }
@@ -158,6 +179,7 @@ SockAddr &SockAddr::operator=(const struct sockaddr &sa)
 SockAddr &SockAddr::operator=(const struct sockaddr_in &sin)
 {
     m_sockaddr.reset(new sockaddr_storage);
+    m_addrlen = sizeof(sockaddr_in);
     memcpy(m_sockaddr.get(), &sin, sizeof(sockaddr_in));
     return *this;
 }
@@ -165,35 +187,24 @@ SockAddr &SockAddr::operator=(const struct sockaddr_in &sin)
 SockAddr &SockAddr::operator=(const struct sockaddr_in6 &sin6)
 {
     m_sockaddr.reset(new sockaddr_storage);
+    m_addrlen = sizeof(sockaddr_in6);
     memcpy(m_sockaddr.get(), &sin6, sizeof(sockaddr_in6));
     return *this;
 }
 
 bool SockAddr::operator==(const SockAddr &other) const
 {
+    if (m_addrlen != other.m_addrlen) return false;
     if (m_sockaddr == other.m_sockaddr) return true;
     if (!m_sockaddr || !other.m_sockaddr) return false;
-    if (m_sockaddr->ss_family != other.m_sockaddr->ss_family) return false;
-    if (m_sockaddr->ss_family == AF_INET) {
-        return memcmp(m_sockaddr.get(), other.m_sockaddr.get(), sizeof(sockaddr_in)) == 0;
-    } else if (m_sockaddr->ss_family == AF_INET6) {
-        return memcmp(m_sockaddr.get(), other.m_sockaddr.get(), sizeof(sockaddr_in6)) == 0;
-    }
-
-    throw std::out_of_range("Address type not handled");
+    return (memcmp(m_sockaddr.get(), other.m_sockaddr.get(), m_addrlen) == 0);
 }
 
 bool SockAddr::operator==(const struct sockaddr &other) const
 {
     if (!m_sockaddr) return false;
     if (m_sockaddr->ss_family != other.sa_family) return false;
-    if (m_sockaddr->ss_family == AF_INET) {
-        return memcmp(m_sockaddr.get(), &other, sizeof(sockaddr_in)) == 0;
-    } else if (m_sockaddr->ss_family == AF_INET6) {
-        return memcmp(m_sockaddr.get(), &other, sizeof(sockaddr_in6)) == 0;
-    }
-
-    throw std::out_of_range("Address type not handled");
+    return memcmp(m_sockaddr.get(), &other, m_addrlen) == 0;
 }
 
 bool SockAddr::operator==(const struct sockaddr_in &other) const
@@ -259,6 +270,15 @@ const struct in6_addr &SockAddr::ipv6Address() const
     throw std::out_of_range("Address is not IPv6");
 }
 
+SockAddr &SockAddr::fromSockName(int fd)
+{
+    if (fd >= 0) {
+        reserve();
+        ::getsockname(fd, reinterpret_cast<struct sockaddr*>(m_sockaddr.get()), &m_addrlen);
+    }
+    return *this;
+}
+
 SockAddr::operator std::string() const
 {
     char ipaddr[INET6_ADDRSTRLEN];
@@ -275,6 +295,35 @@ SockAddr::operator std::string() const
         return std::format("[{}]:{}", ipaddr, port);
     }
     throw std::out_of_range("SockAddr can only convert IPv4 and IPv6 addresses");
+}
+
+std::size_t SockAddr::hash() const
+{
+    const char *ptr = reinterpret_cast<const char*>(m_sockaddr.get());
+    return std::hash<std::string_view>{}(std::string_view(ptr, ptr+m_addrlen));
+}
+
+SockAddr SockAddr::applyNetmask(const SockAddr &netmask) const
+{
+    if (netmask.family() != family()) {
+        throw std::out_of_range("SockAddr::applyNetmask failed: Netmask address type is not the same address family");
+    }
+    SockAddr result(*this);
+    if (family() == AF_INET) {
+        auto *new_ipv4 = reinterpret_cast<struct sockaddr_in*>(result.m_sockaddr.get());
+        auto *mask_ipv4 = reinterpret_cast<const struct sockaddr_in*>(netmask.m_sockaddr.get());
+        new_ipv4->sin_addr.s_addr &= mask_ipv4->sin_addr.s_addr;
+    } else if (family() == AF_INET6) {
+        auto *new_ipv6 = reinterpret_cast<struct sockaddr_in6*>(result.m_sockaddr.get());
+        auto *mask_ipv6 = reinterpret_cast<const struct sockaddr_in6*>(netmask.m_sockaddr.get());
+        new_ipv6->sin6_addr.s6_addr32[0] &= mask_ipv6->sin6_addr.s6_addr32[0];
+        new_ipv6->sin6_addr.s6_addr32[1] &= mask_ipv6->sin6_addr.s6_addr32[1];
+        new_ipv6->sin6_addr.s6_addr32[2] &= mask_ipv6->sin6_addr.s6_addr32[2];
+        new_ipv6->sin6_addr.s6_addr32[3] &= mask_ipv6->sin6_addr.s6_addr32[3];
+    } else {
+        throw std::out_of_range("SockAddr::applyNetmask failed: Address type not handled");
+    }
+    return result;
 }
 
 HTTPXPP_NAMESPACE_STOP

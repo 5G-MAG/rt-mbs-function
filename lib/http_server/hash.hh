@@ -1,9 +1,9 @@
 #ifndef _HTTPXPP_HASH_HH_
 #define _HTTPXPP_HASH_HH_
 /*****************************************************************************
- * 5G-MAG Reference Tools: MBS Function: SHA256 hashing function
+ * 5G-MAG Reference Tools: HTTPx Server: SHA256 hashing function
  *****************************************************************************
- * Copyright: (C)2024-2025 British Broadcasting Corporation
+ * Copyright: (C)2024-2026 British Broadcasting Corporation
  * Author(s): Dev Audsin <dev.audsin@bbc.co.uk>
  *            David Waring <david.waring2@bbc.co.uk>
  * License: 5G-MAG Public License (v1.0)

@@ -1,7 +1,7 @@
 #ifndef _RT_COMMON_HTTP_X_SERVER_COMMON_H_
 #define _RT_COMMON_HTTP_X_SERVER_COMMON_H_
 /******************************************************************************
- * 5G-MAG Reference Tools: MBS Function: MBS HTTPServer class
+ * 5G-MAG Reference Tools: HTTPx Server: HTTP Server common macros
  ******************************************************************************
  * Copyright: (C)2026 British Broadcasting Corporation
  * Author(s): David Waring <david.waring2@bbc.co.uk>

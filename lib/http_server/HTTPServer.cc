@@ -1,5 +1,5 @@
 /******************************************************************************
- * 5G-MAG Reference Tools: MBS Function: HTTP Server class
+ * 5G-MAG Reference Tools: HTTPx Server: HTTP Server class
  ******************************************************************************
  * Copyright: (C)2026 British Broadcasting Corporation
  * Author(s): David Waring <david.waring2@bbc.co.uk>
@@ -27,6 +27,7 @@
 #include "HTTPRequest.hh"
 #include "HTTPResponse.hh"
 #include "SockAddr.hh"
+#include "version.h"
 
 #include "HTTPServer.hh"
 
@@ -39,6 +40,7 @@ HTTPServer::HTTPServer()
     ,m_requestHandler(nullptr)
     ,m_mutex(new decltype(m_mutex)::element_type)
     ,m_mhd(nullptr)
+    ,m_serverName()
 {
 }
 
@@ -47,6 +49,7 @@ HTTPServer::HTTPServer(const SockAddr &listen_address, const std::shared_ptr<HTT
     ,m_requestHandler(request_handler)
     ,m_mutex(new decltype(m_mutex)::element_type)
     ,m_mhd(nullptr)
+    ,m_serverName()
 {
     run();
 }
@@ -56,6 +59,7 @@ HTTPServer::HTTPServer(HTTPServer &&other)
     ,m_requestHandler(std::move(other.m_requestHandler))
     ,m_mutex(new decltype(m_mutex)::element_type)
     ,m_mhd(other.m_mhd)
+    ,m_serverName(std::move(other.m_serverName))
 {
     other.m_mhd = nullptr;
 }
@@ -98,6 +102,18 @@ void HTTPServer::close()
     }
 }
 
+const std::string &HTTPServer::httpLibraryVersion()
+{
+    static const std::string httpx_version_string{"5G-MAG-HTTP-Server/" HTTPXPP_SERVER_VERSION};
+    return httpx_version_string;
+}
+
+const std::string &HTTPServer::httpLibraryVersionComment()
+{
+    static const std::string httpx_version_comment_string{std::format("microhttpd/{}", MHD_get_version())};
+    return httpx_version_comment_string;
+}
+
 MHD_Result HTTPServer::__accessHandlerCallback(void *cls, struct MHD_Connection *connection, const char *url, const char *method,
                                         const char *version, const char *upload_data, size_t *upload_data_size, void **req_cls)
 {
@@ -108,7 +124,7 @@ MHD_Result HTTPServer::__accessHandlerCallback(void *cls, struct MHD_Connection 
 
     HTTPRequest req(url, method, version, std::move(req_headers), std::vector<char>(upload_data, upload_data + *upload_data_size));
 
-    auto response = http_server->m_requestHandler->doRequest(req);
+    auto response = http_server->m_requestHandler->doRequest(req, *http_server);
     struct MHD_Response *mhd_response = response.makeMHDResponse();
     MHD_Result ret = MHD_queue_response(connection, response.statusCode(), mhd_response);
 

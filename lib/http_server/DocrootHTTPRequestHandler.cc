@@ -1,5 +1,5 @@
 /******************************************************************************
- * 5G-MAG Reference Tools: MBS Function: DocrootHTTPRequestHandler class
+ * 5G-MAG Reference Tools: HTTPx Server: DocrootHTTPRequestHandler class
  ******************************************************************************
  * Copyright: (C)2026 British Broadcasting Corporation
  * Author(s): David Waring <david.waring2@bbc.co.uk>
@@ -78,34 +78,35 @@ void DocrootHTTPRequestHandler::serverShutdown(const HTTPServer &server)
 {
 }
 
-HTTPResponse DocrootHTTPRequestHandler::doRequest(const HTTPRequest &request)
+HTTPResponse DocrootHTTPRequestHandler::doRequest(const HTTPRequest &request, const HTTPServer &server)
 {
     if (!request.url().starts_with('/')) {
-        return HTTPResponse(std::vector<char>{'B', 'a', 'd', ' ', 'r', 'e', 'q', 'u', 'e', 's', 't', '\n'}).statusCode(400);
+        return server.makeResponse(std::vector<char>{'B', 'a', 'd', ' ', 'r', 'e', 'q', 'u', 'e', 's', 't', '\n'}).statusCode(400);
     }
     std::string file_path;
     try {
         file_path = resolve_path(m_docroot + request.url());
     } catch (std::error_condition &ex) {
-        return HTTPResponse(std::vector<char>{'N', 'o', 't', ' ', 'f', 'o', 'u', 'n', 'd', '\n'}).statusCode(404);
+        return server.makeResponse(std::vector<char>{'N', 'o', 't', ' ', 'f', 'o', 'u', 'n', 'd', '\n'}).statusCode(404);
     }
     if (!file_path.starts_with(m_docroot)) {
-        return HTTPResponse(std::vector<char>{'N', 'o', 't', ' ', 'f', 'o', 'u', 'n', 'd', '\n'}).statusCode(404);
+        return server.makeResponse(std::vector<char>{'N', 'o', 't', ' ', 'f', 'o', 'u', 'n', 'd', '\n'}).statusCode(404);
     }
     struct stat s;
     if (lstat(file_path.c_str(), &s) == -1) {
-        return HTTPResponse(std::vector<char>{'F', 'o', 'r', 'b', 'i', 'd', 'd', 'e', 'n', '\n'}).statusCode(403);
+        return server.makeResponse(std::vector<char>{'F', 'o', 'r', 'b', 'i', 'd', 'd', 'e', 'n', '\n'}).statusCode(403);
     }
     if (s.st_mode & S_IFDIR) {
-        if (m_indexHandler) return m_indexHandler->makeResponseForDir(file_path, request.url());
-        return HTTPResponse(std::vector<char>{'F', 'o', 'r', 'b', 'i', 'd', 'd', 'e', 'n', '\n'}).statusCode(403);
+        if (!request.url().ends_with('/')) return server.makeResponse().statusCode(308).setHeader("Location", request.url() + "/");
+        if (m_indexHandler) return m_indexHandler->makeResponseForDir(file_path, request.url(), server);
+        return server.makeResponse(std::vector<char>{'F', 'o', 'r', 'b', 'i', 'd', 'd', 'e', 'n', '\n'}).statusCode(403);
     }
 
     // serve file
     auto if_none_match = request.getHeaderFirst("If-None-Match");
     auto if_modified_since = request.getHeaderFirst("If-Modified-Since");
     DocrootFile infile(file_path, std::const_pointer_cast<const MimeTypeMap>(m_mimeTypeMap));
-    HTTPResponse resp;
+    HTTPResponse resp = server.makeResponse();
     if (infile.isModified(if_none_match, if_modified_since)) {
         resp.body(infile.body());
         resp.statusCode(200);

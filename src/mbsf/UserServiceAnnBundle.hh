@@ -26,7 +26,7 @@ class UserDataIngSession;
 
 class UserServiceAnnBundle {
 public:
-    
+
     UserServiceAnnBundle(std::shared_ptr<UserDataIngSession> user_data_ing_session);
     UserServiceAnnBundle() = delete;
     UserServiceAnnBundle(const UserServiceAnnBundle &) = delete;
@@ -47,11 +47,10 @@ public:
     UserServiceAnnBundle &operator=(const UserServiceAnnBundle &) = delete;
     UserServiceAnnBundle &operator=(UserServiceAnnBundle &&) = delete;
 
-    UserServiceAnnBundle &addToServingFiles(std::string file_name) { m_nameOfFilesToServe.emplace_back(file_name); return *this; };
-    UserServiceAnnBundle &removeFromServingFiles(std::string file_name) { m_nameOfFilesToServe.remove(file_name); return *this; };
+    UserServiceAnnBundle &addToServingFiles(const std::string &file_name) { m_nameOfFilesToServe.push_back(file_name); return *this; };
+    UserServiceAnnBundle &removeFromServingFiles(const std::string &file_name) { m_nameOfFilesToServe.remove(file_name); return *this; };
 
-    const std::string &pathForDocRootHandler() const { return m_pathForDocRootHandler; };
-    const std::list <std::string> &filesToServe() const { return m_nameOfFilesToServe; };
+    const std::list<std::string> &filesToServe() const { return m_nameOfFilesToServe; };
 
     void notify() { m_userServiceAnnChange.notify_all(); };
 
@@ -67,8 +66,7 @@ private:
                 const std::string &content, std::string &err);
 
     std::shared_ptr<UserDataIngSession> m_userDataIngSession;
-    std::string m_pathForDocRootHandler;
-    std::list <std::string> m_nameOfFilesToServe;
+    std::list<std::string> m_nameOfFilesToServe;
     std::condition_variable_any m_userServiceAnnChange;
     std::unique_ptr<std::recursive_mutex> m_userServiceAnnMutex;
     std::thread m_userServiceAnnThread;

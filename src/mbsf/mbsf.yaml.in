@@ -32,10 +32,17 @@ mbsf:
       mbsUserDataIngestSessionMaxAge: 60
 
   userServiceAnnouncement:
-    - addr: 127.0.0.67 # Nmb2 (to MBSTF)
-      port: 8888
-    - addr: 127.0.0.67 # MBS-1 (to AP)
-      port: 8889
+    announcementRepetitionTime: 10000
+    ssmPort: 3000
+    ssmSourceAddress: 127.0.0.67
+    ssmDestinationAddress: 232.0.0.1
+    mbr: 10 Mbps
+    docRoot: @localstatedir@/cache/mbsf/user-service-announcements
+    server:
+      - addr: 127.0.0.67 # Nmb2 (to MBSTF)
+        port: 8888
+      - addr: 127.0.0.67 # MBS-1 (to AP)
+        port: 8889
 
   activeDistributionSessionsSoftLimit: 1000
   activeUserServicesSoftLimit: 50

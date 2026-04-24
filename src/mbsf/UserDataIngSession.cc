@@ -1082,6 +1082,12 @@ void UserDataIngSession::userServiceAnnChannelDistributionSessionInfo()
     }
 }
 
+const std::list<std::string> &UserDataIngSession::getUserServiceAnnBundleFilesList() const
+{
+    if (m_userServiceAnnBundle) return m_userServiceAnnBundle->filesToServe();
+    static const std::list<std::string> empty;
+    return empty;
+}
 
 void UserDataIngSession::processUserDataIngSessionUpdate(ogs_pool_id_t stream_id, std::shared_ptr<Open5GSSBIRequest> &request, CJson &json)
 {

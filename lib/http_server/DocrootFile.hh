@@ -1,7 +1,7 @@
-#ifndef _MBSF_DOCROOT_FILE_HH_
-#define _MBSF_DOCROOT_FILE_HH_
+#ifndef _HTTPXPP_DOCROOT_FILE_HH_
+#define _HTTPXPP_DOCROOT_FILE_HH_
 /******************************************************************************
- * 5G-MAG Reference Tools: MBS Function: DocrootFile class
+ * 5G-MAG Reference Tools: HTTPx Server: DocrootFile class
  ******************************************************************************
  * Copyright: (C)2026 British Broadcasting Corporation
  * Author(s): David Waring <david.waring2@bbc.co.uk>
@@ -56,4 +56,4 @@ HTTPXPP_NAMESPACE_STOP
 
 /* vim:ts=8:sts=4:sw=4:expandtab:
  */
-#endif /* _MBSF_DOCROOT_FILE_HH_ */
+#endif /* _HTTPXPP_DOCROOT_FILE_HH_ */

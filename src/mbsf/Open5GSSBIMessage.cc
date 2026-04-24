@@ -313,7 +313,6 @@ static void clear_header(ogs_sbi_header_t *header)
     if (header->uri) {
        char *method = ogs_strdup(header->method);
        ogs_sbi_header_free(header);
-       header->method = nullptr;
        header->method = method;
        header->service.name = nullptr;
        header->api.version = nullptr;
