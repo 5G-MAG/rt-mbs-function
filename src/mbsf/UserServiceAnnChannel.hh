@@ -60,15 +60,11 @@ private:
     void populateUserDataIngSession();
     const std::shared_ptr<DistributionSessionInfo > populateDistributionSessionInfo();
 
-    //const std::shared_ptr<reftools::mbsf::objDistrInfo > populateObjectDistrMethInfo();
-    //const std::shared_ptr<reftools::mbsf::MbsSessionId > populateMbsSessionId();
-    //const std::shared_ptr<reftools::mbsf::Ssm> populateSsm();
     void workerLoop();
 
     std::list<std::weak_ptr<UserDataIngSession>> m_userDataIngSessions;
     std::shared_ptr<UserDataIngSession> m_userServiceAnnChannelDataIngSession;
     std::condition_variable_any m_announcementChannelChange;
-    //mutable std::recursive_mutex m_announcementChannelMutex;
     std::unique_ptr<std::recursive_mutex> m_announcementChannelMutex;
     std::thread m_announcementChannelThread;
     std::atomic_bool m_announcementChannelCancel;

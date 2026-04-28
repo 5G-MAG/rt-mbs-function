@@ -19,6 +19,7 @@
  * under the License.
  */
 
+#include <atomic>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -104,6 +105,8 @@ public:
     std::shared_ptr<Open5GSSBIServer> newSbiServer(const ogs_sockaddr_t *address);
 
     bool userServiceAnnouncementConfigured();
+    std::size_t incAnnChannelCounter();
+    std::size_t decAnnChannelCounter();
     void setUserServiceAnnouncementChannel();
 
     std::map<std::string, std::shared_ptr<UserDataIngStatSubsc> > &userDataIngStatSubscs() { return m_userDataIngStatSubscs;};
@@ -157,6 +160,7 @@ public:
     } userServiceAnnouncement;
 
     std::int64_t actPeriodEstablishedStateDuration = 60;
+    std::atomic<size_t> userServicesWithViaMbsDistSession = 0;
 
     std::optional<std::string> allowedMulticastRange;
 

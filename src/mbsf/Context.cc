@@ -938,6 +938,19 @@ bool Context::userServiceAnnouncementConfigured()
     return true;
 }
 
+std::size_t Context::incAnnChannelCounter()
+{
+    userServicesWithViaMbsDistSession.fetch_add(1, std::memory_order_relaxed);
+    return userServicesWithViaMbsDistSession.load(std::memory_order_relaxed);;
+}
+
+std::size_t Context::decAnnChannelCounter()
+{
+    userServicesWithViaMbsDistSession.fetch_sub(1, std::memory_order_relaxed);
+    return userServicesWithViaMbsDistSession.load(std::memory_order_relaxed);;
+}
+
+
 static std::list<SockAddr> get_sock_addrs(int family, const std::string &hostname, in_port_t port)
 {
     struct addrinfo *ai = nullptr;

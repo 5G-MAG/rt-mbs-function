@@ -600,8 +600,10 @@ bool UserService::checkAndSetUserServiceAnnouncementChannel(const fiveg_mag_reft
     for( const auto &service_ann_mode : service_ann_modes) {
         if (!service_ann_mode.has_value()) continue;
         if (service_ann_mode.value()->getValue() == reftools::mbsf::ServiceAnnouncementMode::VAL_VIA_MBS_DISTRIBUTION_SESSION) {
-            if(App::self().context()->userServiceAnnouncementChannel()) return true;
+            App::self().context()->incAnnChannelCounter();
+	    if(App::self().context()->userServiceAnnouncementChannel()) return true;
             App::self().context()->setUserServiceAnnouncementChannel();
+	    break;
         }
     }
     return true;

@@ -62,6 +62,8 @@ libmbsf_dist_sources = files('''
     AvailabilityInfo.hh
     common.cc
     common.hh
+    CarouselObject.cc
+    CarouselObject.hh
     CaseInsensitiveTraits.hh
     CivicAddr.cc
     CivicAddr.hh
@@ -109,6 +111,8 @@ libmbsf_dist_sources = files('''
     Nmb2Build.hh
     Nmb2Handler.cc
     Nmb2Handler.hh
+    ObjManifest.cc
+    ObjManifest.hh
     ObjRepairParameters.cc
     ObjRepairParameters.hh
     Open5GSEvent.hh
