@@ -124,7 +124,6 @@ public:
                                 const std::optional<NfServer::InterfaceMetadata> &api,
                                 const NfServer::AppMetadata &app_meta);
     void processEventSubscs();
-    std::optional<SubscribedEvents::DateTime> timeOfLatestDistributionSessionEvent(std::shared_ptr<UserDataIngSession> user_data_ing_session, SubscribedEvents::EventTypeBitMask event_type) const;
 
     static bool processEvent(Open5GSEvent &event);
     static std::recursive_mutex m_mutex;

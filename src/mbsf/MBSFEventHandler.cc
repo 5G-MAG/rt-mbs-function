@@ -240,7 +240,7 @@ void MBSFEventHandler::dispatch(Open5GSFSM &fsm, Open5GSEvent &event)
             case OGS_TIMER_NF_INSTANCE_NO_HEARTBEAT:
             case OGS_TIMER_NF_INSTANCE_VALIDITY:
                 {
-                    ogs_info("OGS_EVENT_SBI_TIMER [%d]", event.timerId());
+                    ogs_debug("OGS_EVENT_SBI_TIMER [%d]", event.timerId());
                     ogs_sbi_nf_instance_t *nf_instance(reinterpret_cast<ogs_sbi_nf_instance_t*>(event.sbiData()));
                     ogs_assert(nf_instance);
                     ogs_assert(OGS_FSM_STATE(&nf_instance->sm));

@@ -57,6 +57,7 @@ public:
     using MbsDistSessStateType = reftools::mbsf::MBSDistributionSessionInfo::MbsDistSessStateType;
     using RepetitionRule = reftools::mbsf::RepetitionRule;
     using VersionedRepetitionRule = std::pair<int32_t, std::shared_ptr<RepetitionRule> >;
+    using TimeRange = ActivePeriodsBase::TimeRange;
 
     ActivePeriodsRepRule(const ActPeriodsRepRuleType &act_periods_rep_rule, const std::shared_ptr<ActivePeriodsBase> &old_active_periods, UserDataIngSession &user_data_ingest_session);
 
@@ -64,6 +65,7 @@ public:
     virtual const DistSessionState &currentState(const MbsDistSessStateType &dist_session_state) const;
     virtual TimestampAndActiveFlag nextTransition() const;
     virtual std::optional<std::list<std::shared_ptr<ServiceScheduleDesc> > > serviceScheduleDescriptions() const;
+    virtual TimeRange activeTimeRange() const;
 
 private:
     std::shared_ptr<VersionedRepetitionRule> m_repetitionRule;

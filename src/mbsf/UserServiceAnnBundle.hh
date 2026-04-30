@@ -18,11 +18,11 @@
 #include <mutex>
 
 #include "common.hh"
+#include "UserDataIngSession.hh"
 
 MBSF_NAMESPACE_START
 
 class DistributionSessionInfo;
-class UserDataIngSession;
 
 class UserServiceAnnBundle {
 public:
@@ -76,6 +76,7 @@ protected:
 private:
     void worker();
     bool writeAnnouncement();
+    bool writeServiceDescriptionProtocolDoc(const std::shared_ptr<UserDataIngSession::ContextData> &dist_session_ctx);
     bool writeToFile(const std::string &abs_dir_path, const std::string &file_name,
                 const std::string &content, std::string &err);
     void finish();

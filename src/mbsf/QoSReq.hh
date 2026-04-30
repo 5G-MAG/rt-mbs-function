@@ -59,7 +59,7 @@ public:
     const std::optional<std::shared_ptr<reftools::mbsf::Arp> > &getReqMbsArp() const { return m_mbsQoSReq->getReqMbsArp();};
 
     mb_smf_sc_mbs_qos_req_t *populateQoSReq();
-    uint64_t *bitrate(const std::optional<std::string> &bit_rate);
+    static uint64_t *bitrate(const std::optional<std::string> &bit_rate);
     uint16_t *averagingWindow();
 
 private:

@@ -62,11 +62,12 @@ UserServiceDesc::UserServiceDesc(const std::shared_ptr<reftools::mbsf::UserServi
 }
 
 UserServiceDesc::UserServiceDesc(const reftools::mbsf::UserServiceDescription::ServiceIdsType &service_ids,
-                    const std::string &r_class, const std::list<std::shared_ptr<UserServiceDesc::serviceNameLanguageDescription>> &names,
+                    const std::string &r_class,
+                    const std::list<std::shared_ptr<UserServiceDesc::serviceNameLanguageDescription>> &names,
                     const std::list<std::shared_ptr<UserServiceDesc::serviceNameLanguageDescription>> &descriptions,
-                    const std::list<std::shared_ptr< DistributionSessionDesc > > &distribution_session_descs,
-                    std::optional<std::list<std::shared_ptr< ServiceScheduleDesc > >> service_schedule_descs,
-                    std::optional<std::string > service_language)
+                    const std::list<std::shared_ptr<DistributionSessionDesc>> &distribution_session_descs,
+                    std::optional<std::list<std::shared_ptr<ServiceScheduleDesc>>> service_schedule_descs,
+                    std::optional<std::string> service_language)
     :m_userServiceDescription(new UserServiceDescription())
 {
     m_userServiceDescription->setServiceIds(service_ids);

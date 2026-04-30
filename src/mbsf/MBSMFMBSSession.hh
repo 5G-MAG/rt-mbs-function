@@ -28,6 +28,7 @@
 #include <any>
 
 #include "common.hh"
+#include "UserDataIngSession.hh"
 
 namespace reftools::mbsf {
     class AssociatedSessionId;
@@ -42,6 +43,8 @@ class Open5GSEvent;
 
 class MBSMFMBSSession {
 public:
+    using UserDataIngDistSessId = UserDataIngSession::UserDataIngDistSessId;
+
     MBSMFMBSSession();
     MBSMFMBSSession(mb_smf_sc_mbs_session_t *session);
     MBSMFMBSSession(MBSMFMBSSession &&other) = delete;
@@ -89,7 +92,7 @@ public:
                 const char *correlation_id, time_t expiry_time, void *callback_data);
     MBSMFMBSSession &setServiceType(mb_smf_sc_mbs_service_type_e service_type);
     MBSMFMBSSession &setTunnelRequest(bool request_udp_tunnel);
-    MBSMFMBSSession &setCreatedCallback(void *callback_data);
+    MBSMFMBSSession &setCallback(const UserDataIngDistSessId &ids);
     MBSMFMBSSession &setTmgiRequest(bool req_tmgi);
     MBSMFMBSSession &setActivityStatus(mb_smf_sc_activity_status_e activity_status);
     MBSMFMBSSession &setAnyUeInd(bool any_ue_ind);
@@ -115,13 +118,15 @@ public:
 private:
     static void mbsSessionCallback(mb_smf_sc_mbs_session_t *session, int result, const OpenAPI_problem_details_s*  problem_details, void *data);
     static void mbsSessionNotifyCallback(const mb_smf_sc_mbs_status_notification_result_t *notification, void *data);
-    static void sendLocalEvent(LocalEventId event_id, mb_smf_sc_mbs_session_t *session, int result, const OpenAPI_problem_details_s*  problem_details, void *data);
+    static void sendLocalEvent(LocalEventId event_id, mb_smf_sc_mbs_session_t *session, int result, const OpenAPI_problem_details_s*  problem_details, const UserDataIngDistSessId &ids);
     static void sendLocalNotifyEvent(LocalEventId event_id, const mb_smf_sc_mbs_status_notification_result_t *notification, void *data);
     static void processMbsSessionNotify(const mb_smf_sc_mbs_status_notification_result_t *notification, void *data);
 
     mb_smf_sc_mbs_session_t *m_session;
     mb_smf_sc_mbs_status_subscription_t *m_subscription;
-
+    std::atomic<bool> m_changesInFlight;
+    std::atomic<bool> m_sendUpdates;
+    UserDataIngDistSessId m_id;
 };
 
 MBSF_NAMESPACE_STOP

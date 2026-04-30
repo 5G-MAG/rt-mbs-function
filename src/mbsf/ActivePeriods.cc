@@ -165,6 +165,14 @@ std::optional<std::list<std::shared_ptr<ServiceScheduleDesc> > > ActivePeriods::
     return ret_val;
 }
 
+ActivePeriods::TimeRange ActivePeriods::activeTimeRange() const
+{
+    if (m_actPeriodsTP.empty()) return TimeRange(std::nullopt, std::nullopt);
+    return TimeRange(m_actPeriodsTP.front().start, m_actPeriodsTP.back().end);
+}
+
+// private:
+
 void ActivePeriods::convertActPeriods(const ActPeriodsType& act_periods,
                                       const std::shared_ptr<ActivePeriodsBase> &old_active_periods,
                                       UserDataIngSession &user_data_ing_session)

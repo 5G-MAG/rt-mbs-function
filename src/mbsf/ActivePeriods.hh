@@ -59,6 +59,7 @@ public:
     };
     using ActPeriodsType = reftools::mbsf::MBSUserDataIngSession::ActPeriodsType;
     using MbsDistSessStateType = reftools::mbsf::MBSDistributionSessionInfo::MbsDistSessStateType;
+    using TimeRange = ActivePeriodsBase::TimeRange;
 
     ActivePeriods(const ActPeriodsType &act_periods, const std::shared_ptr<ActivePeriodsBase> &old_active_periods, UserDataIngSession &user_data_ing_session);
     ActivePeriods(ActPeriodsType &&act_periods, const std::shared_ptr<ActivePeriodsBase> &old_active_periods, UserDataIngSession &user_data_ing_session);
@@ -68,6 +69,7 @@ public:
     virtual const DistSessionState &currentState(const MbsDistSessStateType &dist_session_state) const;
     virtual TimestampAndActiveFlag nextTransition() const;
     virtual std::optional<std::list<std::shared_ptr<ServiceScheduleDesc> > > serviceScheduleDescriptions() const;
+    virtual TimeRange activeTimeRange() const;
 
 private:
     void convertActPeriods(const ActPeriodsType& act_periods, const std::shared_ptr<ActivePeriodsBase> &old_active_periods,

@@ -25,6 +25,8 @@
 #include "ogs-sbi.h"
 
 #include <chrono>
+#include <optional>
+#include <utility>
 
 #include "openapi/model/DistSessionState.h"
 #include "openapi/model/MBSDistributionSessionInfo.h"
@@ -43,6 +45,7 @@ public:
     using TimestampAndActiveFlag = std::pair<std::optional<SysTimeMS>, DistSessionState >;
     using ActPeriodsType = reftools::mbsf::MBSUserDataIngSession::ActPeriodsType;
     using MbsDistSessStateType = reftools::mbsf::MBSDistributionSessionInfo::MbsDistSessStateType;
+    using TimeRange = std::pair<std::optional<SysTimeMS>, std::optional<SysTimeMS>>;
 
     ActivePeriodsBase(const std::string &user_data_ing_sess_id) : m_id(user_data_ing_sess_id) {};
 
@@ -50,6 +53,7 @@ public:
     virtual const DistSessionState &currentState(const MbsDistSessStateType &dist_session_state) const = 0;
     virtual TimestampAndActiveFlag nextTransition() const = 0;
     virtual std::optional<std::list<std::shared_ptr<ServiceScheduleDesc> > > serviceScheduleDescriptions() const = 0;
+    virtual TimeRange activeTimeRange() const = 0;
 
 protected:
     std::string m_id;

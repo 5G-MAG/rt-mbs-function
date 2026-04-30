@@ -27,6 +27,10 @@ libsbi_openapi_inc = open5gs_project.get_variable('libsbi_openapi_inc')
 libinc = open5gs_project.get_variable('libinc')
 
 libscmbsmf_dep = svc_consumers_project.get_variable('libscmbsmf_dep')
+
+libhttpxpp_dep = common_shared_project.get_variable('libhttpxpp_dep')
+librtsdp_dep = common_shared_project.get_variable('librtsdp_dep')
+
 app_type = 'MBSF'
 
 latest_apis = get_option('latest_apis')
@@ -205,7 +209,8 @@ libmbsf = static_library('mbsf',
                     libcrypt_dep,
                     libscmbsmf_dep,
                     uuid_dep,
-                    libhttpxpp_dep],
+                    libhttpxpp_dep,
+                    librtsdp_dep],
     install : false)
 
 libmbsf_dep = declare_dependency(
@@ -216,7 +221,8 @@ libmbsf_dep = declare_dependency(
                     libcrypt_dep,
                     libscmbsmf_dep,
                     uuid_dep,
-                    libhttpxpp_dep])
+                    libhttpxpp_dep,
+                    librtsdp_dep])
 libmbsf_whole_dep = declare_dependency(
     link_whole : libmbsf,
     dependencies : [libsbi_dep,
@@ -225,7 +231,8 @@ libmbsf_whole_dep = declare_dependency(
                     libcrypt_dep,
                     libscmbsmf_dep,
                     uuid_dep,
-                    libhttpxpp_dep])
+                    libhttpxpp_dep,
+                    librtsdp_dep])
 
 mbsf_sources = files('''
     App.cc

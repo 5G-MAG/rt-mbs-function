@@ -51,12 +51,18 @@ MBSF_NAMESPACE_START
 MBSMFMBSSession::MBSMFMBSSession()
     :m_session(nullptr)
     ,m_subscription(nullptr)
+    ,m_changesInFlight(false)
+    ,m_sendUpdates(false)
+    ,m_id({"",""})
 {
 }
 
 MBSMFMBSSession::MBSMFMBSSession(mb_smf_sc_mbs_session_t *session)
     :m_session(session)
     ,m_subscription(nullptr)
+    ,m_changesInFlight(false)
+    ,m_sendUpdates(false)
+    ,m_id({"",""})
 {
     //createStatusSubscription(0, static_cast<mb_smf_sc_mbs_session_event_type_e>(-1), nullptr, time(NULL)+3600, (void *)session);
 }
@@ -64,6 +70,8 @@ MBSMFMBSSession::MBSMFMBSSession(mb_smf_sc_mbs_session_t *session)
 MBSMFMBSSession::~MBSMFMBSSession()
 {
     deleteSession();
+    if (m_session) mb_smf_sc_mbs_session_set_callback(m_session, nullptr, nullptr);
+    if (m_subscription) mb_smf_sc_mbs_status_subscription_set_notification_callback(m_subscription, nullptr, nullptr);
 }
 
 void MBSMFMBSSession::deleteSession()
@@ -72,8 +80,8 @@ void MBSMFMBSSession::deleteSession()
         if (m_subscription) mb_smf_sc_mbs_status_subscription_delete(m_subscription);
         mb_smf_sc_mbs_session_delete(m_session);
         mb_smf_sc_mbs_session_push_changes(m_session);
-        m_subscription = nullptr;
-        m_session = nullptr;
+        m_changesInFlight = true;
+        m_sendUpdates = false;
     }
 }
 
@@ -206,63 +214,63 @@ bool MBSMFMBSSession::processEvent(Open5GSEvent &MBSMFEvent)
                 MBSMFMBSSession::processMbsSessionNotify(mbsf_event->notification,  event->sbi.data);
                 return true;
             case MBSF_LOCAL_EVENT_MBS_SESSION_CREATE_RESULT:
-                if (mbsf_event->result == OGS_OK) {
-                    ogs_info("MBS Session %s [%p] created", mb_smf_sc_mbs_session_get_resource_id(mbsf_event->mbs_session),
-                             mbsf_event->mbs_session);
-                    if (mbsf_event->mbs_session->tmgi_req) {
-                        if (mbsf_event->mbs_session->tmgi) {
-                            mb_smf_sc_tmgi_t *tmgi = mbsf_event->mbs_session->tmgi;
+                {
+                    UserDataIngDistSessId *ids = reinterpret_cast<UserDataIngDistSessId*>(event->sbi.data);
+                    if (mbsf_event->result == OGS_OK) {
+                        ogs_info("MBS Session %s [%p] created", mb_smf_sc_mbs_session_get_resource_id(mbsf_event->mbs_session),
+                                 mbsf_event->mbs_session);
+                        if (mbsf_event->mbs_session->tmgi_req) {
+                            if (mbsf_event->mbs_session->tmgi) {
+                                mb_smf_sc_tmgi_t *tmgi = mbsf_event->mbs_session->tmgi;
 
-                            UserDataIngSession::tmgi(tmgi, event->sbi.data);
-
-                        } else {
-                            ogs_error("TMGI request failed");
+                                UserDataIngSession::tmgi(tmgi, *ids);
+                            } else {
+                                ogs_error("TMGI request failed");
+                            }
                         }
-                    }
-                    if (mbsf_event->mbs_session->tunnel_req) {
-                        if (mbsf_event->mbs_session->mb_upf_udp_tunnel) {
-                            char buf[OGS_ADDRSTRLEN + 1];
-                            ogs_sockaddr_t *sa;
-                            for (sa = mbsf_event->mbs_session->mb_upf_udp_tunnel; sa; sa = sa->next) {
+                        if (mbsf_event->mbs_session->tunnel_req) {
+                            if (mbsf_event->mbs_session->mb_upf_udp_tunnel) {
+                                char buf[OGS_ADDRSTRLEN + 1];
+                                ogs_sockaddr_t *sa;
+                                for (sa = mbsf_event->mbs_session->mb_upf_udp_tunnel; sa; sa = sa->next) {
+                                    if (sa->ogs_sa_family == AF_INET) {
+                                        ogs_debug("Received IPv4 tunnel address");
+                                    } else if (sa->ogs_sa_family == AF_INET6) {
+                                        ogs_debug("Received IPv6 tunnel address");
+                                    }
 
-                                if (sa->ogs_sa_family == AF_INET) {
-                                    ogs_debug("Recieved IPv4 tunnel address");
-                                } else if (sa->ogs_sa_family == AF_INET6) {
-                                    ogs_debug("Recieved IPv6 tunnel address");
+                                    OGS_ADDR(sa, buf);
+                                    ogs_debug("  UDP Tunnel = %s:%u", buf, OGS_PORT(sa));
                                 }
-
-                                OGS_ADDR(sa, buf);
-                                ogs_debug("  UDP Tunnel = %s:%u", buf, OGS_PORT(sa));
+                            } else {
+                                ogs_error("UDP tunnel request failed");
                             }
-                        } else {
-                            ogs_error("UDP tunnel request failed");
                         }
-                    }
-                    UserDataIngSession::setMBSSessionFlag(event->sbi.data);
-                } else if (mbsf_event->result == OGS_ERROR) {
-                    if (mbsf_event->problem_details) {
-
-                        cJSON *problem = OpenAPI_problem_details_convertToJSON((OpenAPI_problem_details_t*)mbsf_event->problem_details);
-                        CJson problem_detail(problem, true);
-                        if (mbsf_event->problem_details->cause) {
-                            std::optional<fiveg_mag_reftools::ProblemCause> cause =
-                                        MBSProblemCause::lookup(std::string(mbsf_event->problem_details->cause));
-                            if (cause.has_value()) {
-                                UserDataIngSession::setMBSSessionFailureFlag(event->sbi.data, cause.value(), problem_detail);
-                                return true;
+                        UserDataIngSession::setMBSSessionFlag(*ids);
+                    } else if (mbsf_event->result == OGS_ERROR) {
+                        if (mbsf_event->problem_details) {
+                            cJSON *problem = OpenAPI_problem_details_convertToJSON((OpenAPI_problem_details_t*)mbsf_event->problem_details);
+                            CJson problem_detail(problem, true);
+                            if (mbsf_event->problem_details->cause) {
+                                std::optional<fiveg_mag_reftools::ProblemCause> cause =
+                                            MBSProblemCause::lookup(std::string(mbsf_event->problem_details->cause));
+                                if (cause.has_value()) {
+                                    UserDataIngSession::setMBSSessionFailureFlag(*ids, cause.value(), problem_detail);
+                                    return true;
+                                }
+                            } else {
+                                UserDataIngSession::setMBSSessionFailureFlag(*ids, ProblemCause::INBOUND_SERVER_ERROR, problem_detail);
                             }
-                        } else {
-                            UserDataIngSession::setMBSSessionFailureFlag(event->sbi.data, ProblemCause::INBOUND_SERVER_ERROR, problem_detail);
+                            return true;
                         }
-                        return true;
+                        UserDataIngSession::setMBSSessionFailureFlag(*ids, ProblemCause::INBOUND_SERVER_ERROR);
+                    } else {
+                        UserDataIngSession::setMBSSessionFailureFlag(*ids, ProblemCause::INBOUND_SERVER_ERROR);
                     }
-                    UserDataIngSession::setMBSSessionFailureFlag(event->sbi.data, ProblemCause::INBOUND_SERVER_ERROR);
-                } else {
-                   UserDataIngSession::setMBSSessionFailureFlag(event->sbi.data, ProblemCause::INBOUND_SERVER_ERROR);
                 }
                 return true;
             case MBSF_LOCAL_EVENT_MBS_SESSION_DELETED:
-                UserDataIngSession::setMBSSessionDeleted(event->sbi.data);
+                UserDataIngSession::setMBSSessionDeleted(*reinterpret_cast<UserDataIngDistSessId*>(event->sbi.data));
                 return true;
             default:
                 ogs_warn("Unexpected local event: %s", mbsfEventGetName(event));
@@ -322,25 +330,49 @@ MBSMFMBSSession &MBSMFMBSSession::setTunnelRequest(bool request_udp_tunnel)
 
 void MBSMFMBSSession::pushChanges()
 {
-    mb_smf_sc_mbs_session_push_changes(m_session);
+    if (m_changesInFlight) {
+        m_sendUpdates = true;
+        ogs_debug("Delaying pushing changes to MB-SMF");
+    } else {
+        if (mb_smf_sc_mbs_session_push_changes(m_session)) {
+            m_changesInFlight = true;
+            m_sendUpdates = false;
+        }
+    }
 }
 
 void MBSMFMBSSession::mbsSessionCallback(mb_smf_sc_mbs_session_t *session, int result, const OpenAPI_problem_details_s*  problem_details, void *data)
 {
+    MBSMFMBSSession *mbs_session = reinterpret_cast<MBSMFMBSSession*>(data);
 
     /* callback for result of MBS Session create operation */
+    mbs_session->m_changesInFlight = false;
+
+    ogs_debug("MB-SMF result callback (%i)", result);
 
     /* queue result event */
     sendLocalEvent((result != OGS_DONE)?MBSF_LOCAL_EVENT_MBS_SESSION_CREATE_RESULT:MBSF_LOCAL_EVENT_MBS_SESSION_DELETED,
                    session, result,
                    problem_details?OpenAPI_problem_details_copy(nullptr, const_cast<OpenAPI_problem_details_s*>(problem_details))
                                   :nullptr,
-                   data);
+                   mbs_session->m_id);
+
+    if (result == OGS_DONE) {
+        mbs_session->m_session = nullptr;
+        mbs_session->m_subscription = nullptr;
+    }
+
+    /* if we have pending changes, try to send them */
+    if (mbs_session->m_sendUpdates) {
+        mbs_session->m_sendUpdates = false;
+        mbs_session->pushChanges();
+    }
 }
 
-MBSMFMBSSession &MBSMFMBSSession::setCreatedCallback(void *callback_data)
+MBSMFMBSSession &MBSMFMBSSession::setCallback(const UserDataIngDistSessId &dist_sess_id)
 {
-    mb_smf_sc_mbs_session_set_callback(m_session, mbsSessionCallback, callback_data);
+    m_id = dist_sess_id;
+    mb_smf_sc_mbs_session_set_callback(m_session, mbsSessionCallback, reinterpret_cast<void*>(this));
 
     return *this;
 }
@@ -460,7 +492,7 @@ void MBSMFMBSSession::sendLocalNotifyEvent(LocalEventId event_id, const mb_smf_s
     ogs_pollset_notify(ogs_app()->pollset);
 }
 
-void MBSMFMBSSession::sendLocalEvent(LocalEventId event_id, mb_smf_sc_mbs_session_t *session, int result, const OpenAPI_problem_details_s*  problem_details, void *data)
+void MBSMFMBSSession::sendLocalEvent(LocalEventId event_id, mb_smf_sc_mbs_session_t *session, int result, const OpenAPI_problem_details_s*  problem_details, const UserDataIngDistSessId &ids)
 {
     int rv;
 
@@ -470,7 +502,7 @@ void MBSMFMBSSession::sendLocalEvent(LocalEventId event_id, mb_smf_sc_mbs_sessio
 
     event->id = event_id;
     event->event.id = MBSF_LOCAL;
-    event->event.sbi.data = data;
+    event->event.sbi.data = reinterpret_cast<void*>(const_cast<UserDataIngDistSessId*>(&ids));
 
     event->mbs_session = session;
     event->problem_details = problem_details;

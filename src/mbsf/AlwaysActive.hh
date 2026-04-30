@@ -52,6 +52,7 @@ public:
     using DistSessionState = ActivePeriodsBase::DistSessionState;
     using ActPeriodsType = reftools::mbsf::MBSUserDataIngSession::ActPeriodsType;
     using MbsDistSessStateType = reftools::mbsf::MBSDistributionSessionInfo::MbsDistSessStateType;
+    using TimeRange = ActivePeriodsBase::TimeRange;
 
     AlwaysActive()  = delete;
     AlwaysActive(const std::string &user_data_ing_sess_id) : ActivePeriodsBase(user_data_ing_sess_id) {};
@@ -60,6 +61,7 @@ public:
     virtual const DistSessionState &currentState(const MbsDistSessStateType &dist_session_state) const;
     virtual TimestampAndActiveFlag nextTransition() const;
     virtual std::optional<std::list<std::shared_ptr<ServiceScheduleDesc> > > serviceScheduleDescriptions() const;
+    virtual TimeRange activeTimeRange() const { return TimeRange{std::nullopt, std::nullopt}; };
 };
 
 MBSF_NAMESPACE_STOP

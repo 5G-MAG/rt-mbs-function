@@ -86,6 +86,7 @@ using reftools::mbsf::FECConfig;
 using reftools::mbsf::IpAddr;
 using reftools::mbsf::Ipv6Addr;
 using reftools::mbsf::ObjectDistrMethInfo;
+using reftools::mbsf::ObjDistributionOperatingMode;
 using reftools::mbsf::MBSDistributionSessionInfo;
 using reftools::mbsf::MbsServiceArea;
 using reftools::mbsf::MbsServiceInfo;
@@ -493,31 +494,33 @@ std::optional<std::list<std::shared_ptr<AvailabilityInfo>>> DistributionSessionI
 
 std::optional<std::list<std::shared_ptr<ApplicationServiceDesc>>> DistributionSessionInfo::applicationServiceDescriptions()
 {
-
-    if (!m_mbsDistributionSessionInfo) return std::nullopt;
     std::optional< std::list< std::shared_ptr<ApplicationServiceDesc> > > application_service_descs = std::nullopt;
-    std::optional< std::shared_ptr<ObjectDistrMethInfo> > obj_dist_method_info = m_mbsDistributionSessionInfo->getObjDistrInfo();
-    if (obj_dist_method_info.has_value()) {
-        const std::shared_ptr<ObjectDistrMethInfo> &dist_method_info = obj_dist_method_info.value();
 
-        std::string entry_point_prefix;
-        const auto &obj_distr_uri = dist_method_info->getObjDistrUri();
-        if (!obj_distr_uri) {
-            const auto &obj_ing_uri = dist_method_info->getObjIngUri();
-            if (!obj_ing_uri) return std::nullopt;
-            entry_point_prefix = trim_slashes(obj_ing_uri.value()) + "/";
-        } else {
-            entry_point_prefix = trim_slashes(obj_distr_uri.value()) + "/";
-        }
+    if (m_mbsDistributionSessionInfo) {
+        auto &obj_dist_method_info = m_mbsDistributionSessionInfo->getObjDistrInfo();
+        if (obj_dist_method_info && obj_dist_method_info.value()) {
+            auto &dist_method_info = obj_dist_method_info.value();
+            if (dist_method_info->getOperatingMode()->getValue() == ObjDistributionOperatingMode::VAL_STREAMING) {
+                std::string entry_point_prefix;
+                const auto &obj_distr_uri = dist_method_info->getObjDistrUri();
+                if (!obj_distr_uri) {
+                    const auto &obj_ing_uri = dist_method_info->getObjIngUri();
+                    if (!obj_ing_uri) return std::nullopt;
+                    entry_point_prefix = trim_slashes(obj_ing_uri.value()) + "/";
+                } else {
+                    entry_point_prefix = trim_slashes(obj_distr_uri.value()) + "/";
+                }
 
-        application_service_descs = std::list< std::shared_ptr<ApplicationServiceDesc> >();
-        const auto &obj_acq_ids = dist_method_info->getObjAcqIds();
-        for (const auto &obj_acq_id : obj_acq_ids) {
-            if (obj_acq_id.has_value()) {
-                application_service_descs->emplace_back(new ApplicationServiceDesc(entry_point_prefix + obj_acq_id.value()));
+                application_service_descs = std::list< std::shared_ptr<ApplicationServiceDesc> >();
+                const auto &obj_acq_ids = dist_method_info->getObjAcqIds();
+                for (const auto &obj_acq_id : obj_acq_ids) {
+                    if (obj_acq_id.has_value()) {
+                        application_service_descs->emplace_back(new ApplicationServiceDesc(entry_point_prefix + obj_acq_id.value()));
+                    }
+                }
+                if (application_service_descs.value().empty()) application_service_descs.reset();
             }
         }
-        if (application_service_descs.value().empty()) application_service_descs.reset();
     }
 
     return application_service_descs;
@@ -557,7 +560,7 @@ std::shared_ptr<DistributionSessionDesc> DistributionSessionInfo::populateDistri
 {
     if (!m_mbsDistributionSessionInfo) return nullptr;
 
-    std::string session_description_locator = user_data_ing_session_id + "/"+ distribution_session_info_key + ".sdp";
+    std::string session_description_locator = /*user_data_ing_session_id + "/" +*/ distribution_session_info_key + ".sdp";
 
     std::shared_ptr<DistributionSessionDesc> distribution_session_desc(new DistributionSessionDesc(m_mbsDistributionSessionInfo->getDistrMethod(), session_description_locator, applicationServiceDescriptions(), populateObjRepairParameters(user_data_ing_session_id, distribution_session_info_key), availabilityInfos()));
     return distribution_session_desc;
@@ -588,28 +591,31 @@ void DistributionSessionInfo::validate() const
 void DistributionSessionInfo::contextReportedState(const std::shared_ptr<UserDataIngSession> &ing_sess,
                                                    DistSessionState::Enum state)
 {
-    auto &dist_session_infos = ing_sess->distributionSessionInfos();
-    auto it = std::find_if(dist_session_infos.begin(), dist_session_infos.end(), [this](const std::remove_reference<decltype(dist_session_infos)>::type::value_type &val) -> bool { return val.second->distributionSessionInfo.get() == this; });
-    if (it == dist_session_infos.end()) return;
-    it->second->last_reported_state = state;
+    ing_sess->forEachDistributionSessionInfo([this,state](const auto &id, const auto &context) -> bool {
+        if (context->distributionSessionInfo.get() == this) {
+            context->last_reported_state = state;
+            return false;
+        }
+        return true;
+    });
 }
 
 void DistributionSessionInfo::continueStateTransitions(const std::shared_ptr<UserDataIngSession> &ing_sess)
 {
-    auto &dist_session_infos = ing_sess->distributionSessionInfos();
-    auto it = std::find_if(dist_session_infos.begin(), dist_session_infos.end(), [this](const std::remove_reference<decltype(dist_session_infos)>::type::value_type &val) -> bool { return val.second->distributionSessionInfo.get() == this; });
-    if (it == dist_session_infos.end()) return;
-    auto &context = it->second;
-    const auto &want_state = context->info->getMbsDistSessState();
-    if (want_state) {
-        if (context->last_reported_state.getValue() == DistSessionState::VAL_INACTIVE &&
-            want_state.value()->getValue() == DistSessionState::VAL_ESTABLISHED) {
-            // transitioning through INACTIVE to ESTABLISHED
-            setState(want_state.value());
-            context->stateUpdate = true;
-            ing_sess->sendLocalEventPatch(context->distSessionInfoKey);
+    ing_sess->forEachDistributionSessionInfo([this,ing_sess](const auto &id, const auto &context) -> bool {
+        if (context->distributionSessionInfo.get() == this) {
+            const auto &want_state = context->info->getMbsDistSessState();
+            if (want_state && context->last_reported_state.getValue() == DistSessionState::VAL_INACTIVE &&
+                want_state.value()->getValue() == DistSessionState::VAL_ESTABLISHED) {
+                // transitioning through INACTIVE to ESTABLISHED
+                setState(want_state.value());
+                context->stateUpdate = true;
+                ing_sess->sendLocalEventPatch(context->distSessionInfoKey);
+            }
+            return false;
         }
-    }
+        return true;
+    });
 }
 
 void DistributionSessionInfo::setMbsDistributionSessionInfo(

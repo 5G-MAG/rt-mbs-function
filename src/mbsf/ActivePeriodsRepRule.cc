@@ -25,6 +25,7 @@
 #include <list>
 #include <memory>
 #include <optional>
+#include <iomanip>
 #include <iostream>
 
 #include "common.hh"
@@ -172,6 +173,12 @@ TimestampAndActiveFlag ActivePeriodsRepRule::nextTransition () const
     }
 
     return {std::nullopt, dist_session_state_inactive};
+}
+
+ActivePeriodsRepRule::TimeRange ActivePeriodsRepRule::activeTimeRange() const
+{
+    if (!m_repetitionRule) return TimeRange(std::nullopt, std::nullopt);
+    return TimeRange(parse_date_time(m_repetitionRule->second->getStartTime()), std::nullopt);
 }
 
 std::optional<std::list<std::shared_ptr<ServiceScheduleDesc> > > ActivePeriodsRepRule::serviceScheduleDescriptions() const

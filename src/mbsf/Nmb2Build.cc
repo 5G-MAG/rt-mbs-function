@@ -165,6 +165,9 @@ ogs_sbi_request_t *Nmb2Build::buildNmb2DistSession(void *context, void *data) {
 
         dist_session->setDistSessionId(std::string(context_data_ptr->mbstfDistSessionId));
 
+        const auto &state = dist_session->getDistSessionState();
+        if (state) context_data_ptr->last_requested_state = *state;
+
         create_req_data->setDistSession(std::move(dist_session));
 
         UserDataIngSession::addToRegistry(sess_id, ids_ptr);
@@ -205,9 +208,7 @@ ogs_sbi_request_t *Nmb2Build::buildNmb2DistSessionDelete(void *context, void *da
 
     ogs_sbi_request_t *req = ogs_sbi_build_request(&msg);
 
-    delete session_ids;
     return req;
-
 }
 
 
@@ -229,7 +230,7 @@ ogs_sbi_request_t *Nmb2Build::buildNmb2DistSessionPatch(void *context, void *dat
     message.h.resource.component[0] = (char *)"dist-sessions";
 
     auto *session_ids = reinterpret_cast<UserDataIngSession::SessionIdContainer*>(data);
-    const std::string &dist_session_id = std::string(session_ids->first);
+    std::string dist_session_id(session_ids->first);
 
     message.h.resource.component[1] = const_cast<char*>(dist_session_id.c_str());
 
@@ -238,6 +239,7 @@ ogs_sbi_request_t *Nmb2Build::buildNmb2DistSessionPatch(void *context, void *dat
     //std::shared_ptr<UserDataIngSession> ing_session = UserDataIngSession::find(session_ids->second->first);
     std::shared_ptr<UserDataIngSession> ing_session = UserDataIngSession::locate(session_ids->second->first);
     std::shared_ptr<UserDataIngSession::ContextData> context_data_ptr(ing_session->getDistributionSessionInfoData(session_ids->second->second));
+    DistSessionState req_state;
     if (context_data_ptr->needsUpdate) {
         status_item.path = (char *)"/distSession";
         std::shared_ptr<DistSession> dist_session = build_nmb2_create_dist_session(ing_session, context_data_ptr);
@@ -248,18 +250,19 @@ ogs_sbi_request_t *Nmb2Build::buildNmb2DistSessionPatch(void *context, void *dat
         UserDataIngSession::addToRegistry(sess_id, session_ids->second);
 
         patch_val = dist_session->toJSON(true);
+        const auto &state = dist_session->getDistSessionState();
+        if (state) req_state = *state;
     } else if (context_data_ptr->stateUpdate) {
         auto &current_state = context_data_ptr->last_reported_state;
         auto &want_state = ing_session->getDistSessionState(context_data_ptr->info->getMbsDistSessState());
         if (want_state != current_state) {
             if (want_state.getValue() == DistSessionState::VAL_ESTABLISHED &&
                 current_state.getValue() == DistSessionState::VAL_ACTIVE) {
-                DistSessionState inactive_state;
-                inactive_state = DistSessionState::VAL_INACTIVE;
-                patch_val = inactive_state.toJSON();
+                req_state = DistSessionState::VAL_INACTIVE;
             } else {
-                patch_val = want_state.toJSON();
+                req_state = want_state;
             }
+            patch_val = req_state.toJSON();
             status_item.path = (char *)"/distSession/distSessionState";
         }
     }
@@ -272,14 +275,16 @@ ogs_sbi_request_t *Nmb2Build::buildNmb2DistSessionPatch(void *context, void *dat
     status_item.op = OpenAPI_patch_operation_replace;
     cJSON *value = patch_val.exportCJSON();
 
-    if (value)status_item.value = OpenAPI_any_type_create(value);
+    if (value) status_item.value = OpenAPI_any_type_create(value);
     if (!status_item.value) {
         ogs_error("No status item.value");
     }
 
     if (value) cJSON_Delete(value);
 
-    OpenAPI_list_add(patch_item_list, &status_item);
+    if (status_item.op && status_item.path && status_item.value) {
+        OpenAPI_list_add(patch_item_list, &status_item);
+    }
 
     message.PatchItemList = patch_item_list;
 
@@ -292,6 +297,9 @@ ogs_sbi_request_t *Nmb2Build::buildNmb2DistSessionPatch(void *context, void *dat
         OpenAPI_list_free(patch_item_list);
 
     delete session_ids;
+
+    if (req_state != DistSessionState::NO_VAL) context_data_ptr->last_requested_state = req_state;
+
     return request;
 }
 

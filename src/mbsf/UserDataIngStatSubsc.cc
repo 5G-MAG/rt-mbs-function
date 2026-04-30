@@ -345,7 +345,7 @@ void UserDataIngStatSubsc::checkAndSetUserDataIngSessStartedTerminatedEvent(std:
             event.reset(new Event());
             *event = Event::VAL_USER_DATA_ING_SESS_STARTED;
 
-            std::optional<SubscribedEvents::DateTime> tp = timeOfLatestDistributionSessionEvent(user_data_ing_session, SubscribedEvents::DIST_SESS_STARTING);
+            std::optional<SubscribedEvents::DateTime> tp = user_data_ing_session->timeOfLatestDistributionSessionEvent(SubscribedEvents::DIST_SESS_STARTING);
 
             if (tp.has_value()) {
                 stat_subsc->setSubscribedEventTime(event, tp.value());
@@ -366,7 +366,7 @@ void UserDataIngStatSubsc::checkAndSetUserDataIngSessStartedTerminatedEvent(std:
 
             *ev = Event::VAL_USER_DATA_ING_SESS_TERMINATED;
 
-            std::optional<SubscribedEvents::DateTime> tp = timeOfLatestDistributionSessionEvent(user_data_ing_session, SubscribedEvents::DIST_SESS_TERMINATED);
+            std::optional<SubscribedEvents::DateTime> tp = user_data_ing_session->timeOfLatestDistributionSessionEvent(SubscribedEvents::DIST_SESS_TERMINATED);
             if (tp.has_value()) {
                 stat_subsc->setSubscribedEventTime(ev, tp.value());
                 stat_subsc->setSubscribedEventTime(e, tp.value());
@@ -376,8 +376,6 @@ void UserDataIngStatSubsc::checkAndSetUserDataIngSessStartedTerminatedEvent(std:
 
     }
 }
-
-
 
 std::list<std::shared_ptr< EventNotification > > UserDataIngStatSubsc::makeEventNotifications() const
 {
@@ -1065,29 +1063,6 @@ void UserDataIngStatSubsc::sendResponse(Open5GSSBIStream &stream, const std::opt
     ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *response));
 }
 
-std::optional<SubscribedEvents::DateTime> UserDataIngStatSubsc::timeOfLatestDistributionSessionEvent(std::shared_ptr<UserDataIngSession> user_data_ing_session, SubscribedEvents::EventTypeBitMask event_type) const
-{
-
-    std::multimap<SubscribedEvents::DateTime, std::shared_ptr<DistributionSessionInfo>> dist_session_event_reports;
-    dist_session_event_reports.clear();
-    std::map<std::string, std::shared_ptr< UserDataIngSession::ContextData >> &distribution_session_infos = user_data_ing_session->distributionSessionInfos();
-    for (const auto &distribution_session_info : distribution_session_infos) {
-        std::shared_ptr<DistributionSessionInfo> distribution_sess_info = distribution_session_info.second->distributionSessionInfo;
-        const SubscribedEvents &subscribed_events = distribution_sess_info->eventTimestamps();
-        const std::pair<std::optional<SubscribedEvents::DateTime>, std::optional<std::string>> &timepoint = subscribed_events.timepointForEventType(event_type);
-        // const std::optional<SubscribedEvents::DateTime> &timepoint = subscribed_events.timepointForSubscribedEvent(event);
-        if (timepoint.first.has_value()) {
-            dist_session_event_reports.emplace(timepoint.first.value(), distribution_sess_info);
-        }
-    }
-    if (dist_session_event_reports.empty()) {
-        return std::nullopt;
-    }
-    auto it = std::prev(dist_session_event_reports.end());
-    return it->first;
-}
-
-
 static void send_model_error(const ModelException &err, Open5GSSBIStream &stream, int path_segments, Open5GSSBIMessage &message,
                              const NfServer::AppMetadata &app_meta, const std::optional<NfServer::InterfaceMetadata> &api,
                              const std::string &no_cause_reason, const std::string &log_prefix)
@@ -1106,12 +1081,12 @@ static void send_model_error(const ModelException &err, Open5GSSBIStream &stream
     if (err.cause) {
         auto cause = err.cause.value();
         oss << cause.reason() << ": " << error;
-        ogs_assert(true == NfServer::sendError(stream, cause, path_segments, message, app_meta, api, cause.reason(), error, std::nullopt,
-                                               invalid_params));
+        ogs_assert(true == NfServer::sendError(stream, cause, path_segments, message, app_meta, api, cause.reason(), error,
+                                                std::nullopt, invalid_params));
     } else {
         oss << no_cause_reason << ": " << error;
-        ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, path_segments, message, app_meta, api, no_cause_reason,
-                                               error));
+        ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, path_segments, message, app_meta, api,
+                                                no_cause_reason, error));
     }
     ogs_error("%s: %s", log_prefix.c_str(), oss.str().c_str());
 }

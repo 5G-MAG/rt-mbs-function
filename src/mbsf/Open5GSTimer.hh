@@ -44,7 +44,7 @@ public:
 
     void stop() { if (!m_ogsTimer) return; ogs_timer_stop(m_ogsTimer);};
 
-    void start(int milliseconds) { if (!m_ogsTimer) return; ogs_timer_start(m_ogsTimer, ogs_time_from_msec(milliseconds)); };
+    void start(int64_t milliseconds) { if (!m_ogsTimer) return; ogs_timer_start(m_ogsTimer, ogs_time_from_msec(milliseconds)); };
 
 private:
     ogs_timer_t *m_ogsTimer;

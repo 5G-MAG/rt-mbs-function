@@ -26,6 +26,8 @@
 
 MBSF_NAMESPACE_START
 
+static std::chrono::system_clock::time_point http_datetime_str_to_time_point(const std::string &dt_str);
+
 class CurlGlobalCleanup {
 public:
     CurlGlobalCleanup() {};
@@ -409,6 +411,28 @@ size_t Curl::writeCallback(void* contents, size_t memberSize, size_t numberOfMem
     unsigned char* data = static_cast<unsigned char*>(contents);
     receivedData->insert(receivedData->end(), data, data + totalSize);
     return totalSize;
+}
+
+static std::chrono::system_clock::time_point http_datetime_str_to_time_point(const std::string &dt_str)
+{
+    std::chrono::system_clock::time_point retval;
+    std::istringstream iss{dt_str};
+    iss.imbue(std::locale("C"));
+    iss >> std::chrono::parse("%a, %d %b %Y %T", retval);
+    if (!iss.fail()) {
+        if (iss.peek() == '.') {
+            /* extra fractions of a second */
+            double frac;
+            iss >> frac;
+            retval += std::chrono::microseconds(static_cast<int>(frac*1000000.0));
+        }
+        char tz[5];
+        iss.get(tz, sizeof(tz));
+        if (std::string(tz) != " GMT") {
+            retval = std::chrono::system_clock::time_point();
+        }
+    }
+    return retval;
 }
 
 MBSF_NAMESPACE_STOP

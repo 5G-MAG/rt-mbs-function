@@ -41,6 +41,9 @@
 #include <netinet/in.h>
 #include <list>
 
+// SDP Library includes
+#include <rtsdp/SDP.hh>
+
 // App header includes
 #include "common.hh"
 #include "App.hh"
@@ -52,7 +55,9 @@
 #include "NfServer.hh"
 #include "Nmb2Build.hh"
 #include "Open5GSEvent.hh"
+#include "QoSReq.hh"
 #include "UserDataIngSession.hh"
+#include "UserService.hh"
 #include "UserServiceDesc.hh"
 
 #include "openapi/model/MBSDistributionSessionInfo.h"
@@ -71,6 +76,12 @@ using reftools::mbsf::MBSDistributionSessionInfo;
 using reftools::mbsf::MbsSessionId;
 using reftools::mbsf::ObjDistributionOperatingMode;
 using reftools::mbsf::ObjAcquisitionMethod;
+
+LIBRTSDP_NAMESPACE_USING(SDP);
+LIBRTSDP_NAMESPACE_USING(ConnectionInformation);
+LIBRTSDP_NAMESPACE_USING(MediaDescription);
+LIBRTSDP_NAMESPACE_USING(Originator);
+LIBRTSDP_NAMESPACE_USING(TimingInformation);
 
 MBSF_NAMESPACE_START
 
@@ -94,26 +105,27 @@ void UserServiceAnnBundle::wait() {
 
 void UserServiceAnnBundle::worker()
 {
-    {
-        std::lock_guard<decltype(m_userServiceAnnMutex)::element_type> lock(*m_userServiceAnnMutex);
+    std::lock_guard<decltype(m_userServiceAnnMutex)::element_type> lock(*m_userServiceAnnMutex);
 
-        if (m_userServiceAnnThreadCancel) {
-            finish();
-            return;
-        }
-        m_userServiceAnnThreadRunning = true;
-
-        if(!writeAnnouncement()) {
-           ogs_error("Unable to write announcement.json to local file system");
-        }
-        //m_userServiceAnnMutex->unlock();
-        m_userDataIngSession->userServiceAnnBundled(m_userDataIngSession);
-
-        //m_userServiceAnnMutex->lock();
-        //m_userServiceAnnThreadRunning = false;
+    if (m_userServiceAnnThreadCancel) {
         finish();
+        return;
     }
 
+    m_userServiceAnnThreadRunning = true;
+
+    if(!writeAnnouncement()) {
+        ogs_error("Unable to write announcement.json to local file system");
+    }
+
+    m_userDataIngSession->forEachDistributionSessionInfo([this](const auto &id, const auto &ctx) -> bool {
+        writeServiceDescriptionProtocolDoc(ctx);
+        return true;
+    });
+
+    m_userDataIngSession->userServiceAnnBundled(m_userDataIngSession);
+
+    finish();
 }
 
 void UserServiceAnnBundle::finish() {
@@ -121,6 +133,7 @@ void UserServiceAnnBundle::finish() {
     notify();
     m_userServiceAnnThreadRunning = false;
 }
+
 void UserServiceAnnBundle::startWorker()
 {
     if (!m_userServiceAnnThreadRunning) {
@@ -161,6 +174,113 @@ bool UserServiceAnnBundle::writeAnnouncement()
     }
     return rv;
 
+}
+
+bool UserServiceAnnBundle::writeServiceDescriptionProtocolDoc(const std::shared_ptr<UserDataIngSession::ContextData> &dist_session_ctx)
+{
+    std::string err;
+
+    std::filesystem::path root_dir{App::self().context()->userServiceAnnDocRoot()};
+    root_dir /= m_userDataIngSession->userDataIngSessionId();
+    auto metadata_dir = root_dir / ".metadata";
+
+    std::filesystem::path sdp_filename{dist_session_ctx->distSessionInfoKey + ".sdp"};
+
+    std::string session_name = m_userDataIngSession->mbsUserService()->getMBSUserService()->getServNameDescs().front().value()->getServName().value_or(std::string("-"));
+
+    auto [start_time, end_time] = m_userDataIngSession->activeTimeRange();
+    auto timings = TimingInformation::makeTimingInformation(start_time.value_or(TimingInformation::NO_TIMESTAMP),
+                                                            end_time.value_or(TimingInformation::NO_TIMESTAMP));
+
+    int family = AF_UNSPEC;
+    std::string svc_str;
+    std::string ssm_source;
+    std::string ssm_dest;
+    std::string ssm_proto;
+
+    if (dist_session_ctx->ssm) {
+        auto &ssm_source_ipv4 = dist_session_ctx->ssm->getSourceIpAddr()->getIpv4Addr();
+        auto &ssm_source_ipv6 = dist_session_ctx->ssm->getSourceIpAddr()->getIpv6Addr();
+        if (ssm_source_ipv6) {
+            ssm_source = *ssm_source_ipv6.value();
+            ssm_dest = *dist_session_ctx->ssm->getDestIpAddr()->getIpv6Addr().value();
+            ssm_proto = "IN IP6";
+            family = AF_INET6;
+        } else if (ssm_source_ipv4) {
+            ssm_source = ssm_source_ipv4.value();
+            ssm_dest = dist_session_ctx->ssm->getDestIpAddr()->getIpv4Addr().value();
+            ssm_proto = "IN IP4";
+            family = AF_INET;
+        } else {
+            ogs_error("Unknown SSM address type while building SDP file %s", sdp_filename.string().c_str());
+            return false;
+        }
+        svc_str = "multicast";
+    } else {
+        svc_str = "broadcast";
+    }
+    if (dist_session_ctx->tmgi) {
+        uint64_t tmgi_val = std::stoll(dist_session_ctx->tmgi->mbs_service_id, nullptr, 16);
+        tmgi_val = (tmgi_val << 24) + (dist_session_ctx->tmgi->plmn.mcc2 << 20) + (dist_session_ctx->tmgi->plmn.mcc1 << 16) +
+                    (dist_session_ctx->tmgi->plmn.mnc3 << 12) + (dist_session_ctx->tmgi->plmn.mcc3 << 8) +
+                    (dist_session_ctx->tmgi->plmn.mnc2 << 4) + dist_session_ctx->tmgi->plmn.mnc1;;
+        svc_str += std::format(" {}", tmgi_val);
+    }
+
+
+    auto &primary_language = m_userDataIngSession->mbsUserService()->mainServiceLanguage();
+    auto media = MediaDescription::makeMediaDescription("application", dist_session_ctx->ssm_port, "FLUTE/UDP", "0");
+    if (!ssm_dest.empty()) {
+        auto conn_info = ConnectionInformation::makeConnectionInformation(ssm_dest, family);
+        media->connectionInformationAdd(conn_info);
+    }
+    auto *bitrate = QoSReq::bitrate(dist_session_ctx->info->getMaxContBitRate());
+    if (bitrate) {
+        media->bandwidthInformationAdd(*bitrate/1000); // SDP bit rates are in kilobits/s
+        delete bitrate;
+    }
+    if (primary_language) media->mediaAttributeAdd("lang", primary_language.value());
+    media->mediaAttributeAdd("FEC", "0");
+
+    if (dist_session_ctx->sdp) {
+        // Update existing SDP
+        if (dist_session_ctx->sdp->sessionName() != session_name) dist_session_ctx->sdp->sessionName(session_name);
+        if (*dist_session_ctx->sdp->timingInformations().front() != *timings) {
+            dist_session_ctx->sdp->timingInformationsClear();
+            dist_session_ctx->sdp->timingInformationAdd(timings);
+        }
+        if (*dist_session_ctx->sdp->mediaDescriptions().front() != *media) {
+            dist_session_ctx->sdp->mediaDescriptionsClear();
+            dist_session_ctx->sdp->mediaDescriptionAdd(media);
+        }
+    } else {
+        // Create new SDP
+        auto origin = Originator::makeOriginator(ssm_source);
+
+        dist_session_ctx->sdp = SDP::makeSDP(origin, session_name, timings);
+
+        dist_session_ctx->sdp->mediaDescriptionAdd(media);
+
+        dist_session_ctx->sdp->sessionAttributeAdd("mbs-servicetype", svc_str);
+        dist_session_ctx->sdp->sessionAttributeAdd("FEC-declaration", "0 encoding-id=0");
+        if (!ssm_source.empty()) {
+            dist_session_ctx->sdp->sessionAttributeAdd("source-filter", std::format("incl {} * {}", ssm_proto, ssm_source));
+        }
+        dist_session_ctx->sdp->sessionAttributeAdd("flute-tsi", std::format("{}", dist_session_ctx->tsi));
+    }
+
+    bool rv = writeToFile(root_dir.string(), sdp_filename.string(), std::format("{}", *dist_session_ctx->sdp), err);
+    if (rv) {
+        rv = writeToFile(metadata_dir.string(), sdp_filename.string(), "Content-Type: application/sdp\r\n", err);
+        if (rv) {
+            addToServingFiles(sdp_filename.string());
+        } else {
+            ogs_error("Failed to write metadata for %s, Error: %s", sdp_filename.string().c_str(), err.c_str());
+        }
+    } else {
+        ogs_error("Failed to write %s, Error: %s", sdp_filename.string().c_str(), err.c_str());
+    }
+    return rv;
 }
 
 bool UserServiceAnnBundle::writeToFile(const std::string &abs_directory_path, const std::string &file_name,

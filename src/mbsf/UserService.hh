@@ -66,6 +66,7 @@ public:
     const reftools::mbsf::MBSUserService::ExtServiceIdsType &serviceIds() const {return m_MBSUserService->getExtServiceIds();};
     const std::string &serviceClass() const {return m_MBSUserService->getServClass();};
     const reftools::mbsf::MBSUserService::ServAnnModesType &serviceAnnModes() const {return m_MBSUserService->getServAnnModes();};
+    const std::optional<std::string> &mainServiceLanguage() const { return m_MBSUserService->getMainServLang(); };
     const std::string &getMBSUserServiceType() const;
     const SysTimeMS &generated() const {return m_generated;};
     const std::string &hash() const {return m_hash;};

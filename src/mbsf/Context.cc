@@ -118,7 +118,9 @@ public:
     NetworkInterface &operator=(const NetworkInterface &other) { m_name = other.m_name; m_addr = other.m_addr; m_netmask = other.m_netmask; return *this; };
     NetworkInterface &operator=(NetworkInterface &&other) { m_name = std::move(other.m_name); m_addr = std::move(other.m_addr); m_netmask = std::move(other.m_netmask); return *this; };
 
-    bool operator==(const SockAddr &local_addr) const { return  local_addr.family() == m_addr.family()  && local_addr.applyNetmask(m_netmask) == m_addr.applyNetmask(m_netmask); };
+    bool operator==(const SockAddr &local_addr) const {
+        return local_addr.family() == m_addr.family() && local_addr.applyNetmask(m_netmask) == m_addr.applyNetmask(m_netmask);
+    };
     operator bool() const { return !m_name.empty(); };
 
     const std::string &name() const { return m_name; };
@@ -1030,10 +1032,10 @@ static NetworkInterface get_net_interface_for(const SockAddr &local_addr)
         for (auto *it = ifa; it; it = it->ifa_next) {
             if (!it->ifa_addr) continue;
             NetworkInterface ifc(*it);
-            if(ifc == local_addr) {
-	        result = std::move(ifc);
-		break;
-	    }
+            if (ifc == local_addr) {
+                result = std::move(ifc);
+                break;
+            }
         }
 
         freeifaddrs(ifa);
