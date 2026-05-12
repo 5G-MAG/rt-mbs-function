@@ -72,6 +72,7 @@ namespace {
 struct LocalRemoveEventData {
     std::string user_service_id;
     ogs_pool_id_t stream_id;
+    bool requires_user_service_ann_channel;
 };
 }
 
@@ -415,7 +416,8 @@ bool UserService::processEvent(Open5GSEvent &event)
                                 // New delete request, trigger clean up of UserService and UserDataIngestSessions
                                 ogs_event_t *post_delete_event = reinterpret_cast<ogs_event_t*>(ogs_calloc(1, sizeof(*post_delete_event)));
                                 post_delete_event->id = LOCAL_REMOVE_EVENT;
-                                post_delete_event->sbi.data = new LocalRemoveEventData{user_service_id, stream_id};
+				bool requires_user_service_ann_channel = mbs_user_service->requiresUserServiceAnnouncement(); 
+                                post_delete_event->sbi.data = new LocalRemoveEventData{user_service_id, stream_id, requires_user_service_ann_channel};
                                 mbs_user_service->remove(std::make_shared<Open5GSEvent>(post_delete_event));
                             } else {
                                 // No such MBS User Service or already in the process of deleting, return 404
@@ -464,7 +466,9 @@ bool UserService::processEvent(Open5GSEvent &event)
         case UserService::LOCAL_REMOVE_EVENT:
         {
             LocalRemoveEventData *local_remove_data = reinterpret_cast<LocalRemoveEventData*>(event.sbiData());
-            App::self().context()->deleteUserService(local_remove_data->user_service_id);
+            if(local_remove_data->requires_user_service_ann_channel) App::self().context()->decAnnChannelCounter();
+
+	    App::self().context()->deleteUserService(local_remove_data->user_service_id);
             std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(std::nullopt, std::nullopt, std::nullopt, std::nullopt, 0, std::nullopt, nmbsf_mbs_userservice_api, app_meta));
             NfServer::populateResponse(response, "", OGS_SBI_HTTP_STATUS_NO_CONTENT);
             Open5GSSBIStream stream(local_remove_data->stream_id);

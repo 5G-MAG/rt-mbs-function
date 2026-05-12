@@ -41,7 +41,8 @@ public:
 
     ogs_sockaddr_t *ogsSockAddr() { return m_sockaddr; };
     const ogs_sockaddr_t *ogsSockAddr() const { return m_sockaddr; };
-
+    const sockaddr sockAddr() const { return m_sockaddr->sa;};
+    const socklen_t sockLen() const { return ogs_sockaddr_len((ogs_sockaddr_t *)&m_sockaddr);};
 private:
     ogs_sockaddr_t *m_sockaddr;
 };

@@ -105,8 +105,9 @@ public:
     std::shared_ptr<Open5GSSBIServer> newSbiServer(const ogs_sockaddr_t *address);
 
     bool userServiceAnnouncementConfigured();
-    std::size_t incAnnChannelCounter();
-    std::size_t decAnnChannelCounter();
+    int32_t incAnnChannelCounter();
+    int32_t decAnnChannelCounter();
+    int32_t annChannelCount();
     void setUserServiceAnnouncementChannel();
 
     std::map<std::string, std::shared_ptr<UserDataIngStatSubsc> > &userDataIngStatSubscs() { return m_userDataIngStatSubscs;};
@@ -116,6 +117,8 @@ public:
     const std::string &userServiceAnnMbr() const { return userServiceAnnouncement.mbr;};
     unsigned int userServiceAnnSsmPort() const { return userServiceAnnouncement.ssmPort;};
     const std::string &userServiceAnnDocRoot() const { return userServiceAnnouncement.docRoot;};
+    std::optional<int32_t > repetitionInterval() const { return userServiceAnnouncement.announcementRepetitionTime;};
+    std::optional<int32_t > keepUpdated() const { return userServiceAnnouncement.keepUpdatedInterval;};
     const std::shared_ptr<UserServiceAnnChannel> &userServiceAnnouncementChannel() const { return m_userServiceAnnChannel; };
     const reftools::common::httpxpp::SockAddr &findUserServAnnServerAddrForRemote(const reftools::common::httpxpp::SockAddr &remote_addr) const;
 
@@ -152,7 +155,8 @@ public:
 
     struct {
         std::string mbr;
-        std::optional<unsigned int > announcementRepetitionTime;
+        std::optional<int32_t > announcementRepetitionTime;
+	std::optional<int32_t > keepUpdatedInterval;
         std::string ssmSourceAddress;
         std::string ssmDestinationAddress;
         unsigned int ssmPort;
@@ -160,7 +164,7 @@ public:
     } userServiceAnnouncement;
 
     std::int64_t actPeriodEstablishedStateDuration = 60;
-    std::atomic<size_t> userServicesWithViaMbsDistSession = 0;
+    int32_t userServicesWithViaMbsDistSession = 0;
 
     std::optional<std::string> allowedMulticastRange;
 

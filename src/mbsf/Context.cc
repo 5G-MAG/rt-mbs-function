@@ -101,7 +101,15 @@ private:
 class NetworkInterface {
 public:
     NetworkInterface() :m_name(), m_addr(), m_netmask() {};
-    NetworkInterface(const struct ifaddrs &ifa) :m_name(ifa.ifa_name), m_addr(*ifa.ifa_addr), m_netmask(*ifa.ifa_netmask) {};
+    NetworkInterface(const struct ifaddrs &ifa) :m_name(ifa.ifa_name), m_addr(), m_netmask() {
+        if(ifa.ifa_addr && (ifa.ifa_addr->sa_family == AF_INET || ifa.ifa_addr->sa_family == AF_INET6)) {
+           m_addr = SockAddr(*ifa.ifa_addr);
+       }
+       if(ifa.ifa_netmask && (ifa.ifa_netmask->sa_family == AF_INET || ifa.ifa_netmask->sa_family == AF_INET6)) {
+            m_netmask = SockAddr(*ifa.ifa_netmask);
+        }
+    };
+
     NetworkInterface(const NetworkInterface &other) :m_name(other.m_name), m_addr(other.m_addr), m_netmask(other.m_netmask) {};
     NetworkInterface(NetworkInterface &&other) :m_name(std::move(other.m_name)), m_addr(std::move(other.m_addr)), m_netmask(std::move(other.m_netmask)) {};
 
@@ -110,7 +118,7 @@ public:
     NetworkInterface &operator=(const NetworkInterface &other) { m_name = other.m_name; m_addr = other.m_addr; m_netmask = other.m_netmask; return *this; };
     NetworkInterface &operator=(NetworkInterface &&other) { m_name = std::move(other.m_name); m_addr = std::move(other.m_addr); m_netmask = std::move(other.m_netmask); return *this; };
 
-    bool operator==(const SockAddr &local_addr) const { return local_addr.applyNetmask(m_netmask) == m_addr.applyNetmask(m_netmask); };
+    bool operator==(const SockAddr &local_addr) const { return  local_addr.family() == m_addr.family()  && local_addr.applyNetmask(m_netmask) == m_addr.applyNetmask(m_netmask); };
     operator bool() const { return !m_name.empty(); };
 
     const std::string &name() const { return m_name; };
@@ -465,8 +473,10 @@ void Context::parseUserServiceAnnouncement(const std::string &pc_key, Open5GSYam
         auto conf_key = std::format("mbsf.{}.{}", pc_key, usac_key);
         try {
             if (usac_key == "announcementRepetitionTime") {
-                userServiceAnnouncement.announcementRepetitionTime = std::stol(iter.value());
-            } else if (usac_key == "ssmPort") {
+                userServiceAnnouncement.announcementRepetitionTime = std::stoi(iter.value());
+            } else if (usac_key == "keepUpdatedInterval") {
+                userServiceAnnouncement.keepUpdatedInterval = std::stoi(iter.value());
+	    } else if (usac_key == "ssmPort") {
                 userServiceAnnouncement.ssmPort = std::stol(iter.value());
             }
 
@@ -916,6 +926,7 @@ const SockAddr &Context::findUserServAnnServerAddrForRemote(const SockAddr &remo
     Socket s(remote_addr.family(), SOCK_DGRAM, 0);
     s.connect(remote_addr);
     auto local_addr = s.getLocalSockAddr();
+    local_addr.port(0);
     s.close();
     
     auto net_ifc = get_net_interface_for(local_addr);
@@ -938,17 +949,27 @@ bool Context::userServiceAnnouncementConfigured()
     return true;
 }
 
-std::size_t Context::incAnnChannelCounter()
+int32_t Context::incAnnChannelCounter()
 {
-    userServicesWithViaMbsDistSession.fetch_add(1, std::memory_order_relaxed);
-    return userServicesWithViaMbsDistSession.load(std::memory_order_relaxed);;
+    userServicesWithViaMbsDistSession++;
+    ogs_info("INC ANN CHANNEL COUNTER :[%d]", userServicesWithViaMbsDistSession);
+    return userServicesWithViaMbsDistSession;
 }
 
-std::size_t Context::decAnnChannelCounter()
+int32_t Context::decAnnChannelCounter()
 {
-    userServicesWithViaMbsDistSession.fetch_sub(1, std::memory_order_relaxed);
-    return userServicesWithViaMbsDistSession.load(std::memory_order_relaxed);;
+    userServicesWithViaMbsDistSession--;
+
+    ogs_info("DEC ANN CHANNEL COUNTER :[%d]", userServicesWithViaMbsDistSession);
+    if(m_userServiceAnnChannel) m_userServiceAnnChannel->notify();
+    return userServicesWithViaMbsDistSession;
 }
+
+int32_t Context::annChannelCount()
+{
+    return userServicesWithViaMbsDistSession;
+}
+
 
 
 static std::list<SockAddr> get_sock_addrs(int family, const std::string &hostname, in_port_t port)
@@ -991,10 +1012,12 @@ static NetworkInterface get_net_interface_for(const SockAddr &local_addr)
 
     if (!getifaddrs(&ifa)) {
         for (auto *it = ifa; it; it = it->ifa_next) {
-            if (local_addr == *it->ifa_addr) {
-                result = NetworkInterface(*it);
-                break;
-            }
+            if (!it->ifa_addr) continue;
+            NetworkInterface ifc(*it);
+            if(ifc == local_addr) {
+	        result = std::move(ifc);
+		break;
+	    }
         }
 
         freeifaddrs(ifa);

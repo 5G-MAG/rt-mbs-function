@@ -1,10 +1,8 @@
-#ifndef _MBSF_NMB2_BUILD_HH_
-#define _MBSF_NMB2_BUILD_HH_
 /******************************************************************************
- * 5G-MAG Reference Tools: MBS Function: Nmb2 DistSession Build class
+ * 5G-MAG Reference Tools: MBSF: Open5GS SBI NF Instance class
  ******************************************************************************
- * Copyright: (C)2025 British Broadcasting Corporation
- * Author(s): Dev Audsin <dev.audsin@bbc.co.uk>
+ * Copyright: (C)2024 British Broadcasting Corporation
+ * Author(s): David Waring <david.waring2@bbc.co.uk>
  * License: 5G-MAG Public License v1
  *
  * Licensed under the License terms and conditions for use, reproduction, and
@@ -19,31 +17,45 @@
  * under the License.
  */
 
+#include "ogs-app.h"
 #include "ogs-sbi.h"
 
+#include <memory>
+#include <stdexcept>
+#include <thread>
+#include <chrono>
+
 #include "common.hh"
+#include "App.hh"
+#include "TimerFunc.hh"
+#include "Open5GSEvent.hh"
+#include "Open5GSTimer.hh"
+#include "Open5GSYamlDocument.hh"
+#include "Open5GSSBIStream.hh"
+
+#include "Open5GSSBINFInstance.hh"
 
 MBSF_NAMESPACE_START
 
-class Nmb2Build {
-public:
-    Nmb2Build();
-    Nmb2Build(Nmb2Build &&other) = delete;
-    Nmb2Build(const Nmb2Build &other) = delete;
-    Nmb2Build &operator=(Nmb2Build &&other) = delete;
-    Nmb2Build &operator=(const Nmb2Build &other) = delete;
 
-    static ogs_sbi_request_t *buildNmb2DistSession(void *context, void *data);
-    static ogs_sbi_request_t *buildNmb2DistSessionDelete(void *context, void *data);
-    static ogs_sbi_request_t *buildNmb2DistSessionPatch(void *context, void *data);
-    static ogs_sbi_request_t *buildNmb2CarouselObjectManifest(void *context, void *data);
+Open5GSSBINFInstance::Open5GSSBINFInstance(ogs_sbi_nf_instance_t *instance, bool owner)
+    :m_ogsSbiNfInstance(instance)
+    ,m_owner(owner)
+{
+    if (!m_ogsSbiNfInstance) {
+            throw std::runtime_error("Open5GSSBINFInstance failed");
+        }
 
-private:
-    ogs_sbi_request_t *m_request;
-};
+}
+
+Open5GSSBINFInstance::~Open5GSSBINFInstance()
+{
+    if(m_owner) ogs_sbi_nf_instance_remove(m_ogsSbiNfInstance);
+
+}
 
 MBSF_NAMESPACE_STOP
 
 /* vim:ts=8:sts=4:sw=4:expandtab:
  */
-#endif /* _MBSF_NMB2_BUILD_HH_ */
+

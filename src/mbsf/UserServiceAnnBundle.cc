@@ -80,25 +80,47 @@ UserServiceAnnBundle::UserServiceAnnBundle(std::shared_ptr<UserDataIngSession> u
         ,m_userServiceAnnChange()
         ,m_userServiceAnnMutex(new std::recursive_mutex)
         ,m_userServiceAnnThreadCancel(false)
+	,m_userServiceAnnThreadRunning(false)
+	,m_done(false)
 
 {
     startWorker();
 };
 
-void UserServiceAnnBundle::worker()
-{
-    m_userServiceAnnThreadRunning = true;
-
-    std::lock_guard<decltype(m_userServiceAnnMutex)::element_type> lock(*m_userServiceAnnMutex);
-
-    if(!writeAnnouncement()) {
-        ogs_error("Unable to write announcement.json to local file system");
-    }
-
-    m_userServiceAnnThreadRunning = false;
+void UserServiceAnnBundle::wait() {
+    std::unique_lock<std::recursive_mutex> lock(*m_userServiceAnnMutex);
+    m_userServiceAnnChange.wait(lock, [this] { return m_done.load(); });
 }
 
+void UserServiceAnnBundle::worker()
+{
+    {
+        std::lock_guard<decltype(m_userServiceAnnMutex)::element_type> lock(*m_userServiceAnnMutex);
 
+        if (m_userServiceAnnThreadCancel) {
+            finish();
+            return;
+        }
+        m_userServiceAnnThreadRunning = true;
+
+        if(!writeAnnouncement()) {
+           ogs_error("Unable to write announcement.json to local file system");
+        }
+        //m_userServiceAnnMutex->unlock();
+        m_userDataIngSession->userServiceAnnBundled(m_userDataIngSession);
+
+        //m_userServiceAnnMutex->lock();
+        //m_userServiceAnnThreadRunning = false;
+        finish();
+    }
+
+}
+
+void UserServiceAnnBundle::finish() {
+    m_done = true;
+    notify();
+    m_userServiceAnnThreadRunning = false;
+}
 void UserServiceAnnBundle::startWorker()
 {
     if (!m_userServiceAnnThreadRunning) {

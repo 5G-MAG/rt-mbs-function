@@ -151,18 +151,13 @@ mb_smf_sc_mbs_media_comp_t *MediaComp::populateMediaComp() {
         media_comp->media_info = nullptr;
     }
     const std::optional<std::string > &qos_ref = getQosRef();
-    ogs_info("MEDIA COMP: BEFORE PROCOESSING QOSREF");
     if (qos_ref.has_value()) {
 
-        ogs_info("MEDIA COMP: PROCOESSING QOSREF [%s], [%s]", media_comp->qos_ref, qos_ref.value().c_str());
         media_comp->qos_ref = ogs_strdup(qos_ref.value().c_str());
-        ogs_info("MEDIA COMP: AFTER ASSIGING PROCESSING QOSREF [%s], [%s]", media_comp->qos_ref, qos_ref.value().c_str());
     } else {
 
-        ogs_info("MEDIA COMP: NO QOSREF");
         media_comp->qos_ref = nullptr;
     }
-    ogs_info("MEDIA COMP: AFTER PROCOESSING QOSREF");
     const std::optional<std::shared_ptr< MbsQoSReq > > &mbs_qos_req = getMbsQoSReq();
     if (mbs_qos_req.has_value()) {
         qos_req.reset(new QoSReq(mbs_qos_req.value()));

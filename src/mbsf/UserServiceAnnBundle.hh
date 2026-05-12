@@ -40,6 +40,18 @@ public:
 
     }
 
+    void stop() {
+	{
+	    std::lock_guard<std::recursive_mutex> lock(*m_userServiceAnnMutex);
+	    m_userServiceAnnThreadCancel = true;
+	}
+        if (m_userServiceAnnThread.get_id() != std::this_thread::get_id() && m_userServiceAnnThread.joinable()) {
+            m_userServiceAnnThread.join();
+        }
+
+    }
+
+
     virtual ~UserServiceAnnBundle() {
 	abort();
     };
@@ -53,6 +65,8 @@ public:
     const std::list<std::string> &filesToServe() const { return m_nameOfFilesToServe; };
 
     void notify() { m_userServiceAnnChange.notify_all(); };
+    void wait();
+    bool completed() const {return m_done.load();};
 
     virtual void processEvent(ogs_event_t *event);
 
@@ -64,6 +78,7 @@ private:
     bool writeAnnouncement();
     bool writeToFile(const std::string &abs_dir_path, const std::string &file_name,
                 const std::string &content, std::string &err);
+    void finish();
 
     std::shared_ptr<UserDataIngSession> m_userDataIngSession;
     std::list<std::string> m_nameOfFilesToServe;
@@ -72,6 +87,7 @@ private:
     std::thread m_userServiceAnnThread;
     std::atomic_bool m_userServiceAnnThreadCancel;
     std::atomic_bool m_userServiceAnnThreadRunning;
+    std::atomic_bool m_done;
 };
 
 MBSF_NAMESPACE_STOP

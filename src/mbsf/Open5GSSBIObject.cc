@@ -115,6 +115,11 @@ void Open5GSSBIObject::setNFInstance(ogs_sbi_service_type_e service_type, ogs_sb
     OGS_SBI_SETUP_NF_INSTANCE(m_ogsObject->service_type_array[service_type], nf_instance);
 }
 
+ogs_sbi_nf_instance_t *Open5GSSBIObject::getNFInstance(ogs_sbi_service_type_e service_type)
+{
+    return OGS_SBI_GET_NF_INSTANCE(m_ogsObject->service_type_array[service_type]);
+}
+
 void Open5GSSBIObject::addData(ogs_pool_id_t xact_id, Data data) {
      std::lock_guard<std::recursive_mutex> lock(m_mutex);
      m_xactTable[xact_id] = data;

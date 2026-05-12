@@ -206,14 +206,12 @@ static std::optional<std::chrono::system_clock::time_point> parse_date_time(cons
     std::istringstream ss(main_time);
     ss >> std::get_time(&tm, "%Y-%m-%dT%H:%M:%S");
     if (ss.fail()) {
-        ogs_info("PARSE TIME SS FAIL");
         return std::nullopt;
     }
 
     std::time_t time = std::mktime(&tm);
     if (time == -1) {
 
-        ogs_info("PARSE TIME MKTIME RETURNS -1");
         return std::nullopt;
     }
 

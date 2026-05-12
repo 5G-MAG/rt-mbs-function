@@ -26,6 +26,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <arpa/inet.h>
+#include <set.h>
 #include <string.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -49,6 +50,7 @@
 #include "ActivePeriodsRepRule.hh"
 #include "App.hh"
 #include "Context.hh"
+#include "CarouselObject.hh"
 #include "DistributionSessionInfo.hh"
 #include "hash.hh"
 #include "MBSFNetworkFunction.hh"
@@ -56,8 +58,10 @@
 #include "MBSProblemCause.hh"
 #include "NfServer.hh"
 #include "Nmb2Build.hh"
+#include "ObjManifest.hh"
 #include "Open5GSEvent.hh"
 #include "Open5GSSBIMessage.hh"
+#include "Open5GSSBINFInstance.hh"
 #include "Open5GSSBIObject.hh"
 #include "Open5GSSBIRequest.hh"
 #include "Open5GSSBIResponse.hh"
@@ -68,6 +72,8 @@
 #include "Open5GSYamlDocument.hh"
 #include "Open5GSNetworkFunction.hh"
 #include "ServiceScheduleDesc.hh"
+#include <SockAddr.hh>
+#include "utilities.hh"
 #include "UserService.hh"
 #include "UserServiceAnnBundle.hh"
 #include "UserServiceAnnChannel.hh"
@@ -140,6 +146,8 @@ using reftools::mbsf::Tmgi;
 using reftools::mbsf::TunnelAddress;
 using reftools::mbsf::ServiceScheduleDescription;
 
+HTTPXPP_NAMESPACE_USING(SockAddr);
+
 MBSF_NAMESPACE_START
 
 static const NfServer::InterfaceMetadata g_nmbsf_userdataingsession_api_metadata(
@@ -188,6 +196,7 @@ UserDataIngSession::UserDataIngSession(CJson &json, bool as_request)
     ,m_startTimer(false)
     ,m_serviceScheduleDescriptionVersion(1)
     ,m_userServiceAnnBundle(nullptr)
+    ,m_carouselObjectManifest(nullptr)
     ,m_distributionSessionInfos()
     ,m_distSessInfosMutex(new decltype(m_distSessInfosMutex)::element_type)
     ,m_deleteRequestsMutex(new decltype(m_deleteRequestsMutex)::element_type)
@@ -325,7 +334,9 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
                 return false;
             }
 
-            std::shared_ptr<Open5GSSBIRequest> request_ctx(new Open5GSSBIRequest(message));
+            //std::shared_ptr<Open5GSSBIRequest> request_ctx(new Open5GSSBIRequest(message));
+            std::shared_ptr<Open5GSSBIRequest> request_ctx = nullptr;
+            request_ctx.reset(new Open5GSSBIRequest(event.sbiRequest()));
 
             std::string service_name(message.serviceName());
             std::string resource0(message.resourceComponent(0));
@@ -609,6 +620,22 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
             }
             return true;
         }
+	case MBSF_LOCAL_SEND_MBSTF_CAROUSE_OBJECT_MANIFEST_BUILD:
+        {
+            SessionIdContainer *ids = reinterpret_cast<SessionIdContainer*>(event.sbiData());
+            try {
+                //std::shared_ptr<UserDataIngSession> ing_session = find(ids->second->first);
+                std::shared_ptr<UserDataIngSession> ing_session = locate(ids->second->first);
+                ing_session->nmbstfDiscoverAndSend(ids->second, Nmb2Build::buildNmb2CarouselObjectManifest, nullptr, ids);
+                return true;
+            } catch (const std::out_of_range &e) {
+                std::ostringstream err;
+                err << "MBS User Data Ingest Session [" << ids->second->first << "] does not exist.";
+                ogs_error("%s", err.str().c_str());
+            }
+            return true;
+
+        }
         case MBSF_LOCAL_SEND_MBSTF_PATCH_ROLLBACK:
         {
             SessionIdContainer *ids = reinterpret_cast<SessionIdContainer*>(event.sbiData());
@@ -634,8 +661,16 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
 ogs_sbi_xact_t *UserDataIngSession::nmbstfDiscoverOnly(std::shared_ptr< ContextData > data)
 {
     ogs_sbi_xact_t *xact = nullptr;
+    ogs_sbi_discovery_option_t *discovery_option = nullptr;
 
-    xact = m_sbiObject->discoverOnly(data->streamId, OGS_SBI_SERVICE_TYPE_NMBSTF_DISTSESSION, nullptr);
+    if (!data->mbstfNFInstanceId.empty()) {
+        discovery_option = ogs_sbi_discovery_option_new();
+        ogs_assert(discovery_option);
+        ogs_sbi_discovery_option_set_target_nf_instance_id(discovery_option, const_cast<char*>(data->mbstfNFInstanceId.c_str()));
+    }
+
+
+    xact = m_sbiObject->discoverOnly(data->streamId, OGS_SBI_SERVICE_TYPE_NMBSTF_DISTSESSION, discovery_option);
     if (!xact) {
         ogs_error("discoverOnly() failed");
     } else {
@@ -745,7 +780,7 @@ bool UserDataIngSession::startTimer()
 {
 
     if (m_startTimer) {
-        m_activePeriodsTimer->stop();
+        if (m_activePeriodsTimer) m_activePeriodsTimer->stop();
         m_startTimer = false;
     }
 
@@ -1017,15 +1052,9 @@ void UserDataIngSession::userServiceAnnChannelDistributionSessionInfo()
                 std::shared_ptr<ContextData> context_data = getDistributionSessionInfoData(key);
 
                 if (context_data) {
-		    ogs_info("ANN CHANNEL: USER DATA ING SESSION: CONTEXT DATA PRESENT");
 	            if(!isMBSSessionCreated(key)) {
-
-		        ogs_info("ANN CHANNEL: USER DATA ING SESSION: CONTEXT DATA PRESENT: CREATE MBS SESSION");
 		        createMbsSession(context_data);
-
 		    } else if(isMBSSessionCreated(key) && !hasMbstfResponded(key)) {
-
-		        ogs_info("ANN CHANNEL: USER DATA ING SESSION: CONTEXT DATA PRESENT: SEND MBSTF REQS");
 		        sendMbstfRequests();
 		    } else if (context_data->needsUpdate || context_data->stateUpdate) {
                         populate_mb_smf_mbs_session(context_data, context_data->MBSSession);
@@ -1068,6 +1097,7 @@ void UserDataIngSession::userServiceAnnChannelDistributionSessionInfo()
                                         .tsi = tsi
                                 });
                                 addToDistributionSessionInfos(key, ctx_data);
+				nmbstfDiscoverOnly(ctx_data);
 				createMbsSession(ctx_data);
 
                             } else {
@@ -1257,6 +1287,7 @@ bool UserDataIngSession::processDistSession(std::shared_ptr< DistSession > dist_
     process_mbs_distribution_session_info(context_data, dist_session);
 
     context_data->receivedMBSTFResponse = true;
+    context_data->distSession = dist_session;
 
     try {
         //std::shared_ptr<UserDataIngSession> ing_sess = find(ids->first);
@@ -1449,9 +1480,9 @@ bool UserDataIngSession::sendNmbsfMbsUserDataIngestResponse(std::shared_ptr<User
         }
 
 	if (ing_sess->mbsUserService() && ing_sess->mbsUserService()->requiresUserServiceAnnouncement())
-	{
+        {
             ing_sess->setUserServiceAnnBundler(ing_sess);
-	}
+        }
 
         CJson user_data_ing_sess_json(ing_sess->json(false));
         std::string body(user_data_ing_sess_json.serialise());
@@ -1467,13 +1498,13 @@ bool UserDataIngSession::sendNmbsfMbsUserDataIngestResponse(std::shared_ptr<User
         ogs_assert(response);
         NfServer::populateResponse(response, body, OGS_SBI_HTTP_STATUS_CREATED);
         ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *response));
+
         return true;
     } catch (const std::out_of_range &e) {
         std::ostringstream err;
         err << "MBS User Data Ingest Session [" << ids->first << "] does not exist.";
         ogs_error("%s", err.str().c_str());
     }
-
     return true;
 }
 
@@ -1518,14 +1549,6 @@ bool UserDataIngSession::handleMbstfDiscover(ogs_sbi_nf_instance_t *nf_instance,
     }
 
     if (context_data->mbstfNFInstanceId.empty()) context_data->mbstfNFInstanceId = std::string(nf_instance->id);
-
-    /*
-    if(ing_session->userDataIngSessionForServiceAnnChannel(ids))
-    {
-        const std::shared_ptr<UserServiceAnnChannel> &ann_channel = App::self().context()->userServiceAnnouncementChannel();
-        if(ann_channel) ann_channel->notify();
-    }
-    */
 
     removeFromRegistry(xact);
 
@@ -1594,6 +1617,7 @@ bool UserDataIngSession::createMbsSession(const std::shared_ptr<UserDataIngSessi
             {
                 mb_smf_mbs_session.reset(new MBSMFMBSSession(
                 mb_smf_sc_mbs_session_new_ipv6((const struct in6_addr*)src_addr, (const struct in6_addr*)dest_addr)));
+
            } else {
                ogs_error("Unable to resolve SSM addresses for IPv6 address family");
                if (ai_src) freeaddrinfo(ai_src);
@@ -1619,7 +1643,8 @@ bool UserDataIngSession::createMbsSession(const std::shared_ptr<UserDataIngSessi
 
         mb_smf_mbs_session->setServiceType(MBS_SERVICE_TYPE_MULTICAST);
         if (!context_data->MBSSession) context_data->MBSSession = mb_smf_mbs_session;
-        UserDataIngDistSessId *ids = new UserDataIngDistSessId(context_data->ingSessionId, context_data->distSessionInfoKey);
+        UserDataIngDistSessId *ids = new UserDataIngDistSessId(std::string(context_data->ingSessionId), std::string(context_data->distSessionInfoKey));
+
         mb_smf_mbs_session->setCreatedCallback(reinterpret_cast<void*>(ids) /*(context_data.get()*/);
         populate_mb_smf_mbs_session(context_data, mb_smf_mbs_session);
     } else {
@@ -1651,7 +1676,7 @@ void UserDataIngSession::deleteMBSTFSession(ogs_sbi_xact_t *xact)
     }
 }
 
-void UserDataIngSession::handlePatchUpdateResponse(ogs_sbi_xact_t *xact)
+bool UserDataIngSession::handlePatchUpdateResponse(ogs_sbi_xact_t *xact, std::shared_ptr<reftools::mbsf::DistSession> dist_session)
 {
     std::shared_ptr<UserDataIngDistSessId> ids = nullptr;
 
@@ -1664,17 +1689,29 @@ void UserDataIngSession::handlePatchUpdateResponse(ogs_sbi_xact_t *xact)
     }
 
     try {
-        std::shared_ptr<UserDataIngSession> ing_session = find(ids->first);
+        //std::shared_ptr<UserDataIngSession> ing_session = find(ids->first);
+        std::shared_ptr<UserDataIngSession> ing_session = locate(ids->first);
         std::shared_ptr<ContextData> context_data = getContextData(ids);
-        ing_session->checkDesiredState();
         context_data->receivedMBSTFPatchResponse = true;
         context_data->patchUpdateSucceded = true;
         context_data->needsUpdate = false;
+	context_data->stateUpdate = false;
+	context_data->distSession = dist_session;
+	if (ing_session->isUserServiceAnnouncementChannel(ids->second))
+        {
+            const std::shared_ptr<UserServiceAnnChannel> &ann_channel = App::self().context()->userServiceAnnouncementChannel();
+            if(ann_channel) ann_channel->notify();
+	    return true;
+        }
+
+        ing_session->checkDesiredState();
+
     } catch (const std::out_of_range &e) {
         std::ostringstream err;
         err << "MBS User Data Ingest Session [" << ids->first << "] does not exist.";
         ogs_error("%s", err.str().c_str());
     }
+    return true;
 
 }
 
@@ -1693,7 +1730,8 @@ void UserDataIngSession::rollbackMBSTFDistSessionState(ogs_sbi_xact_t *xact)
     }
 
     try {
-        std::shared_ptr<UserDataIngSession> ing_sess = find(ids->first);
+        //std::shared_ptr<UserDataIngSession> ing_sess = find(ids->first);
+        std::shared_ptr<UserDataIngSession> ing_sess = locate(ids->first);
 
         std::shared_ptr<ContextData> context_data = getContextData(ids);
 
@@ -1867,6 +1905,26 @@ void UserDataIngSession::sendLocalEventPatch(const std::optional<std::string>& k
     }
 }
 
+void UserDataIngSession::sendLocalEventCarouselObjectManifest(const std::optional<std::string>& key)
+{
+    std::lock_guard<decltype(s_registry_mutex)> lock(s_registry_mutex);
+
+    for (auto &[dist_sess_id, user_ing_sess_id_ptr] : s_distSessionIdRegistry) {
+        // match session id and, if key provided, match the key
+        if (user_ing_sess_id_ptr->first == m_UserDataIngSessionId &&
+            (!key.has_value() || user_ing_sess_id_ptr->second == *key))
+        {
+            SessionIdContainer* session_id = new SessionIdContainer(dist_sess_id, user_ing_sess_id_ptr);
+            sendLocalEvent(MBSF_LOCAL_SEND_MBSTF_CAROUSE_OBJECT_MANIFEST_BUILD, session_id);
+
+            // if a key was provided, only process the first match
+            if (key.has_value())
+                break;
+        }
+    }
+}
+
+
 void UserDataIngSession::updateMbstfRemovedDistSession()
 {
     std::lock_guard<decltype(s_registry_mutex)> lock(s_registry_mutex);
@@ -1943,7 +2001,8 @@ void UserDataIngSession::setMBSSessionFlag(void *data)
 	{
 	    const std::shared_ptr<UserServiceAnnChannel> &ann_channel = App::self().context()->userServiceAnnouncementChannel();
             if(ann_channel) ann_channel->notify();
-            return;
+            delete ids;
+	    return;
 	}
         if (ing_sess->checkIfAllMBSSessionResponsesReceived()) {
             bool rv = ing_sess->checkIfAllMBSSessionCreated();
@@ -1958,6 +2017,8 @@ void UserDataIngSession::setMBSSessionFlag(void *data)
         err << "MBS User Data Ingest Session [" << ids->first << "] does not exist.";
         ogs_error("%s", err.str().c_str());
     }
+
+    delete ids;
 }
 
 void UserDataIngSession::setMBSSessionDeleted(void *data)
@@ -2011,7 +2072,7 @@ void UserDataIngSession::setMBSSessionFailureFlag(void *data, const std::optiona
         err << "MBS User Data Ingest Session [" << ids->first << "] does not exist.";
         ogs_error("%s", err.str().c_str());
     }
-
+    delete ids;
 
 }
 
@@ -2170,7 +2231,7 @@ void UserDataIngSession::requiresUserServiceAnnouncement(std::shared_ptr<UserDat
         if(user_service->requiresUserServiceAnnouncement()) {
             const std::shared_ptr<UserServiceAnnChannel> &ann_channel = App::self().context()->userServiceAnnouncementChannel();
             if(ann_channel) {
-                ann_channel->addUserDataIngSession(user_data_ing_session);
+                //ann_channel->addUserDataIngSession(user_data_ing_session);
 		user_data_ing_session->setUserServiceAnnBundler(user_data_ing_session);
             }
         }
@@ -2215,6 +2276,42 @@ std::optional<std::string> UserDataIngSession::getObjectIngestUrl(std::shared_pt
     }
     return std::nullopt;
 }
+
+std::optional<std::string> UserDataIngSession::objectIngestBaseUrl(const std::string &key)
+{
+    std::shared_ptr<UserDataIngSession::ContextData> context_data = getDistributionSessionInfoData(key);
+    if(!context_data || !context_data->distSession) return std::nullopt;
+    return getObjectIngestBaseUrl(context_data->distSession);
+}
+
+
+std::optional<std::string> UserDataIngSession::getObjectIngestBaseUrl(std::shared_ptr<reftools::mbsf::DistSession> session)
+{
+    std::optional<std::shared_ptr< reftools::mbsf::ObjDistributionData > > obj_distribution_data =  session->getObjDistributionData();
+    if (!obj_distribution_data || !*obj_distribution_data) return std::nullopt;
+
+    return obj_distribution_data.value()->getObjIngestBaseUrl();
+
+}
+
+std::optional<std::string> UserDataIngSession::objectAcquisitionIdPush(const std::string &key)
+{
+    std::shared_ptr<UserDataIngSession::ContextData> context_data = getDistributionSessionInfoData(key);
+    if(!context_data || !context_data->distSession) return std::nullopt;
+    return getObjectAcquisitionIdPush(context_data->distSession);
+}
+
+
+std::optional<std::string> UserDataIngSession::getObjectAcquisitionIdPush(std::shared_ptr<reftools::mbsf::DistSession> session)
+{
+    std::optional<std::shared_ptr< reftools::mbsf::ObjDistributionData > > obj_distribution_data =  session->getObjDistributionData();
+    if (!obj_distribution_data || !*obj_distribution_data) return std::nullopt;
+
+    return obj_distribution_data.value()->getObjAcquisitionIdPush();
+
+}
+
+
 
 std::list<std::optional<std::string >, fiveg_mag_reftools::OgsAllocator<std::optional<std::string > > > UserDataIngSession::getObjectAcquisitionIds(std::shared_ptr<MBSDistributionSessionInfo> &info)
 {
@@ -2390,6 +2487,32 @@ bool UserDataIngSession::hasMbstfResponded(const std::string &key)
 
 }
 
+bool UserDataIngSession::inDesiredState(const std::string &key)
+{
+     std::shared_ptr<UserDataIngSession::ContextData> context_data = getDistributionSessionInfoData(key);
+    if (context_data && (context_data->stateUpdate || context_data->needsUpdate)) return false;
+    return true;
+
+}
+
+std::shared_ptr<reftools::mbsf::DistSessionState> UserDataIngSession::stateOfDistSession(const std::string &key)
+{
+    std::shared_ptr<reftools::mbsf::DistSessionState> session_state_no = nullptr;
+    std::shared_ptr<UserDataIngSession::ContextData> context_data = getDistributionSessionInfoData(key);
+    if (context_data && context_data->distSession) {
+	if (isUserServiceAnnouncementChannel(key))
+        {
+            const std::shared_ptr<UserServiceAnnChannel> ann_channel = App::self().context()->userServiceAnnouncementChannel();
+            if(ann_channel) ann_channel->notify();
+        }
+
+        return context_data->distSession->getDistSessionState();
+    }
+    session_state_no.reset(new DistSessionState());
+    *session_state_no = DistSessionState::NO_VAL;
+    return session_state_no;
+}
+
 bool UserDataIngSession::distributionSessionInfoHasMbstfandMbsSession(const std::string &key)
 {
     std::shared_ptr<ContextData> context_data = getDistributionSessionInfoData(key);
@@ -2411,6 +2534,110 @@ bool UserDataIngSession::isUserServiceAnnouncementChannel(const std::string &dis
     return false;
 }
 
+void UserDataIngSession::populateCarouselObject(std::shared_ptr< Open5GSSBINFInstance> nf_instance, std::list<std::shared_ptr<CarouselObject >> &objects)
+{
+    int i;
+
+    std::shared_ptr<CarouselObject > object = nullptr;
+    std::set<std::string> user_serv_ann_server_addrs;
+
+    int number_of_ipv4 = nf_instance->numberOfIPv4();
+    int number_of_ipv6 = nf_instance->numberOfIPv6();
+
+    if(number_of_ipv4) {
+        ogs_sockaddr_t **addrs = nf_instance->Ipv4();
+	for (i = 0; i < number_of_ipv4; i++) {
+            if (addrs[i]) {
+                ogs_sockaddr_t *addr = addrs[i];
+		reftools::common::httpxpp::SockAddr remote_mbstf_sock_addr(addr->sa);
+		const reftools::common::httpxpp::SockAddr &sock_addr =  App::self().context()->findUserServAnnServerAddrForRemote(remote_mbstf_sock_addr);
+		std::string sock_address = std::format("{}", sock_addr);
+		user_serv_ann_server_addrs.insert(sock_address);
+	    }
+	}
+    }
+    if(number_of_ipv6) {
+        ogs_sockaddr_t **addrs_v6 = nf_instance->Ipv6();
+        for (i = 0; i < number_of_ipv6; i++) {
+            if (addrs_v6[i]) {
+                ogs_sockaddr_t *addr_v6 = addrs_v6[i];
+		reftools::common::httpxpp::SockAddr remote_mbstf_sock_addr(addr_v6->sa);
+                const reftools::common::httpxpp::SockAddr &mbstf_sock_addr =  App::self().context()->findUserServAnnServerAddrForRemote(remote_mbstf_sock_addr);
+		user_serv_ann_server_addrs.insert(std::format("{}", mbstf_sock_addr));
+
+            }
+        }
+    }
+    if(user_serv_ann_server_addrs.size()) populateObjectCarousel(user_serv_ann_server_addrs, objects);
+
+}
+
+void UserDataIngSession::populateObjectCarousel(std::set<std::string> &user_serv_ann_server_addrs, std::list<std::shared_ptr<CarouselObject >> &objects)
+{
+    std::shared_ptr<CarouselObject > object = nullptr;
+
+    auto it = user_serv_ann_server_addrs.begin();
+    if (it != user_serv_ann_server_addrs.end()) {
+        std::string addr = *it;
+        user_serv_ann_server_addrs.erase(it);
+
+        object.reset(new CarouselObject(std::format("http://{}/x-5gmag-service-announcements/v1/user-data-ingest-session/{}", addr, m_UserDataIngSessionId),
+                                        App::self().context()->repetitionInterval(), App::self().context()->keepUpdated()));
+        objects.emplace_back(object);
+    }
+
+}
+
+void UserDataIngSession::userServiceAnnBundled(std::shared_ptr<UserDataIngSession> session)
+{
+
+    std::list<std::shared_ptr<CarouselObject >> objects;
+    const std::shared_ptr<UserServiceAnnChannel> &ann_channel = App::self().context()->userServiceAnnouncementChannel();
+    if(!ann_channel) {
+        return;
+    }
+    const std::shared_ptr< Open5GSSBINFInstance> nf_instance = ann_channel->userServiceAnnChannelMbstfNfInstance();
+    if(!nf_instance) {
+        return;
+    }
+    try {
+        populateCarouselObject(nf_instance, objects);
+    } catch (std::exception &ex) {
+        ogs_error("Failed to populate Carousel Object Manifest:[%s]", ex.what());
+	return;
+    }
+    if(objects.size()) {
+        m_carouselObjectManifest.reset(new ObjManifest(objects));
+        ann_channel->addUserDataIngSession(session);
+     }
+
+}
+
+
+void UserDataIngSession::setDistSessionState(std::shared_ptr<DistSessionState> state)
+{
+    std::lock_guard<decltype(m_distSessInfosMutex)::element_type> lock(*m_distSessInfosMutex);
+    for (auto &[dist_sess_id, context_data] : m_distributionSessionInfos) {
+        const auto &dist_sess_state = context_data->info->getMbsDistSessState();
+	if(dist_sess_state.has_value()) {
+
+	    if(dist_sess_state.value()->getValue() == state->getValue()) {
+
+	        context_data->needsUpdate = false;
+                context_data->stateUpdate = false;
+	        continue;
+	    }
+	}
+	std::shared_ptr<UserDataIngDistSessId> ids_ptr(new UserDataIngDistSessId{m_UserDataIngSessionId, dist_sess_id});
+        context_data->stateUpdate = true;
+        context_data->info->setMbsDistSessState(state);
+        sendMbsmfActivityStatus(ids_ptr);
+        sendNotificationsEvent(ids_ptr);
+
+        SessionIdContainer *session_id = new SessionIdContainer{context_data->mbstfDistSessionId, ids_ptr};
+        nmbstfDiscoverAndSend(ids_ptr, Nmb2Build::buildNmb2DistSessionPatch, nullptr, session_id);
+    }
+}
 
 static void process_mbs_distribution_session_info(std::shared_ptr< UserDataIngSession::ContextData > context_data, std::shared_ptr< DistSession > dist_session)
 {

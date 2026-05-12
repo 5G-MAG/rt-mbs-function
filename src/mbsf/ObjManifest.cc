@@ -63,6 +63,7 @@ ObjManifest::ObjManifest(const std::shared_ptr<reftools::mbsf::ObjectManifest> &
 
 ObjManifest::ObjManifest(std::list<std::shared_ptr<CarouselObject >> objects)
     :m_objectManifest(new ObjectManifest())
+    ,m_objectManifestMutex(new std::recursive_mutex)
 {
     addObjects(objects);
     

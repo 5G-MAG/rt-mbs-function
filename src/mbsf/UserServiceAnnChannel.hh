@@ -22,8 +22,12 @@
 MBSF_NAMESPACE_START
 
 #define USER_SERVICE_ANN_CHANNEL "USER SERVICE ANNOUNCEMENT CHANNEL"
+#define ANN_OBJ_MANIFEST_MIME_TYPE R"(application/3gpp-mbs-object-manifest+json;version="Rel17")"
 
+class Curl;
 class DistributionSessionInfo;
+class Open5GSSBINFInstance;
+class Open5GSSBIObject;
 class UserDataIngSession;
 
 class UserServiceAnnChannel {
@@ -49,9 +53,18 @@ public:
     UserServiceAnnChannel &operator=(UserServiceAnnChannel&&) = delete;
 
     UserServiceAnnChannel &addUserDataIngSession(std::weak_ptr<UserDataIngSession> user_data_ing_session);
+    //UserServiceAnnChannel &addUserDataIngSession(std::shared_ptr<UserDataIngSession> user_data_ing_session);
     const std::shared_ptr<UserDataIngSession> &annChannelUserDataIngSession() const { return m_userServiceAnnChannelDataIngSession;};
+    std::string key() const { return USER_SERVICE_ANN_CHANNEL;};
+    std::shared_ptr<Curl> curl() {return m_curl;};
+
     void notify() { m_announcementChannelChange.notify_all(); };
-    virtual void processEvent(ogs_event_t *event);
+    void sendCarouselRequests();
+    void sendCarousel(std::weak_ptr<UserDataIngSession> ing_session);
+    void resetClient();
+    bool processClientResponse(const Open5GSEvent &event);
+    std::shared_ptr< Open5GSSBINFInstance> userServiceAnnChannelMbstfNfInstance();
+    static bool processEvent(Open5GSEvent &event);
 
 protected:
     void startWorker();
@@ -59,16 +72,27 @@ protected:
 private:
     void populateUserDataIngSession();
     const std::shared_ptr<DistributionSessionInfo > populateDistributionSessionInfo();
-
+    int32_t count();
     void workerLoop();
 
+    static bool isExpired(const std::weak_ptr<UserDataIngSession> &session) {
+        return session.expired();
+    }
+
+    std::size_t countUserDataIngSessions(const std::list<std::weak_ptr<UserDataIngSession>> &sessions);
+
     std::list<std::weak_ptr<UserDataIngSession>> m_userDataIngSessions;
+    //std::list<std::shared_ptr<UserDataIngSession>> m_userDataIngSessions;
     std::shared_ptr<UserDataIngSession> m_userServiceAnnChannelDataIngSession;
+    std::unique_ptr<Open5GSSBIClient> m_client;
+    std::shared_ptr<Curl> m_curl;
+    std::string m_pushUrl;
     std::condition_variable_any m_announcementChannelChange;
     std::unique_ptr<std::recursive_mutex> m_announcementChannelMutex;
     std::thread m_announcementChannelThread;
     std::atomic_bool m_announcementChannelCancel;
     std::atomic_bool m_announcementChannelRunning;
+    int32_t m_count;
 };
 
 MBSF_NAMESPACE_STOP

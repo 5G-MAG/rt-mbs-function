@@ -50,6 +50,7 @@ public:
     ogs_sbi_object_t *ogsSBIObject() { return m_ogsObject; };
 
     void setNFInstance(ogs_sbi_service_type_e service_type, ogs_sbi_nf_instance_t *nf_instance);
+    ogs_sbi_nf_instance_t *getNFInstance(ogs_sbi_service_type_e service_type);
 
     void addData(const ogs_pool_id_t xact_id, Data data);
     const Data& getData(const ogs_pool_id_t xact_id) const;

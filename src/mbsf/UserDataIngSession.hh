@@ -1,4 +1,4 @@
-#ifndef _MBSF_USER_DATA_ING_SESSION_HH_
+# ifndef _MBSF_USER_DATA_ING_SESSION_HH_
 #define _MBSF_USER_DATA_ING_SESSION_HH_
 /******************************************************************************
  * 5G-MAG Reference Tools: MBS Function: MBS User Data Ingest Session class
@@ -30,6 +30,8 @@
 #include <memory>
 #include <tuple>
 #include <mutex>
+#include <set>
+
 #include "openapi/model/DistSessionState.h"
 #include "openapi/model/MBSUserDataIngSession.h"
 #include "openapi/model/MBSDistributionSessionInfo.h"
@@ -54,8 +56,11 @@ MBSF_NAMESPACE_START
 
 class ActivePeriods;
 class AlwaysActive;
+class CarouselObject;
 class MBSMFMBSSession;
+class ObjManifest;
 class Open5GSEvent;
+class Open5GSSBINFInstance;
 class Open5GSSBIRequest;
 class Open5GSSBIObject;
 class Open5GSTimer;
@@ -112,6 +117,7 @@ public:
         std::string mbstfNotificationUrl = std::string{};
         uint64_t tsi;
         reftools::mbsf::DistSessionState last_reported_state;
+	std::shared_ptr< reftools::mbsf::DistSession > distSession = nullptr;
     };
 
     UserDataIngSession(fiveg_mag_reftools::CJson &json, bool as_request);
@@ -133,7 +139,8 @@ public:
         MBSF_LOCAL_SEND_MBSTF_REQ_BUILD = OGS_MAX_NUM_OF_PROTO_EVENT + 1600,
         MBSF_LOCAL_SEND_MBSTF_DELETE_SESSION,
         MBSF_LOCAL_SEND_MBSTF_PATCH_ROLLBACK,
-        MBSF_LOCAL_SEND_MBSTF_PATCH_BUILD
+        MBSF_LOCAL_SEND_MBSTF_PATCH_BUILD,
+	MBSF_LOCAL_SEND_MBSTF_CAROUSE_OBJECT_MANIFEST_BUILD
     };
 
     const std::string &userDataIngSessionId() const { return m_UserDataIngSessionId; };
@@ -141,6 +148,8 @@ public:
     const SysTimeMS &generated() const {return m_generated;};
     const std::string &hash() const {return m_hash;};
     const int32_t serviceScheduleDescVersion() {return m_serviceScheduleDescriptionVersion++;};
+    const std::shared_ptr<ObjManifest> carouselObjectManifest() const {return m_carouselObjectManifest;};
+    const std::unique_ptr<Open5GSSBIObject> &getSbiObject() const {return m_sbiObject;};
 
     ogs_sbi_xact_t *nmbstfDiscoverOnly(std::shared_ptr< ContextData > data);
     ogs_sbi_xact_t *nmbstfDiscoverAndSend( std::shared_ptr< UserDataIngSession::UserDataIngDistSessId> ids, ogs_sbi_build_f build, void *context, void *data);
@@ -178,6 +187,7 @@ public:
 
     void sendLocalEvent(OgsExtendedEventId event_id, void *data);
     void sendLocalEventPatch(const std::optional<std::string>& key);
+    void sendLocalEventCarouselObjectManifest(const std::optional<std::string>& key);
     bool sendNmbsfMbsUserDataIngestResponse(std::shared_ptr<UserDataIngSession::UserDataIngDistSessId> &ids);
 
     bool checkIfAllMBSTFDistSessionDeleted();
@@ -194,6 +204,11 @@ public:
 
     bool isMBSSessionCreated(const std::string &key);
     bool hasMbstfResponded(const std::string &key);
+    reftools::mbsf::DistSessionState lastReportedState(const std::string &key);
+    std::optional<std::string> objectIngestBaseUrl(const std::string &key);
+    std::optional<std::string> objectAcquisitionIdPush(const std::string &key);
+    std::optional<std::string> getObjectAcquisitionIdPush(std::shared_ptr<reftools::mbsf::DistSession> session);
+    bool inDesiredState(const std::string &key);
 
     std::list<std::shared_ptr< DistributionSessionDesc > > distributionSessionDescs();
     std::optional<std::list<std::shared_ptr<ServiceScheduleDesc> > > serviceScheduleDescs();
@@ -229,6 +244,7 @@ public:
     static std::list<std::optional<std::string>, fiveg_mag_reftools::OgsAllocator<std::optional<std::string> > > getObjectAcquisitionIds(std::shared_ptr<reftools::mbsf::MBSDistributionSessionInfo> &info);
     static std::string maxContBitRate(std::shared_ptr<reftools::mbsf::MBSDistributionSessionInfo> &info);
     static bool tmgi(mb_smf_sc_tmgi_t *tmgi, void *data);
+    static std::optional<std::string> getObjectIngestBaseUrl(std::shared_ptr<reftools::mbsf::DistSession> session);
 
     static void removeDistributionSessionInfos(void *data);
 
@@ -249,6 +265,9 @@ public:
     bool isUserServiceAnnouncementChannel(const std::string &distribution_session_info_key);
     void userServiceAnnChannelDistributionSessionInfo();
     const std::list<std::string> &getUserServiceAnnBundleFilesList() const;
+    void setDistSessionState(std::shared_ptr<reftools::mbsf::DistSessionState> state);
+    void userServiceAnnBundled(std::shared_ptr<UserDataIngSession> session);
+    std::shared_ptr<reftools::mbsf::DistSessionState> stateOfDistSession(const std::string &key);
 
     static void requiresUserServiceAnnouncement(std::shared_ptr<UserDataIngSession> user_data_ing_session);
     static void changeDistSessionState(void *data);
@@ -260,7 +279,7 @@ public:
     static void populateAndSendError(void *data, const std::optional<fiveg_mag_reftools::ProblemCause> &cause = std::nullopt,
                     const std::optional<fiveg_mag_reftools::CJson> &problem_detail_json = std::nullopt);
     static void deleteMBSTFSession(ogs_sbi_xact_t *xact);
-    static void handlePatchUpdateResponse(ogs_sbi_xact_t *xact);
+    static bool handlePatchUpdateResponse(ogs_sbi_xact_t *xact, std::shared_ptr<reftools::mbsf::DistSession> dist_session);
     static void rollbackMBSTFDistSessionState(ogs_sbi_xact_t *xact);
 
     static void sendNotificationsEvent(std::shared_ptr< UserDataIngSession::UserDataIngDistSessId > user_data_ing_dist_sess_ids);
@@ -283,6 +302,8 @@ private:
     void updateContexts(ogs_pool_id_t stream_id, std::shared_ptr<Open5GSSBIRequest> &request);
     void _changeDistSessionState();
     UserDataIngSession &setUserServiceAnnBundler(std::shared_ptr<UserDataIngSession> user_data_ing_session);
+    void populateCarouselObject(std::shared_ptr< Open5GSSBINFInstance> nf_instance, std::list<std::shared_ptr<CarouselObject >> &objects);
+    void populateObjectCarousel(std::set<std::string> &user_serv_ann_server_addrs, std::list<std::shared_ptr<CarouselObject >> &objects);
 
     static std::recursive_mutex s_registry_mutex;
     static std::map<ogs_sbi_xact_t *, std::shared_ptr< UserDataIngDistSessId >> s_xactRegistry;
@@ -299,6 +320,7 @@ private:
     bool m_startTimer;
     int32_t m_serviceScheduleDescriptionVersion; // next ver no.
     std::shared_ptr<UserServiceAnnBundle> m_userServiceAnnBundle;
+    std::shared_ptr<ObjManifest> m_carouselObjectManifest;
 
     //key: Dist Session Infos present in this User Data Ingest Session
     std::map<std::string, std::shared_ptr< ContextData >> m_distributionSessionInfos;

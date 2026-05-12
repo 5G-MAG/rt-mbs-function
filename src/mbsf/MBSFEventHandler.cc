@@ -32,6 +32,7 @@
 #include "Open5GSSBIServer.hh"
 #include "Open5GSSBIStream.hh"
 #include "UserService.hh"
+#include "UserServiceAnnChannel.hh"
 #include "UserDataIngSession.hh"
 #include "UserDataIngStatSubsc.hh"
 #include "openapi/model/ProblemCause.hh"
@@ -53,6 +54,7 @@ void MBSFEventHandler::dispatch(Open5GSFSM &fsm, Open5GSEvent &event)
     if (UserDataIngSession::processEvent(event)) return;
     if (Nmb2Handler::processEvent(event)) return;
     if (MBSMFMBSSession::processEvent(event)) return;
+    if (UserServiceAnnChannel::processEvent(event)) return;
     if (mb_smf_sc_process_event(event.ogsEvent())) return;
 
     ogs_debug("MBSF Event: %s", ogs_event_get_name(event.ogsEvent()));

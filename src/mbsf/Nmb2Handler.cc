@@ -74,7 +74,7 @@ using reftools::mbsf::Ipv6Addr;
 
 MBSF_NAMESPACE_START
 
-static bool handle_mbstf_dist_session_response(ogs_sbi_xact_t *xact, Open5GSSBIResponse &response);
+static bool handle_mbstf_dist_session_response(ogs_sbi_xact_t *xact, Open5GSSBIResponse &response, bool update);
 static void handle_mbstf_dist_session_delete(std::string &dist_session_id);
 static void send_error(ogs_sbi_xact_t *xact);
 static void remove_xact(ogs_sbi_xact_t *xact);
@@ -218,7 +218,7 @@ bool Nmb2Handler::processEvent(Open5GSEvent &event)
                         if ( response.contentLength() && valid_content_type(message))
                         {
 
-                            handle_mbstf_dist_session_response(sbi_xact, response);
+                            handle_mbstf_dist_session_response(sbi_xact, response, false);
                         } else {
                             ogs_error("Received invalid content-type from MBSTF");
                             UserDataIngSession::deleteMBSTFSession(sbi_xact);
@@ -248,7 +248,7 @@ bool Nmb2Handler::processEvent(Open5GSEvent &event)
 
 
                 } else if (method == OGS_SBI_HTTP_METHOD_PATCH) {
-                    ogs_info("PATCH MESSAGE STATUS: %d %lu CT:[%s]", message.resStatus(), response.contentLength(), message.contentType());
+                    ogs_debug("PATCH MESSAGE STATUS: %d %lu CT:[%s]", message.resStatus(), response.contentLength(), message.contentType());
                     if (message.resStatus() == OGS_SBI_HTTP_STATUS_OK)
                     {
                         if ( response.contentLength() && valid_content_type(message))
@@ -257,14 +257,15 @@ bool Nmb2Handler::processEvent(Open5GSEvent &event)
                             try {
                                 patch_response_from_mbstf = CJson::parse(response.content());
                             } catch (std::exception &ex) {
-                                ogs_info("PROBLEM IN PARSING PATCH RESPONSE FROM MBSTF");
+                                ogs_debug("PROBLEM IN PARSING PATCH RESPONSE FROM MBSTF: [%s]", ex.what());
                             }
 
                             {
                                 std::string txt(patch_response_from_mbstf.serialise());
                                 ogs_debug("PATCH RESPONSE Parsed JSON: %s", txt.c_str());
                             }
-                            UserDataIngSession::handlePatchUpdateResponse(sbi_xact);
+			    handle_mbstf_dist_session_response(sbi_xact, response, true);
+                            //UserDataIngSession::handlePatchUpdateResponse(sbi_xact);
                         }
                      } else {
                          ogs_error("MBSTF Patch Update failed");
@@ -290,7 +291,7 @@ bool Nmb2Handler::processEvent(Open5GSEvent &event)
     }
 }
 
-static bool handle_mbstf_dist_session_response(ogs_sbi_xact_t *xact, Open5GSSBIResponse &response)
+static bool handle_mbstf_dist_session_response(ogs_sbi_xact_t *xact, Open5GSSBIResponse &response, bool update)
 {
     ogs_sbi_object_t *sbi_object = NULL;
     ogs_sbi_service_type_e service_type = OGS_SBI_SERVICE_TYPE_NULL;
@@ -332,7 +333,12 @@ static bool handle_mbstf_dist_session_response(ogs_sbi_xact_t *xact, Open5GSSBIR
     }
 
     dist_session = create_rsp_data->getDistSession();
-    ogs_expect(true == UserDataIngSession::processDistSession(dist_session));
+    if(!update) {
+        ogs_expect(true == UserDataIngSession::processDistSession(dist_session));
+    } else {
+        ogs_expect(true == UserDataIngSession::handlePatchUpdateResponse(xact, dist_session));
+    }
+
     return true;
 }
 

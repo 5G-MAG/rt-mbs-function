@@ -69,6 +69,8 @@ libmbsf_dist_sources = files('''
     CivicAddr.hh
     Context.cc
     Context.hh
+    Curl.cc
+    Curl.hh
     DistributionSessionInfo.cc
     DistributionSessionInfo.hh
     DistributionSessionDesc.cc
@@ -127,6 +129,8 @@ libmbsf_dist_sources = files('''
     Open5GSSBIObject.hh
     Open5GSSBIMessage.cc
     Open5GSSBIMessage.hh
+    Open5GSSBINFInstance.cc
+    Open5GSSBINFInstance.hh
     Open5GSSBIRequest.cc
     Open5GSSBIRequest.hh
     Open5GSSBIResponse.cc
