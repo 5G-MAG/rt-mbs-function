@@ -20,6 +20,7 @@
 #include "ogs-proto.h"
 #include "ogs-sbi.h"
 
+#include <iomanip>
 #include <stdexcept>
 #include <string>
 #include <list>
