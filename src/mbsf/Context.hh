@@ -107,6 +107,7 @@ public:
     bool userServiceAnnouncementConfigured();
     int32_t incAnnChannelCounter();
     int32_t decAnnChannelCounter();
+    int32_t updateAnnChannelCounter(bool new_user_service_ann_channel, bool old_user_service_ann_channel);
     int32_t annChannelCount();
     void setUserServiceAnnouncementChannel();
 
@@ -119,7 +120,7 @@ public:
     const std::string &userServiceAnnDocRoot() const { return userServiceAnnouncement.docRoot;};
     std::optional<int32_t > repetitionInterval() const { return userServiceAnnouncement.announcementRepetitionTime;};
     std::optional<int32_t > keepUpdated() const { return userServiceAnnouncement.keepUpdatedInterval;};
-    const std::shared_ptr<UserServiceAnnChannel> &userServiceAnnouncementChannel() const { return m_userServiceAnnChannel; };
+    const std::shared_ptr<UserServiceAnnChannel> &userServiceAnnouncementChannel() const;
     const reftools::common::httpxpp::SockAddr &findUserServAnnServerAddrForRemote(const reftools::common::httpxpp::SockAddr &remote_addr) const;
 
     enum ServerType {

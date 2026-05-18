@@ -61,8 +61,9 @@ typedef enum {
 } EventTypeBitMask;
 
 
- /* event timestamps */
-    std::optional<DateTime> dataIngestFailure;
+ /* event timestamps and EventNotification StatusAddInfo */
+#if 0
+    std::pair<std::optional<DateTime>, std::optional<std::string>> dataIngestFailure;
     std::optional<DateTime> distSessTerminated;
     std::optional<DateTime> distSessStarted;
     std::optional<DateTime> distSessServMngtFailure;
@@ -78,6 +79,23 @@ typedef enum {
     std::optional<DateTime> distSessActivated;
     std::optional<DateTime> distSessEstFailure;
     std::optional<DateTime> userSerAd;
+#endif
+    std::pair<std::optional<DateTime>, std::optional<std::string>> dataIngestFailure {};
+    std::pair<std::optional<DateTime>, std::optional<std::string>> distSessTerminated {};
+    std::pair<std::optional<DateTime>, std::optional<std::string>> distSessStarted {};
+    std::pair<std::optional<DateTime>, std::optional<std::string>> distSessServMngtFailure {};
+    std::pair<std::optional<DateTime>, std::optional<std::string>> distSessStarting {};
+    std::pair<std::optional<DateTime>, std::optional<std::string>> sessionTerminated {};
+    std::pair<std::optional<DateTime>, std::optional<std::string>> userDataIngSessTerminated {};
+    std::pair<std::optional<DateTime>, std::optional<std::string>> userDataIngSessStarting {};
+    std::pair<std::optional<DateTime>, std::optional<std::string>> userDataIngSessStarted {};
+    std::pair<std::optional<DateTime>, std::optional<std::string>> distSessPolCrtlFailure {};
+    std::pair<std::optional<DateTime>, std::optional<std::string>> deliveryStarted {};
+    std::pair<std::optional<DateTime>, std::optional<std::string>> sessionStarted {};
+    std::pair<std::optional<DateTime>, std::optional<std::string>> sessionReleased {};
+    std::pair<std::optional<DateTime>, std::optional<std::string>> distSessActivated {};
+    std::pair<std::optional<DateTime>, std::optional<std::string>> distSessEstFailure {};
+    std::pair<std::optional<DateTime>, std::optional<std::string>> userSerAd {};
 
     /* Constructors and Destructor */
     SubscribedEvents();
@@ -95,16 +113,16 @@ typedef enum {
     EventTypeBitMask getEventTypeBitMask(DistSessionEventType dist_session_event_type);
     int updatedSince(const SubscribedEvents &other) const; /* returns event type bits */
     bool isUpdated(std::shared_ptr< Event > status_event, const SubscribedEvents &other) const;
-    const std::optional<DateTime> &timepointForEventType(EventTypeBitMask event_type) const;
+    const std::pair<std::optional<DateTime>, std::optional<std::string>> &timepointForEventType(EventTypeBitMask event_type) const;
 
-    const std::optional<DateTime> &registerEvent(std::shared_ptr<DistSessionEventReport> dist_sess_event_report);
-    const std::optional<DateTime> &registerEvent(EventTypeBitMask event_type);
-    std::optional<DateTime> *subscribedEventType(std::shared_ptr< Event > event);
-    SubscribedEvents &setSubscribedEventTime(std::shared_ptr< Event > event, std::optional<DateTime> time_point);
-    const std::optional<DateTime> &timepointForSubscribedEvent(std::shared_ptr< Event > event) const;
+    SubscribedEvents &registerEvent(std::shared_ptr<DistSessionEventReport> dist_sess_event_report);
+    SubscribedEvents &registerEvent(EventTypeBitMask event_type);
+    std::pair<std::optional<DateTime>, std::optional<std::string>> *subscribedEventType(std::shared_ptr< Event > event);
+    SubscribedEvents &setSubscribedEventTime(std::shared_ptr< Event > event, std::optional<DateTime> time_point = std::nullopt, std::optional<std::string> status_add_info = std::nullopt);
+    const std::pair<std::optional<DateTime>, std::optional<std::string>> &timepointForSubscribedEvent(std::shared_ptr< Event > event) const;
 
-    std::optional<DateTime> &timepointForEventType(EventTypeBitMask event_type);
-    const std::optional<DateTime> &tpForEventType(EventTypeBitMask event_type) const;
+    std::pair<std::optional<DateTime>, std::optional<std::string>> &timepointForEventType(EventTypeBitMask event_type);
+    const std::pair<std::optional<DateTime>, std::optional<std::string>> &tpForEventType(EventTypeBitMask event_type) const;
 
     static bool isSubscribedEventNotificationStimulatedByMbsf(std::shared_ptr< Event > status_event);
 

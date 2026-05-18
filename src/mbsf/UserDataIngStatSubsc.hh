@@ -92,7 +92,7 @@ public:
     const std::optional<std::string> &nfcInstanceId() const;
 
     /* Setters */
-    void setSubscribedEventTime(std::shared_ptr< reftools::mbsf::Event > event, std::optional<SubscribedEvents::DateTime> time_point);
+    void setSubscribedEventTime(std::shared_ptr< reftools::mbsf::Event > event, std::optional<SubscribedEvents::DateTime> time_point = std::nullopt, std::optional<std::string> status_add_info = std::nullopt);
     UserDataIngStatSubsc &modify(fiveg_mag_reftools::CJson &json, bool as_request=false);
     UserDataIngStatSubsc &update(fiveg_mag_reftools::CJson &json, bool as_request=false);
 
@@ -103,6 +103,7 @@ public:
 
     std::shared_ptr<reftools::mbsf::MBSUserDataIngStatNotif > makeMbsUserDataIngStatNotif(std::list<std::shared_ptr< reftools::mbsf::EventNotification > > event_notifications) const;
     bool checkForUserDataIngSessStarting();
+    bool checkForUserServiceAnn();
     void checkAndSetUserDataIngSessStartedTerminatedEvent(std::shared_ptr<UserDataIngSession> user_data_ing_session) const;
 
     /** Send Notifications to client

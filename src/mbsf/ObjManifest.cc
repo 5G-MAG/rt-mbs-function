@@ -51,24 +51,42 @@ MBSF_NAMESPACE_START
 
 ObjManifest::ObjManifest(CJson &json, bool as_request)
     :m_objectManifest(new ObjectManifest(json, as_request))
+    ,m_objectLocators()
     ,m_objectManifestMutex(new std::recursive_mutex)
 {
 }
 
 ObjManifest::ObjManifest(const std::shared_ptr<reftools::mbsf::ObjectManifest> &object_manifest)
     :m_objectManifest(object_manifest)
+    ,m_objectLocators()
     ,m_objectManifestMutex(new std::recursive_mutex)
 {
+}
+
+ObjManifest::ObjManifest(const std::shared_ptr<reftools::mbsf::ObjectManifest> &object_manifest, const std::list<std::string> &object_locators)
+    :m_objectManifest(object_manifest)
+    ,m_objectLocators(object_locators)
+    ,m_objectManifestMutex(new std::recursive_mutex)
+{
+
 }
 
 ObjManifest::ObjManifest(std::list<std::shared_ptr<CarouselObject >> objects)
     :m_objectManifest(new ObjectManifest())
+    ,m_objectLocators()
     ,m_objectManifestMutex(new std::recursive_mutex)
 {
     addObjects(objects);
-    
 }
 
+ObjManifest::ObjManifest(std::list<std::shared_ptr<CarouselObject >> objects, const std::list<std::string> &object_locators)
+    :m_objectManifest(new ObjectManifest())
+    ,m_objectLocators(object_locators)
+    ,m_objectManifestMutex(new std::recursive_mutex)
+
+{
+    addObjects(objects);
+}
 
 ObjManifest::~ObjManifest()
 {
@@ -97,6 +115,18 @@ void ObjManifest::addObjects(std::list<std::shared_ptr<CarouselObject >> objects
     }
 }
 
+void ObjManifest::forEachObject(std::function<void(const std::string &)> fn)
+{
+    std::lock_guard<decltype(m_objectManifestMutex)::element_type> lock(*m_objectManifestMutex);
+    for (auto &object_locator : m_objectLocators) {
+        fn(object_locator);
+    }
+}
+
+std::list<std::string> ObjManifest::getObjectLocators() {
+    std::lock_guard<decltype(m_objectManifestMutex)::element_type> lock(*m_objectManifestMutex);
+    return m_objectLocators;
+}
 
 MBSF_NAMESPACE_STOP
 

@@ -30,11 +30,11 @@
 #include "common.hh"
 #include "App.hh"
 #include "hash.hh"
+#include "ObjManifest.hh"
 #include "Open5GSSBIMessage.hh"
 #include "Open5GSSBIStream.hh"
 #include "DistributionSessionNotificationEvent.hh"
 #include "UserDataIngSession.hh"
-#include "UserDataIngStatSubscNotificationEvent.hh"
 #include "LocalEvents.hh"
 #include "UserDataIngSessionNotificationEvent.hh"
 #include "openapi/model/MBSUserDataIngStatSubsc.h"
@@ -281,18 +281,18 @@ void UserDataIngStatSubsc::sendNotifications() const
 {
     if (!m_cache) return; /* being destroyed */
 
-    ogs_info("UserDataIngStatSubsc[%p]: Sending notifications", this);
+    ogs_debug("UserDataIngStatSubsc[%p]: Sending notifications", this);
     const auto &notify_uri = m_mbsUserDataIngStatSubsc.getNotifUri();
     if (!notify_uri.empty()) {
-        ogs_info("UserDataIngStatSubsc[%p]: notify URL = %s", this, notify_uri.c_str());
+        ogs_debug("UserDataIngStatSubsc[%p]: notify URL = %s", this, notify_uri.c_str());
         std::list<std::shared_ptr< EventNotification > > event_notifications = makeEventNotifications();
         if (!event_notifications.empty()) {
             {
-                ogs_info("UserDataIngStatSubsc[%p]: building notify request", this);
+                ogs_debug("UserDataIngStatSubsc[%p]: building notify request", this);
                 std::shared_ptr<MBSUserDataIngStatNotif > stat_notif = makeMbsUserDataIngStatNotif(event_notifications);
                 CJson json = stat_notif->toJSON(true);
                 std::string body(json.serialise());
-                ogs_info("UserDataIngStatSubsc[%p]: SENDING: %s", this, body.c_str());
+                ogs_debug("UserDataIngStatSubsc[%p]: SENDING: %s", this, body.c_str());
 
             }
             ogs_debug("UserDataIngStatSubsc[%p]: have events to send", this);
@@ -408,14 +408,14 @@ std::list<std::shared_ptr< EventNotification > > UserDataIngStatSubsc::makeEvent
 
             {
 
-                const std::optional<SubscribedEvents::DateTime> &timepoint = m_subscribedEventTimestamps.timepointForSubscribedEvent(subsc_event->getStatusEvent());
-                if (!timepoint.has_value()) continue;
+                const std::pair<std::optional<SubscribedEvents::DateTime>, std::optional<std::string>> &subs_event = m_subscribedEventTimestamps.timepointForSubscribedEvent(subsc_event->getStatusEvent());
+                if (!subs_event.first.has_value()) continue;
                 auto evt = m_cache->lastReportedEventTimes.subscribedEventType(subsc_event->getStatusEvent());
                 if (evt) {
-                    *evt = timepoint;
+                    *evt = subs_event;
                 }
-                const std::string &timestamp = time_point_to_iso8601_utc_str(timepoint.value());
-                std::shared_ptr< EventNotification > notification = makeEventNotification(subsc_event->getStatusEvent(), timestamp, std::nullopt, std::nullopt);
+                const std::string &timestamp = time_point_to_iso8601_utc_str(subs_event.first.value());
+                std::shared_ptr< EventNotification > notification = makeEventNotification(subsc_event->getStatusEvent(), timestamp, std::nullopt, subs_event.second);
                 result.push_back(std::move(notification));
             }
 
@@ -430,14 +430,14 @@ std::list<std::shared_ptr< EventNotification > > UserDataIngStatSubsc::makeEvent
             const auto &dist_sess_event_timestamps = context_data->distributionSessionInfo->eventTimestamps();
 
             if (dist_sess_event_timestamps.isUpdated(status_event, m_cache->lastReportedEventTimes)) {
-                const std::optional<SubscribedEvents::DateTime> &time_point = dist_sess_event_timestamps.timepointForSubscribedEvent(subsc_event->getStatusEvent());
-                if (!time_point.has_value()) continue;
+                const std::pair<std::optional<SubscribedEvents::DateTime>, std::optional<std::string>> &time_point = dist_sess_event_timestamps.timepointForSubscribedEvent(subsc_event->getStatusEvent());
+                if (!time_point.first.has_value()) continue;
                 // get pointer to the appropriate variable std::optional<SubscribedEvents::DateTime> *;
                 auto p = m_cache->lastReportedEventTimes.subscribedEventType(subsc_event->getStatusEvent());
                 if (p) {
                     *p = time_point;
                 }
-                const std::string &time_stamp = time_point_to_iso8601_utc_str(time_point.value());
+                const std::string &time_stamp = time_point_to_iso8601_utc_str(time_point.first.value());
                 std::shared_ptr< EventNotification > event_notification = makeEventNotification(status_event, time_stamp, dist_session_id, std::nullopt);
                 result.push_back(std::move(event_notification));
             }
@@ -493,6 +493,16 @@ static int notify_client_callback(int status, ogs_sbi_response_t *response, void
     if (status != OGS_OK) {
         ogs_log_message(status == OGS_DONE ? OGS_LOG_DEBUG : OGS_LOG_WARN, 0,
                         "MBSUserDataIngStatNotif failed [%d]", status);
+        if(req_data) {
+            if(req_data->request) {
+	        req_data->request->setOwner(true);
+                req_data->request.reset();
+	    }
+            delete req_data;
+	}
+	if(response) ogs_sbi_response_free(response);
+        if(e) ogs_event_free(e);
+	return OGS_ERROR;
     } else {
         ogs_assert(response);
     }
@@ -736,13 +746,13 @@ bool UserDataIngStatSubsc::processEvent(Open5GSEvent &event)
         {
             DistributionSessionNotificationEvent dist_event(event);
             const auto &subsc = dist_event.distributionSessionInfoSubscription();
-            ogs_info("Sending notifications for subscription %p", &subsc);
+            ogs_debug("Sending notifications for subscription %p", &subsc);
             const std::weak_ptr<UserDataIngStatSubsc> stat_subsc = subsc.userDataIngStatSubsc();
             if (auto sp = stat_subsc.lock()) {
                 // sp is std::shared_ptr<UserDataIngStatSubsc>
                 sp->sendNotifications(); // call the method on the shared_ptr
             } else {
-                ogs_info("subscription object expired; handle accordingly");
+                ogs_debug("subscription object expired; handle accordingly");
             }
             dist_event.releaseEventData();
             return true;
@@ -751,10 +761,11 @@ bool UserDataIngStatSubsc::processEvent(Open5GSEvent &event)
         {
             UserDataIngSessionNotificationEvent user_data_ing_session_event(event);
             const auto &user_data_ing_session = user_data_ing_session_event.userDataIngSession();
-            ogs_info("Sending notifications for ing session %p", &user_data_ing_session);
+            ogs_debug("Sending notifications for ing session %p", &user_data_ing_session);
             const std::string &user_data_ing_session_id = user_data_ing_session.userDataIngSessionId();
             const std::map<std::string, std::shared_ptr<UserDataIngStatSubsc> > &user_data_ing_stat_subscs = App::self().context()->userDataIngStatSubscs();
-            for(const auto &user_data_ing_stat_subsc : user_data_ing_stat_subscs) {
+
+	    for(const auto &user_data_ing_stat_subsc : user_data_ing_stat_subscs) {
                 const std::shared_ptr<UserDataIngStatSubsc> &stat_subsc = user_data_ing_stat_subsc.second;
                 const std::string &id = stat_subsc->userDataIngSessionId();
                 if (user_data_ing_session_id == id && stat_subsc->checkForUserDataIngSessStarting()) {
@@ -763,6 +774,21 @@ bool UserDataIngStatSubsc::processEvent(Open5GSEvent &event)
                     *event = Event::VAL_USER_DATA_ING_SESS_STARTING;
                     stat_subsc->setSubscribedEventTime(event, DateTime::clock::now());
                     stat_subsc->sendNotifications();
+
+                }
+
+		if (user_data_ing_session_id == id && stat_subsc->checkForUserServiceAnn()) {
+                    std::shared_ptr<ObjManifest> carousel_object_manifest = user_data_ing_session.carouselObjectManifest();
+		    if(!carousel_object_manifest) break;;
+		    std::list<std::string> object_locators = carousel_object_manifest->getObjectLocators();
+                    if(!object_locators.size()) break;
+		    for(const std::string &object_locator : object_locators) {
+                        std::shared_ptr< Event > event = nullptr;
+                        event.reset(new Event());
+                        *event = Event::VAL_USER_SER_AD;
+                        stat_subsc->setSubscribedEventTime(event, DateTime::clock::now(), object_locator);
+                        stat_subsc->sendNotifications();
+		    }
 
                 }
 
@@ -779,9 +805,9 @@ bool UserDataIngStatSubsc::processEvent(Open5GSEvent &event)
     return false;
 }
 
-void UserDataIngStatSubsc::setSubscribedEventTime(std::shared_ptr< Event > event, std::optional<DateTime> time_point)
+void UserDataIngStatSubsc::setSubscribedEventTime(std::shared_ptr< Event > event, std::optional<DateTime> time_point, std::optional<std::string> status_add_info)
 {
-     m_subscribedEventTimestamps.setSubscribedEventTime(event, time_point);
+     m_subscribedEventTimestamps.setSubscribedEventTime(event, time_point, status_add_info);
 }
 
 bool UserDataIngStatSubsc::processClientResponse(const Open5GSEvent &event)
@@ -842,6 +868,23 @@ bool UserDataIngStatSubsc::checkForUserDataIngSessStarting() {
     }
     return false;
 }
+
+bool UserDataIngStatSubsc::checkForUserServiceAnn() {
+    //std::list<std::optional<std::shared_ptr< SubscribedEvent > >
+    const reftools::mbsf::MBSUserDataIngStatSubsc::EventSubscsType &subscribed_events = m_mbsUserDataIngStatSubsc.getEventSubscs();
+    for (const auto &subscribed_event : subscribed_events) {
+        if (!subscribed_event) continue;
+        std::shared_ptr<SubscribedEvent> subsc_event = *subscribed_event;
+        if (!subsc_event) continue;
+        std::shared_ptr< Event > event = subsc_event->getStatusEvent();
+        if (event->getValue() == Event::VAL_USER_SER_AD) {
+	    return true;
+	}
+    }
+
+    return false;
+}
+
 
 const std::string &UserDataIngStatSubsc::userDataIngSessionId() const {
     return m_mbsUserDataIngStatSubsc.getMbsIngSessionId();
@@ -1031,10 +1074,10 @@ std::optional<SubscribedEvents::DateTime> UserDataIngStatSubsc::timeOfLatestDist
     for (const auto &distribution_session_info : distribution_session_infos) {
         std::shared_ptr<DistributionSessionInfo> distribution_sess_info = distribution_session_info.second->distributionSessionInfo;
         const SubscribedEvents &subscribed_events = distribution_sess_info->eventTimestamps();
-        const std::optional<UserDataIngStatSubsc::DateTime> &timepoint = subscribed_events.timepointForEventType(event_type);
+        const std::pair<std::optional<SubscribedEvents::DateTime>, std::optional<std::string>> &timepoint = subscribed_events.timepointForEventType(event_type);
         // const std::optional<SubscribedEvents::DateTime> &timepoint = subscribed_events.timepointForSubscribedEvent(event);
-        if (timepoint.has_value()) {
-            dist_session_event_reports.emplace(timepoint.value(), distribution_sess_info);
+        if (timepoint.first.has_value()) {
+            dist_session_event_reports.emplace(timepoint.first.value(), distribution_sess_info);
         }
     }
     if (dist_session_event_reports.empty()) {

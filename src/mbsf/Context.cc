@@ -952,15 +952,24 @@ bool Context::userServiceAnnouncementConfigured()
 int32_t Context::incAnnChannelCounter()
 {
     userServicesWithViaMbsDistSession++;
-    ogs_info("INC ANN CHANNEL COUNTER :[%d]", userServicesWithViaMbsDistSession);
+    if(m_userServiceAnnChannel) m_userServiceAnnChannel->notify();
     return userServicesWithViaMbsDistSession;
 }
 
 int32_t Context::decAnnChannelCounter()
 {
     userServicesWithViaMbsDistSession--;
+    if(m_userServiceAnnChannel) m_userServiceAnnChannel->notify();
+    return userServicesWithViaMbsDistSession;
+}
 
-    ogs_info("DEC ANN CHANNEL COUNTER :[%d]", userServicesWithViaMbsDistSession);
+int32_t Context::updateAnnChannelCounter(bool new_user_service_ann_channel, bool old_user_service_ann_channel)
+{
+    if(new_user_service_ann_channel && !old_user_service_ann_channel) {
+        ++userServicesWithViaMbsDistSession;
+    } else if (!new_user_service_ann_channel && old_user_service_ann_channel) {
+        --userServicesWithViaMbsDistSession;
+    }
     if(m_userServiceAnnChannel) m_userServiceAnnChannel->notify();
     return userServicesWithViaMbsDistSession;
 }
@@ -969,6 +978,13 @@ int32_t Context::annChannelCount()
 {
     return userServicesWithViaMbsDistSession;
 }
+
+const std::shared_ptr<UserServiceAnnChannel> &Context::userServiceAnnouncementChannel() const
+{
+    std::lock_guard<decltype(m_userServiceAnnChannelMutex)::element_type> lock(*m_userServiceAnnChannelMutex);
+    return m_userServiceAnnChannel;
+}
+
 
 
 

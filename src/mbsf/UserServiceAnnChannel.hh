@@ -39,6 +39,7 @@ public:
 
     void abort() {
         m_announcementChannelCancel = true;
+	m_announcementChannelChange.notify_all();
         if (m_announcementChannelThread.get_id() != std::this_thread::get_id() && m_announcementChannelThread.joinable()) {
             m_announcementChannelThread.join();
         }
@@ -63,7 +64,6 @@ public:
     void sendCarousel(std::weak_ptr<UserDataIngSession> ing_session);
     void resetClient();
     bool processClientResponse(const Open5GSEvent &event);
-    std::shared_ptr< Open5GSSBINFInstance> userServiceAnnChannelMbstfNfInstance();
     static bool processEvent(Open5GSEvent &event);
 
 protected:

@@ -48,6 +48,18 @@ Open5GSSBINFInstance::Open5GSSBINFInstance(ogs_sbi_nf_instance_t *instance, bool
 
 }
 
+Open5GSSBINFInstance::Open5GSSBINFInstance(const std::string &id, bool owner)
+    :m_ogsSbiNfInstance()
+    ,m_owner(owner)
+{
+    std::string nf_id = id;
+    m_ogsSbiNfInstance = ogs_sbi_nf_instance_find(nf_id.data());
+    if (!m_ogsSbiNfInstance) {
+            throw std::runtime_error("Open5GSSBINFInstance failed");
+        }
+
+}
+
 Open5GSSBINFInstance::~Open5GSSBINFInstance()
 {
     if(m_owner) ogs_sbi_nf_instance_remove(m_ogsSbiNfInstance);

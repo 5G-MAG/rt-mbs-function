@@ -90,6 +90,8 @@ public:
     std::shared_ptr<reftools::mbsf::MbsServiceArea> getTgtServAreas() const;
     std::shared_ptr<reftools::mbsf::ExternalMbsServiceArea> getExtTgtServAreas() const;
 
+    DistributionSessionInfo &setDistSessionState(std::optional<std::shared_ptr< reftools::mbsf::DistSessionState > > state = std::nullopt)  {m_mbsDistributionSessionInfo->setMbsDistSessState(state); return *this;};
+
     DistributionSessionInfo &processStatusNotifyReqData(std::shared_ptr<UserDataIngSession> ing_sess, fiveg_mag_reftools::CJson &json, bool as_request);
     void addEventSubscription(const std::weak_ptr<UserDataIngStatSubsc> &stat_subscription, std::shared_ptr< reftools::mbsf::Event > event);
     void resetEventSubscription();

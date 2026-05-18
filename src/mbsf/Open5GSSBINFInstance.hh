@@ -37,7 +37,8 @@ public:
 
 
     Open5GSSBINFInstance() = delete;
-    Open5GSSBINFInstance(ogs_sbi_nf_instance_t *instance, bool owner = true);
+    Open5GSSBINFInstance(ogs_sbi_nf_instance_t *instance, bool owner = false);
+    Open5GSSBINFInstance(const std::string &id, bool owner = false);
     Open5GSSBINFInstance(Open5GSSBINFInstance &&other) = delete;
     Open5GSSBINFInstance(const Open5GSSBINFInstance &other) = delete;
     Open5GSSBINFInstance &operator=(Open5GSSBINFInstance &&other) = delete;

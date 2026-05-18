@@ -47,7 +47,9 @@ public:
 
     ObjManifest(fiveg_mag_reftools::CJson &json, bool as_request);
     ObjManifest(const std::shared_ptr<reftools::mbsf::ObjectManifest> &object_manifest);
-    ObjManifest(std::list<std::shared_ptr<CarouselObject >> object); 
+    ObjManifest(const std::shared_ptr<reftools::mbsf::ObjectManifest> &object_manifest, const std::list<std::string> &object_locators);
+    ObjManifest(std::list<std::shared_ptr<CarouselObject >> objects);
+    ObjManifest(std::list<std::shared_ptr<CarouselObject >> objects, const std::list<std::string> &object_locators);
 
     ObjManifest() = delete;
     ObjManifest(ObjManifest &&other) = delete;
@@ -61,6 +63,8 @@ public:
 
     const std::shared_ptr<reftools::mbsf::ObjectManifest> objectManifest() const {return m_objectManifest;};
     ObjManifest &updateObjectManifest(std::shared_ptr<reftools::mbsf::ObjectManifest> object_manifest);
+    void forEachObject(std::function<void(const std::string &)> fn);
+    std::list<std::string> getObjectLocators();
 
 
 private:
@@ -68,6 +72,7 @@ private:
     void addObjects(std::list<std::shared_ptr<CarouselObject >> objects);
     
     std::shared_ptr<reftools::mbsf::ObjectManifest> m_objectManifest;
+    std::list<std::string> m_objectLocators;
     std::unique_ptr<std::recursive_mutex> m_objectManifestMutex;
 };
 

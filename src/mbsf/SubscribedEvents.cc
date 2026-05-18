@@ -23,8 +23,10 @@
 #include <optional>
 #include <iostream>
 #include <iomanip>
+#include <string>
 #include <sstream>
 #include <ctime>
+#include <utility>
 
 #include "openapi/model/DistSessionEventType.h"
 #include "openapi/model/DistSessionEventReport.h"
@@ -175,9 +177,9 @@ bool SubscribedEvents::operator==(const SubscribedEvents &other) const
 }
 
 bool SubscribedEvents::isUpdated(std::shared_ptr< Event > status_event, const SubscribedEvents &other) const {
- const std::optional<DateTime> &time_point = timepointForSubscribedEvent(status_event);
- const std::optional<DateTime> &other_time_point = other.timepointForSubscribedEvent(status_event);
- if (time_point.has_value() &&(!other_time_point.has_value() || other_time_point.value() < time_point.value())) {
+ const std::pair<std::optional<DateTime>, std::optional<std::string>> &time_point = timepointForSubscribedEvent(status_event);
+ const std::pair<std::optional<DateTime>, std::optional<std::string>> &other_time_point = other.timepointForSubscribedEvent(status_event);
+ if (time_point.first.has_value() &&(!other_time_point.first.has_value() || other_time_point.first.value() < time_point.first.value())) {
      return true;
  }
  return false;
@@ -192,6 +194,8 @@ bool SubscribedEvents::isSubscribedEventNotificationStimulatedByMbsf(std::shared
         return true;
     case Event::VAL_USER_DATA_ING_SESS_STARTED:
         return true;
+    case Event::VAL_USER_SER_AD:
+        return true;
     default:
         return false;
     }
@@ -205,100 +209,113 @@ int SubscribedEvents::updatedSince(const SubscribedEvents &other) const
 {
     int event_types = 0;
 
-     if (dataIngestFailure && (!other.dataIngestFailure || other.dataIngestFailure.value() < dataIngestFailure.value()))
+     if (dataIngestFailure.first && (!other.dataIngestFailure.first || other.dataIngestFailure.first.value() < dataIngestFailure.first.value()))
         event_types |= DATA_INGEST_FAILURE;
 
-    if (distSessTerminated && (!other.distSessTerminated || other.distSessTerminated.value() < distSessTerminated.value()))
+    if (distSessTerminated.first && (!other.distSessTerminated.first || other.distSessTerminated.first.value() < distSessTerminated.first.value()))
         event_types |= DIST_SESS_TERMINATED;
 
-    if (distSessStarted && (!other.distSessStarted || other.distSessStarted.value() < distSessStarted.value()))
+    if (distSessStarted.first && (!other.distSessStarted.first || other.distSessStarted.first.value() < distSessStarted.first.value()))
         event_types |= DIST_SESS_STARTED;
 
-    if (distSessServMngtFailure && (!other.distSessServMngtFailure || other.distSessServMngtFailure.value() < distSessServMngtFailure.value()))
+    if (distSessServMngtFailure.first && (!other.distSessServMngtFailure.first || other.distSessServMngtFailure.first.value() < distSessServMngtFailure.first.value()))
         event_types |= DIST_SESS_SERV_MNGT_FAILURE;
 
-    if (distSessStarting && (!other.distSessStarting || other.distSessStarting.value() < distSessStarting.value()))
+    if (distSessStarting.first && (!other.distSessStarting.first || other.distSessStarting.first.value() < distSessStarting.first.value()))
         event_types |= DIST_SESS_STARTING;
 
-    if (sessionTerminated && (!other.sessionTerminated || other.sessionTerminated.value() < sessionTerminated.value()))
+    if (sessionTerminated.first && (!other.sessionTerminated.first || other.sessionTerminated.first.value() < sessionTerminated.first.value()))
         event_types |= SESSION_TERMINATED;
 
-    if (userDataIngSessTerminated && (!other.userDataIngSessTerminated || other.userDataIngSessTerminated.value() < userDataIngSessTerminated.value()))
+    if (userDataIngSessTerminated.first && (!other.userDataIngSessTerminated.first || other.userDataIngSessTerminated.first.value() < userDataIngSessTerminated.first.value()))
         event_types |= USER_DATA_ING_SESS_TERMINATED;
 
-    if (userDataIngSessStarting && (!other.userDataIngSessStarting || other.userDataIngSessStarting.value() < userDataIngSessStarting.value()))
+    if (userDataIngSessStarting.first && (!other.userDataIngSessStarting.first || other.userDataIngSessStarting.first.value() < userDataIngSessStarting.first.value()))
         event_types |= USER_DATA_ING_SESS_STARTING;
 
-    if (userDataIngSessStarted && (!other.userDataIngSessStarted || other.userDataIngSessStarted.value() < userDataIngSessStarted.value()))
+    if (userDataIngSessStarted.first && (!other.userDataIngSessStarted.first || other.userDataIngSessStarted.first.value() < userDataIngSessStarted.first.value()))
         event_types |= USER_DATA_ING_SESS_STARTED;
 
-    if (distSessPolCrtlFailure && (!other.distSessPolCrtlFailure || other.distSessPolCrtlFailure.value() < distSessPolCrtlFailure.value()))
+    if (distSessPolCrtlFailure.first && (!other.distSessPolCrtlFailure.first || other.distSessPolCrtlFailure.first.value() < distSessPolCrtlFailure.first.value()))
         event_types |= DIST_SESS_POL_CRTL_FAILURE;
 
-    if (deliveryStarted && (!other.deliveryStarted || other.deliveryStarted.value() < deliveryStarted.value()))
+    if (deliveryStarted.first && (!other.deliveryStarted.first || other.deliveryStarted.first.value() < deliveryStarted.first.value()))
         event_types |= DELIVERY_STARTED;
 
-    if (sessionStarted && (!other.sessionStarted || other.sessionStarted.value() < sessionStarted.value()))
+    if (sessionStarted.first && (!other.sessionStarted.first || other.sessionStarted.first.value() < sessionStarted.first.value()))
         event_types |= SESSION_STARTED;
 
-    if (sessionReleased && (!other.sessionReleased || other.sessionReleased.value() < sessionReleased.value()))
+    if (sessionReleased.first && (!other.sessionReleased.first || other.sessionReleased.first.value() < sessionReleased.first.value()))
         event_types |= SESSION_RELEASED;
 
-    if (distSessActivated && (!other.distSessActivated || other.distSessActivated.value() < distSessActivated.value()))
+    if (distSessActivated.first && (!other.distSessActivated.first || other.distSessActivated.first.value() < distSessActivated.first.value()))
         event_types |= DIST_SESS_ACTIVATED;
 
-    if (distSessEstFailure && (!other.distSessEstFailure || other.distSessEstFailure.value() < distSessEstFailure.value()))
+    if (distSessEstFailure.first && (!other.distSessEstFailure.first || other.distSessEstFailure.first.value() < distSessEstFailure.first.value()))
         event_types |= DIST_SESS_EST_FAILURE;
 
-    if (userSerAd && (!other.userSerAd || other.userSerAd.value() < userSerAd.value()))
+    if (userSerAd.first && (!other.userSerAd.first || other.userSerAd.first.value() < userSerAd.first.value()))
         event_types |= USER_SER_AD;
 
     return event_types;
 }
 
-const std::optional<SubscribedEvents::DateTime> &SubscribedEvents::timepointForEventType(EventTypeBitMask event_type) const
+const std::pair<std::optional<SubscribedEvents::DateTime>, std::optional< std::string>> &SubscribedEvents::timepointForEventType(EventTypeBitMask event_type) const
 {
     return tpForEventType(event_type);
 }
 
-const std::optional<SubscribedEvents::DateTime> &SubscribedEvents::registerEvent(EventTypeBitMask event_type)
+SubscribedEvents &SubscribedEvents::registerEvent(EventTypeBitMask event_type)
 {
     auto &tp = timepointForEventType(event_type);
-    tp = DateTime::clock::now();
-    return tp;
+    tp.first.emplace(DateTime::clock::now());
+    tp.second.reset();
+   // return tp;
+   return *this;
 }
 
-SubscribedEvents &SubscribedEvents::setSubscribedEventTime(std::shared_ptr< Event > event, std::optional<DateTime> time_point)
+SubscribedEvents &SubscribedEvents::setSubscribedEventTime(std::shared_ptr< Event > event, std::optional<DateTime> time_point, std::optional<std::string> status_add_info)
 {
     auto p = subscribedEventType(event);
     if (p) {
-        *p = time_point;
+        if (time_point) {
+            p->first.emplace(*time_point);
+        } else {
+            p->first.reset();
+        }
+	if(status_add_info) {
+	    p->second.emplace(*status_add_info);
+	} else {
+            p->second.reset();
+	}
 
     } else {
-        ogs_info("Invalid Timestamp");
+        ogs_info("Invalid Subscribed Event Type");
     }
     return *this;
 }
 
-const std::optional<SubscribedEvents::DateTime> &SubscribedEvents::registerEvent(std::shared_ptr<DistSessionEventReport> dist_sess_event_report)
+SubscribedEvents &SubscribedEvents::registerEvent(std::shared_ptr<DistSessionEventReport> dist_sess_event_report)
 {
     std::shared_ptr< DistSessionEventType > distribution_session_event_type = dist_sess_event_report->getEventType();
     const std::optional<std::string > &time_stamp = dist_sess_event_report->getTimeStamp();
     SubscribedEvents::EventTypeBitMask event_type = getEventTypeBitMask(*distribution_session_event_type);
     auto &tp = timepointForEventType(event_type);
     if (time_stamp.has_value()) {
-        tp = to_time_point_iso8601(time_stamp.value());
-        if (tp == std::chrono::system_clock::time_point{}) {
+        tp.first.emplace(to_time_point_iso8601(time_stamp.value()));
+        if (tp.first == std::chrono::system_clock::time_point{}) {
             ogs_info("epoch parse failed");
-            tp = DateTime::clock::now();
+            tp.first.emplace(DateTime::clock::now());
         }
+	tp.second.reset();
     } else {
-        tp = DateTime::clock::now();
+        tp.first.emplace(DateTime::clock::now());
+	tp.second.reset();
     }
-    return tp;
+    return *this;
 }
 
-std::optional<SubscribedEvents::DateTime> *SubscribedEvents::subscribedEventType(std::shared_ptr< Event > event)
+std::pair<std::optional<SubscribedEvents::DateTime>, std::optional<std::string>> *SubscribedEvents::subscribedEventType(std::shared_ptr< Event > event)
 {
     switch (event->getValue()) {
     case Event::VAL_DATA_INGEST_FAILURE:
@@ -339,7 +356,7 @@ std::optional<SubscribedEvents::DateTime> *SubscribedEvents::subscribedEventType
     return nullptr;
 }
 
-const std::optional<SubscribedEvents::DateTime> &SubscribedEvents::timepointForSubscribedEvent(std::shared_ptr< Event > event) const
+const std::pair<std::optional<SubscribedEvents::DateTime>, std::optional<std::string>> &SubscribedEvents::timepointForSubscribedEvent(std::shared_ptr< Event > event) const
 {
     switch (event->getValue()) {
     case Event::VAL_DATA_INGEST_FAILURE:
@@ -383,12 +400,12 @@ const std::optional<SubscribedEvents::DateTime> &SubscribedEvents::timepointForS
 }
 
 /*** private: ***/
-std::optional<SubscribedEvents::DateTime> &SubscribedEvents::timepointForEventType(EventTypeBitMask event_type)
+std::pair<std::optional<SubscribedEvents::DateTime>, std::optional<std::string>> &SubscribedEvents::timepointForEventType(EventTypeBitMask event_type)
 {
-    return const_cast<std::optional<SubscribedEvents::DateTime>&>(tpForEventType(event_type));
+    return const_cast<std::pair<std::optional<SubscribedEvents::DateTime>, std::optional<std::string>>&>(tpForEventType(event_type));
 }
 
-const std::optional<SubscribedEvents::DateTime> &SubscribedEvents::tpForEventType(EventTypeBitMask event_type) const
+const std::pair<std::optional<SubscribedEvents::DateTime>, std::optional<std::string>> &SubscribedEvents::tpForEventType(EventTypeBitMask event_type) const
 {
     switch (event_type) {
     case DATA_INGEST_FAILURE:

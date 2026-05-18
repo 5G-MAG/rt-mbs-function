@@ -374,7 +374,10 @@ bool UserService::processEvent(Open5GSEvent &event)
                             int response_code = 200;
 
                             std::shared_ptr<UserService> user_service = UserService::find(user_service_id);
+			    bool current_user_services_requires_ann = user_service->requiresUserServiceAnnouncement();
                             user_service->update(mbs_user_service, true);
+			    bool new_user_service_requires_ann = user_service->requiresUserServiceAnnouncement();
+                            App::self().context()->updateAnnChannelCounter(new_user_service_requires_ann, current_user_services_requires_ann);
                             CJson user_service_json(user_service->json(false));
                             std::string body(user_service_json.serialise());
                             ogs_debug("Parsed JSON: %s", body.c_str());

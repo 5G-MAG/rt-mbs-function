@@ -216,8 +216,13 @@ void UserServiceAnnChannel::workerLoop()
                     }
 
 		    std::size_t count = m_announcementChannelChange.wait_for(*m_announcementChannelMutex, std::chrono::milliseconds(10),
-                       [&]{return countUserDataIngSessions(m_userDataIngSessions);});
-                    if(count) {
+                       [&]{return m_announcementChannelCancel || countUserDataIngSessions(m_userDataIngSessions);});
+
+		    if (m_announcementChannelCancel) {
+                        break;
+                    }
+
+		    if(count) {
                         has_ing_session = true;
                         break;
                     } else if(!dist_session_inactive) {
@@ -227,8 +232,11 @@ void UserServiceAnnChannel::workerLoop()
                         *state = DistSessionState::VAL_INACTIVE;
                         m_userServiceAnnChannelDataIngSession->setDistSessionState(state);
                         bool inactive_state = m_announcementChannelChange.wait_for(*m_announcementChannelMutex, std::chrono::milliseconds(10),
-                                        [&]{return m_userServiceAnnChannelDataIngSession->stateOfDistSession(USER_SERVICE_ANN_CHANNEL)->getValue() == DistSessionState::VAL_INACTIVE;});
-                        if(inactive_state) {
+                                        [&]{return m_announcementChannelCancel || m_userServiceAnnChannelDataIngSession->stateOfDistSession(USER_SERVICE_ANN_CHANNEL)->getValue() == DistSessionState::VAL_INACTIVE;});
+
+			if (m_announcementChannelCancel) break;
+
+			if(inactive_state) {
                             dist_session_active = false;
                             dist_session_inactive = true;
                             break;
@@ -300,32 +308,6 @@ int32_t UserServiceAnnChannel::count()
     m_count = App::self().context()->annChannelCount();
     notify();
     return m_count;
-}
-
-std::shared_ptr< Open5GSSBINFInstance> UserServiceAnnChannel::userServiceAnnChannelMbstfNfInstance()
-{
-    if(!m_userServiceAnnChannelDataIngSession) return nullptr;
-    std::shared_ptr< Open5GSSBINFInstance> nf_instance = nullptr;
-    std::shared_ptr< UserDataIngSession::ContextData > context_data =  m_userServiceAnnChannelDataIngSession->getDistributionSessionInfoData(USER_SERVICE_ANN_CHANNEL);
-    const auto &sbi_object = m_userServiceAnnChannelDataIngSession->getSbiObject();
-    if(!context_data || !sbi_object) {
-        return nullptr;
-    }
-    ogs_sbi_nf_instance_t *nf_instance_ann_channel_mbstf = sbi_object->getNFInstance(OGS_SBI_SERVICE_TYPE_NMBSTF_DISTSESSION);
-    if (!nf_instance_ann_channel_mbstf) {
-        m_userServiceAnnChannelDataIngSession->nmbstfDiscoverOnly(context_data);
-	return nullptr;
-    }
-    if(context_data->mbstfNFInstanceId.empty() && nf_instance_ann_channel_mbstf->id) {
-        context_data->mbstfNFInstanceId = std::string(nf_instance_ann_channel_mbstf->id);
-    }
-    try {
-        nf_instance.reset(new Open5GSSBINFInstance(nf_instance_ann_channel_mbstf, false));
-    } catch (std::exception &ex) {
-        ogs_error("Failed to get the NF Instance Object with Id:[%s]", ex.what());
-        return nullptr;
-    }
-    return nf_instance;
 }
 
 void UserServiceAnnChannel::startWorker()
@@ -460,7 +442,6 @@ bool UserServiceAnnChannel::processClientResponse(const Open5GSEvent &event)
 
         if (looks_like_pointer) {
             RequestData *req_data = reinterpret_cast<RequestData*>(const_cast<void*>(raw));
-	    ogs_debug("Request daya: %p", req_data);
             if (req_data && req_data->channel == this) {
 
                 ogs_debug("Client carousel request [%p] and channel [%p]", req_data, req_data->channel);

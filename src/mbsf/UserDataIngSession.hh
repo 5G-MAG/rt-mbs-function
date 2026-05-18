@@ -150,6 +150,7 @@ public:
     const int32_t serviceScheduleDescVersion() {return m_serviceScheduleDescriptionVersion++;};
     const std::shared_ptr<ObjManifest> carouselObjectManifest() const {return m_carouselObjectManifest;};
     const std::unique_ptr<Open5GSSBIObject> &getSbiObject() const {return m_sbiObject;};
+    const std::shared_ptr<UserServiceAnnBundle> getUserServiceAnnBundler() const { return m_userServiceAnnBundle;};
 
     ogs_sbi_xact_t *nmbstfDiscoverOnly(std::shared_ptr< ContextData > data);
     ogs_sbi_xact_t *nmbstfDiscoverAndSend( std::shared_ptr< UserDataIngSession::UserDataIngDistSessId> ids, ogs_sbi_build_f build, void *context, void *data);
@@ -266,6 +267,7 @@ public:
     void userServiceAnnChannelDistributionSessionInfo();
     const std::list<std::string> &getUserServiceAnnBundleFilesList() const;
     void setDistSessionState(std::shared_ptr<reftools::mbsf::DistSessionState> state);
+    void configureUserServiceAnnouncementBundler(std::shared_ptr<UserDataIngSession> user_data_ing_session);
     void userServiceAnnBundled(std::shared_ptr<UserDataIngSession> session);
     std::shared_ptr<reftools::mbsf::DistSessionState> stateOfDistSession(const std::string &key);
 
@@ -302,8 +304,8 @@ private:
     void updateContexts(ogs_pool_id_t stream_id, std::shared_ptr<Open5GSSBIRequest> &request);
     void _changeDistSessionState();
     UserDataIngSession &setUserServiceAnnBundler(std::shared_ptr<UserDataIngSession> user_data_ing_session);
-    void populateCarouselObject(std::shared_ptr< Open5GSSBINFInstance> nf_instance, std::list<std::shared_ptr<CarouselObject >> &objects);
-    void populateObjectCarousel(std::set<std::string> &user_serv_ann_server_addrs, std::list<std::shared_ptr<CarouselObject >> &objects);
+    void populateCarouselObject(std::shared_ptr< Open5GSSBINFInstance> nf_instance, std::list<std::shared_ptr<CarouselObject >> &objects, std::list<std::string> &object_locators);
+    void populateObjectCarousel(std::set<std::string> &user_serv_ann_server_addrs, std::list<std::shared_ptr<CarouselObject >> &objects, std::list<std::string> &object_locators);
 
     static std::recursive_mutex s_registry_mutex;
     static std::map<ogs_sbi_xact_t *, std::shared_ptr< UserDataIngDistSessId >> s_xactRegistry;
