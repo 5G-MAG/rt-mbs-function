@@ -153,10 +153,12 @@ public:
     const SysTimeMS &generated() const {return m_generated;};
     const std::string &hash() const {return m_hash;};
     const int32_t serviceScheduleDescVersion() {return m_serviceScheduleDescriptionVersion++;};
-    const std::shared_ptr<ObjManifest> carouselObjectManifest() const {return m_carouselObjectManifest;};
+    //const std::shared_ptr<ObjManifest> carouselObjectManifest() const {return m_carouselObjectManifest;};
     const std::unique_ptr<Open5GSSBIObject> &getSbiObject() const {return m_sbiObject;};
     const std::shared_ptr<UserServiceAnnBundle> getUserServiceAnnBundler() const { return m_userServiceAnnBundle;};
-
+    const bool isUserServiceAnnBundleAvailable() const { return m_userServiceAnnBundleAvailable;};
+    const bool isIncludedInCarouselObjectManifest() const { return m_includedInCarouselObjectManifest;};
+    const bool userSerAdNotificationSent() const {return m_userSerAdNotificationSent;};
     ogs_sbi_xact_t *nmbstfDiscoverOnly(const std::shared_ptr<ContextData> &data);
     ogs_sbi_xact_t *nmbstfDiscoverAndSend(const std::shared_ptr<UserDataIngDistSessId> &ids, ogs_sbi_build_f build, void *context, void *data);
     UserDataIngSession &setNFInstance(ogs_sbi_service_type_e service_type, ogs_sbi_nf_instance_t *nf_instance);
@@ -164,7 +166,8 @@ public:
     UserDataIngSession &alwaysActive() {m_activePeriods.reset(new AlwaysActive(m_UserDataIngSessionId)); return *this;};
     UserDataIngSession &activePeriods(const ActPeriodsType &act_periods) {m_activePeriods.reset(new ActivePeriods(act_periods, m_activePeriods, *this)); return *this;};
     UserDataIngSession &activePeriodsRepRule(const ActPeriodsRepRuleType &act_periods_rep_rule) {m_activePeriods.reset(new ActivePeriodsRepRule(act_periods_rep_rule, m_activePeriods, *this)); return *this;};
-
+    UserDataIngSession &userServiceAnnBundleAvailable(bool available) { m_userServiceAnnBundleAvailable = available; return *this;};
+    UserDataIngSession &includedInCarouselObjectManifest(bool in_manifest) { m_includedInCarouselObjectManifest = in_manifest; return *this;};
     UserDataIngSession &userServiceAnnouncement(const std::shared_ptr<reftools::mbsf::UserServiceDescription> &user_service_description);
 
     UserDataIngSession &createTimer();
@@ -285,6 +288,14 @@ public:
     void configureUserServiceAnnouncementBundler(const std::shared_ptr<UserDataIngSession> &user_data_ing_session);
     void userServiceAnnBundled(const std::shared_ptr<UserDataIngSession> &session);
     std::shared_ptr<reftools::mbsf::DistSessionState> stateOfDistSession(const std::string &key);
+    void addCarouselObject(std::shared_ptr<CarouselObject > carousel_object);
+    std::list<std::shared_ptr<CarouselObject >> getCarouselObjects() const;
+    void resetCarouselObjects();
+    void forEachObject(std::function<void(const std::string &)> fn);
+    void addObjectLocator(std::string object_locator);
+    std::list<std::string> getObjectLocators() const;
+    void resetObjectLocators();
+    void userSerAdNotificationSent(bool notification_sent) const;
 
     ActivePeriodsBase::TimeRange activeTimeRange() const { return m_activePeriods?m_activePeriods->activeTimeRange():ActivePeriodsBase::TimeRange{std::nullopt, std::nullopt}; };
 
@@ -319,8 +330,8 @@ private:
     void updateContexts(ogs_pool_id_t stream_id, const std::shared_ptr<Open5GSSBIRequest> &request);
     void _changeDistSessionState();
     UserDataIngSession &setUserServiceAnnBundler(const std::shared_ptr<UserDataIngSession> &user_data_ing_session);
-    void populateCarouselObject(const std::shared_ptr<Open5GSSBINFInstance> &nf_instance, std::list<std::shared_ptr<CarouselObject>> &objects, std::list<std::string> &object_locators);
-    void populateObjectCarousel(std::set<std::string> &user_serv_ann_server_addrs, std::list<std::shared_ptr<CarouselObject>> &objects, std::list<std::string> &object_locators);
+    void populateCarouselObject(const std::shared_ptr<Open5GSSBINFInstance> &nf_instance);
+    void populateObjectCarousel(std::set<std::string> &user_serv_ann_server_addrs);
 
     static std::recursive_mutex s_registry_mutex;
     static std::map<ogs_sbi_xact_t*, std::shared_ptr<UserDataIngDistSessId>> s_xactRegistry;
@@ -340,7 +351,14 @@ private:
     bool m_startTimer;
     int32_t m_serviceScheduleDescriptionVersion; // next ver no.
     std::shared_ptr<UserServiceAnnBundle> m_userServiceAnnBundle;
-    std::shared_ptr<ObjManifest> m_carouselObjectManifest;
+    std::shared_ptr<std::recursive_mutex> m_carouselObjectMutex;
+    std::list<std::shared_ptr<CarouselObject >> m_objects;
+    std::shared_ptr<std::recursive_mutex> m_objectLocatorMutex;
+    std::list<std::string> m_objectLocators;
+    bool m_userServiceAnnBundleAvailable;
+    bool m_includedInCarouselObjectManifest;
+    mutable bool m_userSerAdNotificationSent;
+    //std::shared_ptr<ObjManifest> m_carouselObjectManifest;
 
     //key: Dist Session Infos present in this User Data Ingest Session
     std::map<std::string, std::shared_ptr< ContextData >> m_distributionSessionInfos;

@@ -216,7 +216,7 @@ void UserServiceAnnChannel::workerLoop()
                     }
 
 		    std::size_t count = m_announcementChannelChange.wait_for(*m_announcementChannelMutex, std::chrono::milliseconds(10),
-                       [&]{return m_announcementChannelCancel || countUserDataIngSessions(m_userDataIngSessions);});
+                       [&]{return m_announcementChannelCancel || countUserDataIngSessions();});
 
 		    if (m_announcementChannelCancel) {
                         break;
@@ -225,7 +225,7 @@ void UserServiceAnnChannel::workerLoop()
 		    if(count) {
                         has_ing_session = true;
                         break;
-                    } else if(!dist_session_inactive) {
+                    } else if(!userServiceAnnBundleAvailable() && !dist_session_inactive) {
                         has_ing_session = false;
 			std::shared_ptr<DistSessionState> state = nullptr;
                         state.reset(new DistSessionState());
@@ -298,7 +298,7 @@ void UserServiceAnnChannel::workerLoop()
 
         }
 
-	if(has_ing_session) sendCarouselRequests();
+	if(has_ing_session) sendCarouselRequest();
     }
 
 }
@@ -328,30 +328,59 @@ UserServiceAnnChannel &UserServiceAnnChannel::addUserDataIngSession(std::weak_pt
     return *this;
 }
 
-std::size_t UserServiceAnnChannel::countUserDataIngSessions(const std::list<std::weak_ptr<UserDataIngSession>> &sessions)
+std::size_t UserServiceAnnChannel::countUserDataIngSessions()
 {
+    std::size_t count  = 0;
     m_userDataIngSessions.remove_if(&UserServiceAnnChannel::isExpired);
-    return std::count_if(sessions.begin(),sessions.end(),
-		    [](const std::weak_ptr<UserDataIngSession>& w) {
-        return !UserServiceAnnChannel::isExpired(w);
-	}
-    );
-
+    for(const auto &ing_session : m_userDataIngSessions) {
+        auto session = ing_session.lock();
+	if(!session) continue;
+	if(session->isUserServiceAnnBundleAvailable() && !session->isIncludedInCarouselObjectManifest()) count++;
+    }
+    return count;
 }
 
-void UserServiceAnnChannel::sendCarouselRequests()
+bool UserServiceAnnChannel::userServiceAnnBundleAvailable()
 {
-    //std::lock_guard<decltype(m_announcementChannelMutex)::element_type> lock(*m_announcementChannelMutex);
-    for (auto it = m_userDataIngSessions.begin(); it != m_userDataIngSessions.end(); )
+    bool available = false;
+    m_userDataIngSessions.remove_if(&UserServiceAnnChannel::isExpired);
+    for(const auto &ing_session : m_userDataIngSessions) {
+        auto session = ing_session.lock();
+        if(!session) continue;
+        if(session->isUserServiceAnnBundleAvailable()) {
+	    available = true;
+	    break;
+	}
+    }
+    return available;
+}
+
+void UserServiceAnnChannel::sendCarouselRequest()
+{
+
+    std::shared_ptr<ObjManifest> carousel_object_manifest = nullptr;
+    std::list<std::shared_ptr<CarouselObject >> carousel_objects;
+
     {
-        std::weak_ptr<UserDataIngSession> session = *it;
-        it = m_userDataIngSessions.erase(it);
-        sendCarousel(session);
+	std::lock_guard<decltype(m_announcementChannelMutex)::element_type> lock(*m_announcementChannelMutex);
+        m_userDataIngSessions.remove_if(&UserServiceAnnChannel::isExpired);
+        for(const auto &ing_session : m_userDataIngSessions) {
+            auto session = ing_session.lock();
+            if(!session || !session->isUserServiceAnnBundleAvailable() || session->isIncludedInCarouselObjectManifest()) continue;
+	    carousel_objects.splice(carousel_objects.end(), session->getCarouselObjects());
+	    session->includedInCarouselObjectManifest(true);
+	}
+    }
+
+    if(carousel_objects.size()) {
+        carousel_object_manifest.reset(new ObjManifest(carousel_objects));
+        sendCarouselObjectManifest(carousel_object_manifest);
     }
 }
 
-void UserServiceAnnChannel::sendCarousel(std::weak_ptr<UserDataIngSession> ing_session)
+void UserServiceAnnChannel::sendCarouselObjectManifest(const std::shared_ptr<ObjManifest> carousel_object_manifest)
 {
+
     ogs_debug("UserServiceAnnChannel[%p]: Sending Carousel", this);
 
     std::optional<std::string> base_url = m_userServiceAnnChannelDataIngSession->objectIngestBaseUrl(USER_SERVICE_ANN_CHANNEL);
@@ -359,10 +388,6 @@ void UserServiceAnnChannel::sendCarousel(std::weak_ptr<UserDataIngSession> ing_s
 
     if(!base_url || base_url.value().empty() || !push_id || push_id.value().empty() ) return;
     ogs_debug("UserServiceAnnChannel[%p]: base URL = %s", this, base_url.value().c_str());
-
-    auto session = ing_session.lock();
-    if(!session) return;
-    const std::shared_ptr<ObjManifest> carousel_object_manifest = session->carouselObjectManifest();
 
     if(!carousel_object_manifest) return;
 
@@ -394,7 +419,6 @@ void UserServiceAnnChannel::sendCarousel(std::weak_ptr<UserDataIngSession> ing_s
     } else {
         ogs_error("An error occurred while posting the data.");
     }
-
 }
 
 void UserServiceAnnChannel::resetClient()

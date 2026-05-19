@@ -60,8 +60,9 @@ public:
     std::shared_ptr<Curl> curl() {return m_curl;};
 
     void notify() { m_announcementChannelChange.notify_all(); };
-    void sendCarouselRequests();
-    void sendCarousel(std::weak_ptr<UserDataIngSession> ing_session);
+    void sendCarouselRequest();
+    void sendCarouselObjectManifest(const std::shared_ptr<ObjManifest> carousel_object_manifest);
+    bool userServiceAnnBundleAvailable();
     void resetClient();
     bool processClientResponse(const Open5GSEvent &event);
     static bool processEvent(Open5GSEvent &event);
@@ -79,7 +80,7 @@ private:
         return session.expired();
     }
 
-    std::size_t countUserDataIngSessions(const std::list<std::weak_ptr<UserDataIngSession>> &sessions);
+    std::size_t countUserDataIngSessions();
 
     std::list<std::weak_ptr<UserDataIngSession>> m_userDataIngSessions;
     //std::list<std::shared_ptr<UserDataIngSession>> m_userDataIngSessions;

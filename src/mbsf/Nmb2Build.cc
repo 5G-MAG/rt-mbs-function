@@ -303,59 +303,6 @@ ogs_sbi_request_t *Nmb2Build::buildNmb2DistSessionPatch(void *context, void *dat
     return request;
 }
 
-ogs_sbi_request_t *Nmb2Build::buildNmb2CarouselObjectManifest(void *context, void *data) {
-
-    ogs_sbi_message_t msg;
-
-    memset(&msg, 0, sizeof(msg));
-    msg.h.method = const_cast<char*>(OGS_SBI_HTTP_METHOD_POST);
-    msg.h.service.name = const_cast<char*>("nmbstf-distsession");
-    msg.h.api.version = const_cast<char*>("v1");
-    msg.h.resource.component[0] = const_cast<char*>("dist-sessions");
-
-    auto *session_ids = reinterpret_cast<UserDataIngSession::SessionIdContainer*>(data);
-    const std::string &dist_session_id = std::string(session_ids->first);
-
-    msg.h.resource.component[1] = const_cast<char*>(dist_session_id.c_str());
-
-    msg.http.content_type = (char *)OGS_SBI_CONTENT_JSON_TYPE;
-
-    try {
-        //std::shared_ptr<UserDataIngSession> ing_session = UserDataIngSession::find(ids_ptr->first);
-	std::shared_ptr<UserDataIngSession> ing_session = UserDataIngSession::locate(session_ids->second->first);
-        std::shared_ptr<UserDataIngSession::ContextData> context_data_ptr(ing_session->getDistributionSessionInfoData(session_ids->second->second));
-
-        const std::shared_ptr<ObjManifest> carousel_object_manifest = ing_session->carouselObjectManifest();
-
-	if(!carousel_object_manifest) {
-            ing_session->userServiceAnnBundled(ing_session);
-	}
-
-	if(!carousel_object_manifest) return nullptr;
-
-        std::string sess_id(context_data_ptr->mbstfDistSessionId);
-
-        UserDataIngSession::addToRegistry(sess_id, session_ids->second);
-
-        CJson json = carousel_object_manifest->json(true);
-        std::string body = std::string(json.serialise());
-
-        ogs_sbi_request_t *req = ogs_sbi_build_request(&msg);
-        ogs_sbi_header_set(req->http.headers, OGS_SBI_CONTENT_TYPE, OGS_SBI_CONTENT_JSON_TYPE);
-        req->http.content = ogs_strdup(body.c_str());
-        req->http.content_length = body.size();
-
-        return req;
-    } catch (const std::out_of_range &e) {
-        std::ostringstream err;
-        err << "MBS User Data Ingest Session [" << session_ids->second->first << "] does not exist.";
-        ogs_error("%s", err.str().c_str());
-    }
-    return nullptr;
-
-}
-
-
 std::shared_ptr<UpTrafficFlowInfo> populate_mbstf_up_traffic_flow_info(const std::shared_ptr<UserDataIngSession::ContextData> &ds_context)
 {
     std::shared_ptr<UpTrafficFlowInfo> flow_info = nullptr;

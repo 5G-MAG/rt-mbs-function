@@ -207,7 +207,13 @@ UserDataIngSession::UserDataIngSession(CJson &json, bool as_request)
     ,m_startTimer(false)
     ,m_serviceScheduleDescriptionVersion(1)
     ,m_userServiceAnnBundle(nullptr)
-    ,m_carouselObjectManifest(nullptr)
+    ,m_carouselObjectMutex(new decltype(m_carouselObjectMutex)::element_type)
+    ,m_objects()
+    ,m_objectLocatorMutex(new decltype(m_objectLocatorMutex)::element_type)
+    ,m_objectLocators()
+    ,m_userServiceAnnBundleAvailable(false)
+    ,m_includedInCarouselObjectManifest(false)
+    ,m_userSerAdNotificationSent(false)
     ,m_distributionSessionInfos()
     ,m_deleteRequests()
 {
@@ -245,6 +251,10 @@ UserDataIngSession::UserDataIngSession(const std::string &user_data_ing_session_
     ,m_startTimer(true)
     ,m_serviceScheduleDescriptionVersion(1)
     ,m_userServiceAnnBundle(nullptr)
+    ,m_objects()
+    ,m_userServiceAnnBundleAvailable(false)
+    ,m_includedInCarouselObjectManifest(false)
+    ,m_userSerAdNotificationSent(false)
     ,m_distributionSessionInfos()
     ,m_deleteRequests()
 {
@@ -637,22 +647,6 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
             }
             if (ids) delete ids;
             return true;
-        }
-	case MBSF_LOCAL_SEND_MBSTF_CAROUSE_OBJECT_MANIFEST_BUILD:
-        {
-            SessionIdContainer *ids = reinterpret_cast<SessionIdContainer*>(event.sbiData());
-            try {
-                //std::shared_ptr<UserDataIngSession> ing_session = find(ids->second->first);
-                std::shared_ptr<UserDataIngSession> ing_session = locate(ids->second->first);
-                ing_session->nmbstfDiscoverAndSend(ids->second, Nmb2Build::buildNmb2CarouselObjectManifest, nullptr, ids);
-            } catch (const std::out_of_range &e) {
-                std::ostringstream err;
-                err << "MBS User Data Ingest Session [" << ids->second->first << "] does not exist.";
-                ogs_error("%s", err.str().c_str());
-            }
-            if (ids) delete ids;
-            return true;
-
         }
         case MBSF_LOCAL_SEND_MBSTF_PATCH_ROLLBACK:
         {
@@ -1974,26 +1968,6 @@ void UserDataIngSession::sendLocalEventPatch(const std::optional<std::string>& k
     }
 }
 
-void UserDataIngSession::sendLocalEventCarouselObjectManifest(const std::optional<std::string>& key)
-{
-    std::lock_guard<decltype(s_registry_mutex)> lock(s_registry_mutex);
-
-    for (auto &[dist_sess_id, user_ing_sess_id_ptr] : s_distSessionIdRegistry) {
-        // match session id and, if key provided, match the key
-        if (user_ing_sess_id_ptr->first == m_UserDataIngSessionId &&
-            (!key.has_value() || user_ing_sess_id_ptr->second == *key))
-        {
-            SessionIdContainer* session_id = new SessionIdContainer(dist_sess_id, user_ing_sess_id_ptr);
-            sendLocalEvent(MBSF_LOCAL_SEND_MBSTF_CAROUSE_OBJECT_MANIFEST_BUILD, session_id);
-
-            // if a key was provided, only process the first match
-            if (key.has_value())
-                break;
-        }
-    }
-}
-
-
 void UserDataIngSession::updateMbstfRemovedDistSession()
 {
     std::lock_guard<decltype(s_registry_mutex)> lock(s_registry_mutex);
@@ -2278,6 +2252,10 @@ void UserDataIngSession::requiresUserServiceAnnouncement(const std::shared_ptr<U
             const std::shared_ptr<UserServiceAnnChannel> &ann_channel = App::self().context()->userServiceAnnouncementChannel();
             if(ann_channel) {
                 //ann_channel->addUserDataIngSession(user_data_ing_session);
+		user_data_ing_session->resetCarouselObjects();
+                user_data_ing_session->resetObjectLocators();
+		user_data_ing_session->includedInCarouselObjectManifest(false);
+		user_data_ing_session->userSerAdNotificationSent(false);
 		user_data_ing_session->setUserServiceAnnBundler(user_data_ing_session);
             }
         }
@@ -2302,6 +2280,10 @@ void UserDataIngSession::configureUserServiceAnnouncementBundler(const std::shar
             const std::shared_ptr<UserServiceAnnChannel> &ann_channel = App::self().context()->userServiceAnnouncementChannel();
             if(ann_channel /*&& !user_data_ing_session->getUserServiceAnnBundler()*/) {
 
+		user_data_ing_session->resetCarouselObjects();
+		user_data_ing_session->resetObjectLocators();
+		user_data_ing_session->includedInCarouselObjectManifest(false);
+		user_data_ing_session->userSerAdNotificationSent(false);
                 user_data_ing_session->setUserServiceAnnBundler(user_data_ing_session);
 
             }
@@ -2603,11 +2585,9 @@ bool UserDataIngSession::isUserServiceAnnouncementChannel(const std::string &dis
     return false;
 }
 
-void UserDataIngSession::populateCarouselObject(const std::shared_ptr<Open5GSSBINFInstance> &nf_instance, std::list<std::shared_ptr<CarouselObject>> &objects, std::list<std::string> &object_locators)
+void UserDataIngSession::populateCarouselObject(const std::shared_ptr<Open5GSSBINFInstance> &nf_instance)
 {
     int i;
-
-    std::shared_ptr<CarouselObject > object = nullptr;
     std::set<std::string> user_serv_ann_server_addrs;
 
     int number_of_ipv4 = nf_instance->numberOfIPv4();
@@ -2637,13 +2617,12 @@ void UserDataIngSession::populateCarouselObject(const std::shared_ptr<Open5GSSBI
             }
         }
     }
-    if (user_serv_ann_server_addrs.size()) populateObjectCarousel(user_serv_ann_server_addrs, objects, object_locators);
+    if (user_serv_ann_server_addrs.size()) populateObjectCarousel(user_serv_ann_server_addrs);
 }
 
-void UserDataIngSession::populateObjectCarousel(std::set<std::string> &user_serv_ann_server_addrs, std::list<std::shared_ptr<CarouselObject >> &objects, std::list<std::string> &object_locators)
+void UserDataIngSession::populateObjectCarousel(std::set<std::string> &user_serv_ann_server_addrs)
 {
     std::shared_ptr<CarouselObject > object = nullptr;
-
     auto it = user_serv_ann_server_addrs.begin();
     if (it != user_serv_ann_server_addrs.end()) {
         std::string addr = *it;
@@ -2653,9 +2632,8 @@ void UserDataIngSession::populateObjectCarousel(std::set<std::string> &user_serv
 
         object.reset(new CarouselObject(object_locator, App::self().context()->repetitionInterval(),
                                         App::self().context()->keepUpdated()));
-        ogs_info("OBJ LOCATOR: %s", object_locator.c_str());
-	objects.emplace_back(object);
-	object_locators.emplace_back(object_locator);
+	addCarouselObject(object);
+	addObjectLocator(object_locator);
     }
 
 }
@@ -2663,8 +2641,6 @@ void UserDataIngSession::populateObjectCarousel(std::set<std::string> &user_serv
 void UserDataIngSession::userServiceAnnBundled(const std::shared_ptr<UserDataIngSession> &session)
 {
 
-    std::list<std::shared_ptr<CarouselObject >> objects;
-    std::list<std::string> object_locators;
     std::shared_ptr<Open5GSSBINFInstance> nf_instance = nullptr;
 
     const std::shared_ptr<UserServiceAnnChannel> &ann_channel = App::self().context()->userServiceAnnouncementChannel();
@@ -2687,19 +2663,72 @@ void UserDataIngSession::userServiceAnnBundled(const std::shared_ptr<UserDataIng
         return;
     }
     try {
-        populateCarouselObject(nf_instance, objects, object_locators);
+        populateCarouselObject(nf_instance);
     } catch (std::exception &ex) {
 
         ogs_error("Failed to populate Carousel Object Manifest:[%s]", ex.what());
 	return;
     }
-    if(objects.size()) {
-        m_carouselObjectManifest.reset(new ObjManifest(objects, object_locators));
+    if(m_objects.size()) {
+        //m_carouselObjectManifest.reset(new ObjManifest(objects, object_locators));
+	session->userServiceAnnBundleAvailable(true);
         ann_channel->addUserDataIngSession(session);
 	session->pushNotificationsEvent();
      } else {
          ogs_debug("No Objects for carousel object manifest");
      }
+}
+
+void UserDataIngSession::addCarouselObject(std::shared_ptr<CarouselObject > carousel_object)
+{
+    std::lock_guard<decltype(m_carouselObjectMutex)::element_type> lock(*m_carouselObjectMutex);
+    m_objects.emplace_back(carousel_object);
+
+}
+
+std::list<std::shared_ptr<CarouselObject >> UserDataIngSession::getCarouselObjects() const
+{
+    std::lock_guard<decltype(m_carouselObjectMutex)::element_type> lock(*m_carouselObjectMutex);
+    return m_objects;
+}
+
+void UserDataIngSession::resetCarouselObjects()
+{
+    std::lock_guard<decltype(m_carouselObjectMutex)::element_type> lock(*m_carouselObjectMutex);
+    m_objects = {};
+
+}
+
+
+void UserDataIngSession::forEachObject(std::function<void(const std::string &)> fn)
+{
+    std::lock_guard<decltype(m_objectLocatorMutex)::element_type> lock(*m_objectLocatorMutex);
+    for (auto &object_locator : m_objectLocators) {
+        fn(object_locator);
+    }
+}
+
+void UserDataIngSession::addObjectLocator(std::string object_locator)
+{
+    std::lock_guard<decltype(m_objectLocatorMutex)::element_type> lock(*m_objectLocatorMutex);
+    m_objectLocators.emplace_back(object_locator);
+
+}
+
+std::list<std::string> UserDataIngSession::getObjectLocators() const {
+    std::lock_guard<decltype(m_objectLocatorMutex)::element_type> lock(*m_objectLocatorMutex);
+    return m_objectLocators;
+}
+
+void UserDataIngSession::resetObjectLocators()
+{
+    std::lock_guard<decltype(m_objectLocatorMutex)::element_type> lock(*m_objectLocatorMutex);
+    m_objectLocators = {};
+}
+
+void UserDataIngSession::userSerAdNotificationSent(bool notification_sent) const
+{
+    m_userSerAdNotificationSent = notification_sent;
 }
 
 void UserDataIngSession::setDistSessionState(const std::shared_ptr<DistSessionState> &state)

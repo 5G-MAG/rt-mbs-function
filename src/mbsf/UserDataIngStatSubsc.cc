@@ -776,10 +776,8 @@ bool UserDataIngStatSubsc::processEvent(Open5GSEvent &event)
                 }
 
 		if (user_data_ing_session_id == id && stat_subsc->checkForUserServiceAnn()) {
-                    std::shared_ptr<ObjManifest> carousel_object_manifest = user_data_ing_session.carouselObjectManifest();
-		    if(!carousel_object_manifest) break;;
-		    std::list<std::string> object_locators = carousel_object_manifest->getObjectLocators();
-                    if(!object_locators.size()) break;
+		    std::list<std::string> object_locators = user_data_ing_session.getObjectLocators();
+                    if(!object_locators.size() || user_data_ing_session.userSerAdNotificationSent()) break;
 		    for(const std::string &object_locator : object_locators) {
                         std::shared_ptr< Event > event = nullptr;
                         event.reset(new Event());
@@ -787,6 +785,7 @@ bool UserDataIngStatSubsc::processEvent(Open5GSEvent &event)
                         stat_subsc->setSubscribedEventTime(event, DateTime::clock::now(), object_locator);
                         stat_subsc->sendNotifications();
 		    }
+		    user_data_ing_session.userSerAdNotificationSent(true);
 
                 }
 
