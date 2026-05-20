@@ -85,7 +85,7 @@ LIBRTSDP_NAMESPACE_USING(TimingInformation);
 
 MBSF_NAMESPACE_START
 
-UserServiceAnnBundle::UserServiceAnnBundle(std::shared_ptr<UserDataIngSession> user_data_ing_session)
+UserServiceAnnBundle::UserServiceAnnBundle(const std::shared_ptr<UserDataIngSession> &user_data_ing_session)
         :m_userDataIngSession(user_data_ing_session)
         ,m_nameOfFilesToServe()
         ,m_userServiceAnnChange()
@@ -118,12 +118,16 @@ void UserServiceAnnBundle::worker()
         ogs_error("Unable to write announcement.json to local file system");
     }
 
-    m_userDataIngSession->forEachDistributionSessionInfo([this](const auto &id, const auto &ctx) -> bool {
-        writeServiceDescriptionProtocolDoc(ctx);
-        return true;
-    });
-
-    m_userDataIngSession->userServiceAnnBundled(m_userDataIngSession);
+    auto user_data_ing_session = m_userDataIngSession.lock();
+    if (user_data_ing_session) {
+        user_data_ing_session->forEachDistributionSessionInfo([this](const auto &id, const auto &ctx) -> bool {
+            if (!writeServiceDescriptionProtocolDoc(ctx)) {
+                ogs_error("Unable to write SDP file");
+            }
+            return true;
+        });
+        user_data_ing_session->userServiceAnnBundled(user_data_ing_session);
+    }
 
     finish();
 }
@@ -144,7 +148,9 @@ void UserServiceAnnBundle::startWorker()
 
 bool UserServiceAnnBundle::writeAnnouncement()
 {
-    std::shared_ptr<UserServiceDesc> user_service_desc = m_userDataIngSession->userServiceDesc();
+    auto user_data_ing_session = m_userDataIngSession.lock();
+    if (!user_data_ing_session) return false;
+    std::shared_ptr<UserServiceDesc> user_service_desc = user_data_ing_session->userServiceDesc();
     //const std::shared_ptr<reftools::mbsf::UserServiceDescription> &user_service_description = user_service_desc->userServiceDescription();
     fiveg_mag_reftools::CJson json = user_service_desc->json(true);
     std::string json_str(json.serialise());
@@ -156,7 +162,7 @@ bool UserServiceAnnBundle::writeAnnouncement()
         ogs_error("Failed to write announcement.json, Error: %s", ex.what());
         return false;
     }
-    abs_directory_path /= m_userDataIngSession->userDataIngSessionId();
+    abs_directory_path /= user_data_ing_session->userDataIngSessionId();
     std::filesystem::path metadata_dir = abs_directory_path / ".metadata" / "";
     abs_directory_path /= "";
     std::string user_service_announcement_file_name = "announcement.json";
@@ -178,17 +184,19 @@ bool UserServiceAnnBundle::writeAnnouncement()
 
 bool UserServiceAnnBundle::writeServiceDescriptionProtocolDoc(const std::shared_ptr<UserDataIngSession::ContextData> &dist_session_ctx)
 {
+    auto user_data_ing_session = m_userDataIngSession.lock();
+    if (!user_data_ing_session) return false;
     std::string err;
 
     std::filesystem::path root_dir{App::self().context()->userServiceAnnDocRoot()};
-    root_dir /= m_userDataIngSession->userDataIngSessionId();
+    root_dir /= user_data_ing_session->userDataIngSessionId();
     auto metadata_dir = root_dir / ".metadata";
 
     std::filesystem::path sdp_filename{dist_session_ctx->distSessionInfoKey + ".sdp"};
 
-    std::string session_name = m_userDataIngSession->mbsUserService()->getMBSUserService()->getServNameDescs().front().value()->getServName().value_or(std::string("-"));
+    std::string session_name = user_data_ing_session->mbsUserService()->getMBSUserService()->getServNameDescs().front().value()->getServName().value_or(std::string("-"));
 
-    auto [start_time, end_time] = m_userDataIngSession->activeTimeRange();
+    auto [start_time, end_time] = user_data_ing_session->activeTimeRange();
     auto timings = TimingInformation::makeTimingInformation(start_time.value_or(TimingInformation::NO_TIMESTAMP),
                                                             end_time.value_or(TimingInformation::NO_TIMESTAMP));
 
@@ -228,7 +236,7 @@ bool UserServiceAnnBundle::writeServiceDescriptionProtocolDoc(const std::shared_
     }
 
 
-    auto &primary_language = m_userDataIngSession->mbsUserService()->mainServiceLanguage();
+    auto &primary_language = user_data_ing_session->mbsUserService()->mainServiceLanguage();
     auto media = MediaDescription::makeMediaDescription("application", dist_session_ctx->ssm_port, "FLUTE/UDP", "0");
     if (!ssm_dest.empty()) {
         auto conn_info = ConnectionInformation::makeConnectionInformation(ssm_dest, family);

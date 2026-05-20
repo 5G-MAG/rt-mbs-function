@@ -27,7 +27,7 @@ class DistributionSessionInfo;
 class UserServiceAnnBundle {
 public:
 
-    UserServiceAnnBundle(std::shared_ptr<UserDataIngSession> user_data_ing_session);
+    UserServiceAnnBundle(const std::shared_ptr<UserDataIngSession> &user_data_ing_session);
     UserServiceAnnBundle() = delete;
     UserServiceAnnBundle(const UserServiceAnnBundle &) = delete;
     UserServiceAnnBundle(UserServiceAnnBundle &&) = delete;
@@ -81,7 +81,7 @@ private:
                 const std::string &content, std::string &err);
     void finish();
 
-    std::shared_ptr<UserDataIngSession> m_userDataIngSession;
+    std::weak_ptr<UserDataIngSession> m_userDataIngSession;
     std::list<std::string> m_nameOfFilesToServe;
     std::condition_variable_any m_userServiceAnnChange;
     std::unique_ptr<std::recursive_mutex> m_userServiceAnnMutex;
