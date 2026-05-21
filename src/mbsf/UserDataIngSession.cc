@@ -1002,9 +1002,9 @@ void UserDataIngSession::_changeDistSessionState()
                 sendMbsmfActivityStatus(ids_ptr);
                 sendNotificationsEvent(ids_ptr);
 
-                SessionIdContainer *session_id = new SessionIdContainer{context_data->mbstfDistSessionId, ids_ptr};
                 if (context_data->needsUpdate || want_dist_sess_state != context_data->last_reported_state) {
-                    nmbstfDiscoverAndSend(ids_ptr, Nmb2Build::buildNmb2DistSessionPatch, nullptr, session_id);
+                    SessionIdContainer session_id{context_data->mbstfDistSessionId, ids_ptr};
+                    nmbstfDiscoverAndSend(ids_ptr, Nmb2Build::buildNmb2DistSessionPatch, nullptr, &session_id);
                 }
             }
         }
@@ -2750,9 +2750,9 @@ void UserDataIngSession::setDistSessionState(const std::shared_ptr<DistSessionSt
         sendMbsmfActivityStatus(ids_ptr);
         sendNotificationsEvent(ids_ptr);
 
-        SessionIdContainer *session_id = new SessionIdContainer{context_data->mbstfDistSessionId, ids_ptr};
         if (context_data->needsUpdate || (dist_sess_state && *dist_sess_state.value() != context_data->last_reported_state)) {
-            nmbstfDiscoverAndSend(ids_ptr, Nmb2Build::buildNmb2DistSessionPatch, nullptr, session_id);
+            SessionIdContainer session_id{context_data->mbstfDistSessionId, ids_ptr};
+            nmbstfDiscoverAndSend(ids_ptr, Nmb2Build::buildNmb2DistSessionPatch, nullptr, &session_id);
         }
     }
 }
