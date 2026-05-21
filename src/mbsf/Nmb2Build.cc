@@ -296,8 +296,6 @@ ogs_sbi_request_t *Nmb2Build::buildNmb2DistSessionPatch(void *context, void *dat
     if (patch_item_list)
         OpenAPI_list_free(patch_item_list);
 
-    delete session_ids;
-
     if (req_state != DistSessionState::NO_VAL) context_data_ptr->last_requested_state = req_state;
 
     return request;

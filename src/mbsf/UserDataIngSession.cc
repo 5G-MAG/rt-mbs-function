@@ -700,6 +700,7 @@ ogs_sbi_xact_t *UserDataIngSession::nmbstfDiscoverOnly(const std::shared_ptr<Con
 ogs_sbi_xact_t *UserDataIngSession::nmbstfDiscoverAndSend(const std::shared_ptr<UserDataIngSession::UserDataIngDistSessId> &ids,
                                                           ogs_sbi_build_f build, void *context, void *data)
 {
+    std::shared_ptr<UserDataIngSession::UserDataIngDistSessId> user_data_ing_dist_sess_id(ids);
     ogs_sbi_xact_t *xact = nullptr;
     ogs_sbi_discovery_option_t *discovery_option = nullptr;
 
@@ -714,7 +715,7 @@ ogs_sbi_xact_t *UserDataIngSession::nmbstfDiscoverAndSend(const std::shared_ptr<
     if (!xact) {
         ogs_error("discoverAndSend() failed");
     } else {
-       addToRegistry(xact, ids);
+       addToRegistry(xact, user_data_ing_dist_sess_id);
     }
     return xact;
 }
