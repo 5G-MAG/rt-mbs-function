@@ -41,10 +41,10 @@ public:
     }
 
     void stop() {
-	{
-	    std::lock_guard<std::recursive_mutex> lock(*m_userServiceAnnMutex);
-	    m_userServiceAnnThreadCancel = true;
-	}
+        {
+            std::lock_guard<std::recursive_mutex> lock(*m_userServiceAnnMutex);
+            m_userServiceAnnThreadCancel = true;
+        }
         if (m_userServiceAnnThread.get_id() != std::this_thread::get_id() && m_userServiceAnnThread.joinable()) {
             m_userServiceAnnThread.join();
         }
@@ -53,7 +53,7 @@ public:
 
 
     virtual ~UserServiceAnnBundle() {
-	abort();
+        abort();
     };
 
     UserServiceAnnBundle &operator=(const UserServiceAnnBundle &) = delete;
@@ -67,6 +67,8 @@ public:
     void notify() { m_userServiceAnnChange.notify_all(); };
     void wait();
     bool completed() const {return m_done.load();};
+
+    void rebuildBundle() { startWorker(); };
 
     virtual void processEvent(ogs_event_t *event);
 
@@ -88,6 +90,7 @@ private:
     std::thread m_userServiceAnnThread;
     std::atomic_bool m_userServiceAnnThreadCancel;
     std::atomic_bool m_userServiceAnnThreadRunning;
+    std::atomic_bool m_rebuild;
     std::atomic_bool m_done;
 };
 

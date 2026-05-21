@@ -72,7 +72,7 @@ class UserService;
 class UserServiceAnnBundle;
 class UserServiceDesc;
 
-class UserDataIngSession {
+class UserDataIngSession : public std::enable_shared_from_this<UserDataIngSession> {
 public:
     using SysTimeMS = std::chrono::system_clock::time_point;
     using DateTime = std::chrono::system_clock::time_point;
@@ -121,7 +121,7 @@ public:
         uint64_t tsi;
         reftools::mbsf::DistSessionState last_requested_state;
         reftools::mbsf::DistSessionState last_reported_state;
-	std::shared_ptr<reftools::mbsf::DistSession> distSession = nullptr;
+        std::shared_ptr<reftools::mbsf::DistSession> distSession = nullptr;
         std::shared_ptr<LIBRTSDP_NAMESPACE_NAME(SDP)> sdp = nullptr;
     };
 
@@ -134,7 +134,7 @@ public:
     UserDataIngSession &operator=(const UserDataIngSession &other) = delete;
 
     UserDataIngSession(const std::string &user_data_ing_session_id, const std::string &mbs_user_service_id,
-		    const std::map<std::string, std::shared_ptr< DistributionSessionInfo > > &distribution_session_infos);
+                    const std::map<std::string, std::shared_ptr< DistributionSessionInfo > > &distribution_session_infos);
 
     virtual ~UserDataIngSession();
 
@@ -145,7 +145,7 @@ public:
         MBSF_LOCAL_SEND_MBSTF_DELETE_SESSION,
         MBSF_LOCAL_SEND_MBSTF_PATCH_ROLLBACK,
         MBSF_LOCAL_SEND_MBSTF_PATCH_BUILD,
-	MBSF_LOCAL_SEND_MBSTF_CAROUSE_OBJECT_MANIFEST_BUILD
+        MBSF_LOCAL_SEND_MBSTF_CAROUSE_OBJECT_MANIFEST_BUILD
     };
 
     const std::string &userDataIngSessionId() const { return m_UserDataIngSessionId; };
@@ -179,7 +179,6 @@ public:
     void processDistributionSessionInfo(ogs_pool_id_t stream_id, const std::shared_ptr<Open5GSSBIRequest> &request);
     void handleUserDataIngSessionUpdate(ogs_pool_id_t stream_id, const std::shared_ptr<Open5GSSBIRequest> &request);
     void updateMbstfRemovedDistSession();
-    const std::shared_ptr<UserDataIngSession> &findSessionBySbiObject(const std::shared_ptr<Open5GSSBIObject>& sbi_obj);
     const std::shared_ptr<ServiceScheduleDesc> &findServiceScheduleDesc(const std::string &id) const;
     void addToDistributionSessionInfos(const std::string &key, const std::shared_ptr<ContextData> &context);
     std::shared_ptr< UserDataIngSession::ContextData > getDistributionSessionInfoData(const std::string &key);
@@ -233,13 +232,26 @@ public:
                         const std::function<bool(const std::string&, const std::shared_ptr<ServiceScheduleDesc>&)> &fn);
     void forEachServiceScheduleDesc(
                         const std::function<bool(const std::string&, const std::shared_ptr<const ServiceScheduleDesc>&)> &fn) const;
-    
+
     void serviceScheduleDescsUpdate(const std::shared_ptr<reftools::mbsf::MBSUserDataIngSession> &mbs_user_data_ing_session);
 
     static const char *localEventGetName( ogs_event_t *event);
 
-    static const std::shared_ptr<UserDataIngSession> &find(const std::string &id); // throws std::out_of_range if id does not exist
-    static const std::shared_ptr<UserDataIngSession> &locate(const std::string &id); // throws std::out_of_range if id does not exist
+    /** Find AP defined UserDataIngSession by Id
+     *
+     * @param id The UserDataIngSession id to find
+     * @throw std::out_of_range if id does not exist
+     */
+    static const std::shared_ptr<UserDataIngSession> &find(const std::string &id);
+
+    /** Find UserDataIngSession by Id
+     *
+     * This includes the internal User Service Announcement Channel UserDataIngSession alongside the AP defined UserDataIngSessions.
+     *
+     * @param id The UserDataIngSession id to find
+     * @throw std::out_of_range if id does not exist
+     */
+    static const std::shared_ptr<UserDataIngSession> &locate(const std::string &id);
 
     static std::shared_ptr<ContextData> setDistSessionId(const std::shared_ptr<ContextData> &context_data,
                                                          const std::string &dist_session_id);
@@ -285,8 +297,8 @@ public:
     void userServiceAnnChannelDistributionSessionInfo();
     const std::list<std::string> &getUserServiceAnnBundleFilesList() const;
     void setDistSessionState(const std::shared_ptr<reftools::mbsf::DistSessionState> &state);
-    void configureUserServiceAnnouncementBundler(const std::shared_ptr<UserDataIngSession> &user_data_ing_session);
-    void userServiceAnnBundled(const std::shared_ptr<UserDataIngSession> &session);
+    void configureUserServiceAnnouncementBundler();
+    void userServiceAnnBundled();
     std::shared_ptr<reftools::mbsf::DistSessionState> stateOfDistSession(const std::string &key);
     void addCarouselObject(std::shared_ptr<CarouselObject > carousel_object);
     std::list<std::shared_ptr<CarouselObject >> getCarouselObjects() const;
@@ -299,7 +311,8 @@ public:
 
     ActivePeriodsBase::TimeRange activeTimeRange() const { return m_activePeriods?m_activePeriods->activeTimeRange():ActivePeriodsBase::TimeRange{std::nullopt, std::nullopt}; };
 
-    static void requiresUserServiceAnnouncement(const std::shared_ptr<UserDataIngSession> &user_data_ing_session);
+    void requiresUserServiceAnnouncement();
+
     static void changeDistSessionState(void *data);
     static void currentDistSessionState(const UserDataIngDistSessId &ids);
 
@@ -329,7 +342,7 @@ public:
 private:
     void updateContexts(ogs_pool_id_t stream_id, const std::shared_ptr<Open5GSSBIRequest> &request);
     void _changeDistSessionState();
-    UserDataIngSession &setUserServiceAnnBundler(const std::shared_ptr<UserDataIngSession> &user_data_ing_session);
+    UserDataIngSession &setUserServiceAnnBundler();
     void populateCarouselObject(const std::shared_ptr<Open5GSSBINFInstance> &nf_instance);
     void populateObjectCarousel(std::set<std::string> &user_serv_ann_server_addrs);
 

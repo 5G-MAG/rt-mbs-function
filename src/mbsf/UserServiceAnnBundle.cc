@@ -91,8 +91,9 @@ UserServiceAnnBundle::UserServiceAnnBundle(const std::shared_ptr<UserDataIngSess
         ,m_userServiceAnnChange()
         ,m_userServiceAnnMutex(new std::recursive_mutex)
         ,m_userServiceAnnThreadCancel(false)
-	,m_userServiceAnnThreadRunning(false)
-	,m_done(false)
+        ,m_userServiceAnnThreadRunning(false)
+        ,m_rebuild(false)
+        ,m_done(false)
 
 {
     startWorker();
@@ -105,28 +106,31 @@ void UserServiceAnnBundle::wait() {
 
 void UserServiceAnnBundle::worker()
 {
-    std::lock_guard<decltype(m_userServiceAnnMutex)::element_type> lock(*m_userServiceAnnMutex);
+    while (m_rebuild) {
+        m_rebuild = false;
+        std::lock_guard<decltype(m_userServiceAnnMutex)::element_type> lock(*m_userServiceAnnMutex);
 
-    if (m_userServiceAnnThreadCancel) {
-        finish();
-        return;
-    }
+        if (m_userServiceAnnThreadCancel) {
+            finish();
+            return;
+        }
 
-    m_userServiceAnnThreadRunning = true;
+        m_userServiceAnnThreadRunning = true;
 
-    if(!writeAnnouncement()) {
-        ogs_error("Unable to write announcement.json to local file system");
-    }
+        if(!writeAnnouncement()) {
+            ogs_error("Unable to write announcement.json to local file system");
+        }
 
-    auto user_data_ing_session = m_userDataIngSession.lock();
-    if (user_data_ing_session) {
-        user_data_ing_session->forEachDistributionSessionInfo([this](const auto &id, const auto &ctx) -> bool {
-            if (!writeServiceDescriptionProtocolDoc(ctx)) {
-                ogs_error("Unable to write SDP file");
-            }
-            return true;
-        });
-        user_data_ing_session->userServiceAnnBundled(user_data_ing_session);
+        auto user_data_ing_session = m_userDataIngSession.lock();
+        if (user_data_ing_session) {
+            user_data_ing_session->forEachDistributionSessionInfo([this](const auto &id, const auto &ctx) -> bool {
+                if (!writeServiceDescriptionProtocolDoc(ctx)) {
+                    ogs_error("Unable to write SDP file");
+                }
+                return true;
+            });
+            user_data_ing_session->userServiceAnnBundled();
+        }
     }
 
     finish();
@@ -140,6 +144,7 @@ void UserServiceAnnBundle::finish() {
 
 void UserServiceAnnBundle::startWorker()
 {
+    m_rebuild = true;
     if (!m_userServiceAnnThreadRunning) {
         if (m_userServiceAnnThread.joinable()) m_userServiceAnnThread.detach();
         m_userServiceAnnThread = std::thread([this] () {worker();});
