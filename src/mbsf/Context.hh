@@ -157,7 +157,7 @@ public:
     struct {
         std::string mbr;
         std::optional<int32_t > announcementRepetitionTime;
-	std::optional<int32_t > keepUpdatedInterval;
+        std::optional<int32_t > keepUpdatedInterval;
         std::string ssmSourceAddress;
         std::string ssmDestinationAddress;
         unsigned int ssmPort;

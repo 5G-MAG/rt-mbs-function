@@ -91,13 +91,13 @@ namespace {
 
 UserServiceAnnChannel::UserServiceAnnChannel()
         :m_userDataIngSessions()
-	,m_userServiceAnnChannelDataIngSession(nullptr)
-	,m_client(nullptr)
-	,m_curl(nullptr)
-	,m_pushUrl()
-	,m_announcementChannelChange()
-	,m_announcementChannelMutex(new std::recursive_mutex)
-	,m_announcementChannelCancel(false)
+        ,m_userServiceAnnChannelDataIngSession(nullptr)
+        ,m_client(nullptr)
+        ,m_curl(nullptr)
+        ,m_pushUrl()
+        ,m_announcementChannelChange()
+        ,m_announcementChannelMutex(new std::recursive_mutex)
+        ,m_announcementChannelCancel(false)
 
 {
     //populate spl m_userServiceAnnChannelDataIngSession
@@ -150,7 +150,7 @@ const std::shared_ptr<DistributionSessionInfo > UserServiceAnnChannel::populateD
     *dist_session_state = reftools::mbsf::DistSessionState::VAL_INACTIVE;
 
     distribution_session_info.reset(new DistributionSessionInfo(operating_mode, obj_acquisition_method, acq_ids, distribution_method,
-			   ssm_source_address, ssm_destination_address, mbr, dist_session_state));
+                           ssm_source_address, ssm_destination_address, mbr, dist_session_state));
 
     return distribution_session_info;
 
@@ -166,42 +166,42 @@ void UserServiceAnnChannel::workerLoop()
     bool dist_session_inactive = false;
 
     while (true) {
-            
+
         bool has_ing_session = false;
-	{
+        {
             std::lock_guard<decltype(m_announcementChannelMutex)::element_type> lock(*m_announcementChannelMutex);
             {
 
                 if (m_announcementChannelCancel) {
                     m_announcementChannelRunning = false;
                     break;
-		}
+                }
 
-		if(!mbs_session) {
+                if(!mbs_session) {
                     while(true) {
                         if (m_announcementChannelCancel) {
                             m_announcementChannelRunning = false;
                             break;
                          }
                          bool mbs_session_created = m_announcementChannelChange.wait_for(*m_announcementChannelMutex, std::chrono::milliseconds(10),
-					 [&]{return m_userServiceAnnChannelDataIngSession->isMBSSessionCreated(USER_SERVICE_ANN_CHANNEL);});
+                                         [&]{return m_userServiceAnnChannelDataIngSession->isMBSSessionCreated(USER_SERVICE_ANN_CHANNEL);});
 
                          if(mbs_session_created) {
                              mbs_session = true;
                              break;
-                          } 
-		    }
-		}
-		if(!mbstf_dist_session) {
+                          }
+                    }
+                }
+                if(!mbstf_dist_session) {
                     m_userServiceAnnChannelDataIngSession->sendMbstfRequests();
-                    
-		    while (true) {
+
+                    while (true) {
                         if (m_announcementChannelCancel) {
                             m_announcementChannelRunning = false;
                             break;
                         }
                         bool has_mbstf_responded = m_announcementChannelChange.wait_for(*m_announcementChannelMutex, std::chrono::milliseconds(10),
-					[&]{return m_userServiceAnnChannelDataIngSession->isMBSSessionCreated(USER_SERVICE_ANN_CHANNEL) &&
+                                        [&]{return m_userServiceAnnChannelDataIngSession->isMBSSessionCreated(USER_SERVICE_ANN_CHANNEL) &&
                         m_userServiceAnnChannelDataIngSession->hasMbstfResponded(USER_SERVICE_ANN_CHANNEL);});
                         if(has_mbstf_responded) {
                             mbstf_dist_session = true;
@@ -209,41 +209,41 @@ void UserServiceAnnChannel::workerLoop()
                         }
                     }
                 }
-	        while (true) {
+                while (true) {
                     if (m_announcementChannelCancel) {
-	                m_announcementChannelRunning = false;
+                        m_announcementChannelRunning = false;
                         break;
                     }
 
-		    std::size_t count = m_announcementChannelChange.wait_for(*m_announcementChannelMutex, std::chrono::milliseconds(10),
+                    std::size_t count = m_announcementChannelChange.wait_for(*m_announcementChannelMutex, std::chrono::milliseconds(10),
                        [&]{return m_announcementChannelCancel || countUserDataIngSessions();});
 
-		    if (m_announcementChannelCancel) {
+                    if (m_announcementChannelCancel) {
                         break;
                     }
 
-		    if(count) {
+                    if(count) {
                         has_ing_session = true;
                         break;
                     } else if(!userServiceAnnBundleAvailable() && !dist_session_inactive) {
                         has_ing_session = false;
-			std::shared_ptr<DistSessionState> state = nullptr;
+                        std::shared_ptr<DistSessionState> state = nullptr;
                         state.reset(new DistSessionState());
                         *state = DistSessionState::VAL_INACTIVE;
                         m_userServiceAnnChannelDataIngSession->setDistSessionState(state);
                         bool inactive_state = m_announcementChannelChange.wait_for(*m_announcementChannelMutex, std::chrono::milliseconds(10),
                                         [&]{return m_announcementChannelCancel || m_userServiceAnnChannelDataIngSession->stateOfDistSession(USER_SERVICE_ANN_CHANNEL)->getValue() == DistSessionState::VAL_INACTIVE;});
 
-			if (m_announcementChannelCancel) break;
+                        if (m_announcementChannelCancel) break;
 
-			if(inactive_state) {
+                        if(inactive_state) {
                             dist_session_active = false;
                             dist_session_inactive = true;
                             break;
                         }
-		    }
+                    }
                 }
-		if(has_ing_session && !dist_session_active) {
+                if(has_ing_session && !dist_session_active) {
                     while(true) {
 
                         if (m_announcementChannelCancel) {
@@ -254,9 +254,9 @@ void UserServiceAnnChannel::workerLoop()
                         std::shared_ptr<DistSessionState> state = nullptr;
                         state.reset(new DistSessionState());
                         *state = DistSessionState::VAL_ACTIVE;
-			m_userServiceAnnChannelDataIngSession->setDistSessionState(state);
+                        m_userServiceAnnChannelDataIngSession->setDistSessionState(state);
                         bool active_state = m_announcementChannelChange.wait_for(*m_announcementChannelMutex, std::chrono::milliseconds(10),
-					[&]{return m_userServiceAnnChannelDataIngSession->stateOfDistSession(USER_SERVICE_ANN_CHANNEL)->getValue() == DistSessionState::VAL_ACTIVE;});
+                                        [&]{return m_userServiceAnnChannelDataIngSession->stateOfDistSession(USER_SERVICE_ANN_CHANNEL)->getValue() == DistSessionState::VAL_ACTIVE;});
                         if(active_state) {
                             dist_session_active = true;
                             dist_session_inactive = false;
@@ -264,23 +264,23 @@ void UserServiceAnnChannel::workerLoop()
                         }
                     }
 
-		}
-		/*
-		std::size_t counter = m_announcementChannelChange.wait_for(*m_announcementChannelMutex, std::chrono::milliseconds(10),
+                }
+                /*
+                std::size_t counter = m_announcementChannelChange.wait_for(*m_announcementChannelMutex, std::chrono::milliseconds(10),
                        [&]{return App::self().context()->annChannelCount();});
-		       */
+                       */
 
-		while (true) {
+                while (true) {
                     if (m_announcementChannelCancel) {
                         m_announcementChannelRunning = false;
                         break;
                     }
 
-	            if(count()) {
-		        break;
-		    }
+                    if(count()) {
+                        break;
+                    }
 
-	            has_ing_session = false;
+                    has_ing_session = false;
                     std::shared_ptr<DistSessionState> state = nullptr;
                     state.reset(new DistSessionState());
                     *state = DistSessionState::VAL_INACTIVE;
@@ -292,13 +292,13 @@ void UserServiceAnnChannel::workerLoop()
                         dist_session_inactive = true;
                         break;
                     }
-		}
+                }
 
-	    }
+            }
 
         }
 
-	if(has_ing_session) sendCarouselRequest();
+        if(has_ing_session) sendCarouselRequest();
     }
 
 }
@@ -334,8 +334,8 @@ std::size_t UserServiceAnnChannel::countUserDataIngSessions()
     m_userDataIngSessions.remove_if(&UserServiceAnnChannel::isExpired);
     for(const auto &ing_session : m_userDataIngSessions) {
         auto session = ing_session.lock();
-	if(!session) continue;
-	if(session->isUserServiceAnnBundleAvailable() && !session->isIncludedInCarouselObjectManifest()) count++;
+        if(!session) continue;
+        if(session->isUserServiceAnnBundleAvailable() && !session->isIncludedInCarouselObjectManifest()) count++;
     }
     return count;
 }
@@ -348,9 +348,9 @@ bool UserServiceAnnChannel::userServiceAnnBundleAvailable()
         auto session = ing_session.lock();
         if(!session) continue;
         if(session->isUserServiceAnnBundleAvailable()) {
-	    available = true;
-	    break;
-	}
+            available = true;
+            break;
+        }
     }
     return available;
 }
@@ -362,14 +362,14 @@ void UserServiceAnnChannel::sendCarouselRequest()
     std::list<std::shared_ptr<CarouselObject >> carousel_objects;
 
     {
-	std::lock_guard<decltype(m_announcementChannelMutex)::element_type> lock(*m_announcementChannelMutex);
+        std::lock_guard<decltype(m_announcementChannelMutex)::element_type> lock(*m_announcementChannelMutex);
         m_userDataIngSessions.remove_if(&UserServiceAnnChannel::isExpired);
         for(const auto &ing_session : m_userDataIngSessions) {
             auto session = ing_session.lock();
             if(!session || !session->isUserServiceAnnBundleAvailable() || session->isIncludedInCarouselObjectManifest()) continue;
-	    carousel_objects.splice(carousel_objects.end(), session->getCarouselObjects());
-	    session->includedInCarouselObjectManifest(true);
-	}
+            carousel_objects.splice(carousel_objects.end(), session->getCarouselObjects());
+            session->includedInCarouselObjectManifest(true);
+        }
     }
 
     if(carousel_objects.size()) {
@@ -407,12 +407,12 @@ void UserServiceAnnChannel::sendCarouselObjectManifest(const std::shared_ptr<Obj
     bytesReceived = m_curl->post(m_pushUrl, timeout, body, std::string(ANN_OBJ_MANIFEST_MIME_TYPE));
     if (bytesReceived >= 0) {
         ogs_debug("Received %ld bytes of data", bytesReceived);
-	auto response_code = m_curl->getResponseCode();
+        auto response_code = m_curl->getResponseCode();
         if (response_code >= 200 && response_code <= 299) {
-	    ogs_debug("User Service Ann Channel: Carousel Object Manifest: POST Response code [%d].", response_code);
-	} else {
-	   ogs_debug("User Service Ann Channel: Carousel Object Manifest: POST Response code [%d] not expected.", response_code);
-	}
+            ogs_debug("User Service Ann Channel: Carousel Object Manifest: POST Response code [%d].", response_code);
+        } else {
+           ogs_debug("User Service Ann Channel: Carousel Object Manifest: POST Response code [%d] not expected.", response_code);
+        }
 
     } else if (bytesReceived == -1) {
         ogs_error("Request timed out.");
@@ -444,7 +444,7 @@ bool UserServiceAnnChannel::processEvent(Open5GSEvent &event)
             auto &channel = App::self().context()->userServiceAnnouncementChannel();
             if (channel && channel->processClientResponse(event)) return true;
             return false;
-	}
+        }
     default:
         return false;
     }
@@ -482,8 +482,8 @@ bool UserServiceAnnChannel::processClientResponse(const Open5GSEvent &event)
 
                 return true;
             } else {
-	        ogs_debug("Response is not for the announcement channel");
-	    }
+                ogs_debug("Response is not for the announcement channel");
+            }
             break;
         }
 

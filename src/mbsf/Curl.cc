@@ -117,10 +117,10 @@ long Curl::__post(const std::string& url, std::chrono::milliseconds timeout, con
             if (!res && ct) {
                 m_contentType = std::string(ct);
             }
-	    curl_easy_getinfo(m_curl, CURLINFO_RESPONSE_CODE, &m_statusCode);
+            curl_easy_getinfo(m_curl, CURLINFO_RESPONSE_CODE, &m_statusCode);
 
             return m_receivedData.size(); // Return the number of bytes received
-    
+
     } else if (res == CURLE_OPERATION_TIMEDOUT) {
             return -1; // Indicate timeout
     } else {

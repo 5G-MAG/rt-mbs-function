@@ -493,14 +493,14 @@ static int notify_client_callback(int status, ogs_sbi_response_t *response, void
                         "MBSUserDataIngStatNotif failed [%d]", status);
         if(req_data) {
             if(req_data->request) {
-	        req_data->request->setOwner(true);
+                req_data->request->setOwner(true);
                 req_data->request.reset();
-	    }
+            }
             delete req_data;
-	}
-	if(response) ogs_sbi_response_free(response);
+        }
+        if(response) ogs_sbi_response_free(response);
         if(e) ogs_event_free(e);
-	return OGS_ERROR;
+        return OGS_ERROR;
     } else {
         ogs_assert(response);
     }
@@ -763,7 +763,7 @@ bool UserDataIngStatSubsc::processEvent(Open5GSEvent &event)
             const std::string &user_data_ing_session_id = user_data_ing_session.userDataIngSessionId();
             const std::map<std::string, std::shared_ptr<UserDataIngStatSubsc> > &user_data_ing_stat_subscs = App::self().context()->userDataIngStatSubscs();
 
-	    for(const auto &user_data_ing_stat_subsc : user_data_ing_stat_subscs) {
+            for(const auto &user_data_ing_stat_subsc : user_data_ing_stat_subscs) {
                 const std::shared_ptr<UserDataIngStatSubsc> &stat_subsc = user_data_ing_stat_subsc.second;
                 const std::string &id = stat_subsc->userDataIngSessionId();
                 if (user_data_ing_session_id == id && stat_subsc->checkForUserDataIngSessStarting()) {
@@ -775,17 +775,17 @@ bool UserDataIngStatSubsc::processEvent(Open5GSEvent &event)
 
                 }
 
-		if (user_data_ing_session_id == id && stat_subsc->checkForUserServiceAnn()) {
-		    std::list<std::string> object_locators = user_data_ing_session.getObjectLocators();
+                if (user_data_ing_session_id == id && stat_subsc->checkForUserServiceAnn()) {
+                    std::list<std::string> object_locators = user_data_ing_session.getObjectLocators();
                     if(!object_locators.size() || user_data_ing_session.userSerAdNotificationSent()) break;
-		    for(const std::string &object_locator : object_locators) {
+                    for(const std::string &object_locator : object_locators) {
                         std::shared_ptr< Event > event = nullptr;
                         event.reset(new Event());
                         *event = Event::VAL_USER_SER_AD;
                         stat_subsc->setSubscribedEventTime(event, DateTime::clock::now(), object_locator);
                         stat_subsc->sendNotifications();
-		    }
-		    user_data_ing_session.userSerAdNotificationSent(true);
+                    }
+                    user_data_ing_session.userSerAdNotificationSent(true);
 
                 }
 
@@ -875,8 +875,8 @@ bool UserDataIngStatSubsc::checkForUserServiceAnn() {
         if (!subsc_event) continue;
         std::shared_ptr< Event > event = subsc_event->getStatusEvent();
         if (event->getValue() == Event::VAL_USER_SER_AD) {
-	    return true;
-	}
+            return true;
+        }
     }
 
     return false;

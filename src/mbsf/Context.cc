@@ -478,7 +478,7 @@ void Context::parseUserServiceAnnouncement(const std::string &pc_key, Open5GSYam
                 userServiceAnnouncement.announcementRepetitionTime = std::stoi(iter.value());
             } else if (usac_key == "keepUpdatedInterval") {
                 userServiceAnnouncement.keepUpdatedInterval = std::stoi(iter.value());
-	    } else if (usac_key == "ssmPort") {
+            } else if (usac_key == "ssmPort") {
                 userServiceAnnouncement.ssmPort = std::stol(iter.value());
             }
 
@@ -498,7 +498,7 @@ void Context::parseUserServiceAnnouncement(const std::string &pc_key, Open5GSYam
         } else if (usac_key == "ssmDestinationAddress") {
             userServiceAnnouncement.ssmDestinationAddress = std::string(iter.value());
         } else if (usac_key == "docRoot") {
-	    has_doc_root = true;
+            has_doc_root = true;
             userServiceAnnouncement.docRoot = std::string(iter.value());
         } else if (usac_key == "server") {
             Open5GSYamlIter user_serv_announce_iter(iter);
@@ -930,7 +930,7 @@ const SockAddr &Context::findUserServAnnServerAddrForRemote(const SockAddr &remo
     auto local_addr = s.getLocalSockAddr();
     local_addr.port(0);
     s.close();
-    
+
     auto net_ifc = get_net_interface_for(local_addr);
 
     for (auto &svr : m_userServAnnServers) {

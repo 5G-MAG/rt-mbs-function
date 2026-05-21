@@ -70,7 +70,7 @@ public:
 private:
 
     void addObjects(std::list<std::shared_ptr<CarouselObject >> objects);
-    
+
     std::shared_ptr<reftools::mbsf::ObjectManifest> m_objectManifest;
     std::list<std::string> m_objectLocators;
     std::unique_ptr<std::recursive_mutex> m_objectManifestMutex;

@@ -264,7 +264,7 @@ bool Nmb2Handler::processEvent(Open5GSEvent &event)
                                 std::string txt(patch_response_from_mbstf.serialise());
                                 ogs_debug("PATCH RESPONSE Parsed JSON: %s", txt.c_str());
                             }
-			    handle_mbstf_dist_session_response(sbi_xact, response, true);
+                            handle_mbstf_dist_session_response(sbi_xact, response, true);
                             //UserDataIngSession::handlePatchUpdateResponse(sbi_xact);
                         }
                      } else {

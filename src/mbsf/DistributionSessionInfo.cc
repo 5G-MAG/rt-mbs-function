@@ -702,7 +702,7 @@ const std::shared_ptr<reftools::mbsf::Ssm> DistributionSessionInfo::populateSsm(
             src_ipv6_addr.reset(new Ipv6Addr(ssm_source_address));
             dst_ipv6_addr.reset(new Ipv6Addr(ssm_destination_address));
 
-	    src_ip_addr->setIpv6Addr(src_ipv6_addr);
+            src_ip_addr->setIpv6Addr(src_ipv6_addr);
             dst_ip_addr->setIpv6Addr(dst_ipv6_addr);
 
         }

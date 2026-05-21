@@ -109,9 +109,9 @@ void ObjManifest::addObjects(std::list<std::shared_ptr<CarouselObject >> objects
     std::lock_guard<decltype(m_objectManifestMutex)::element_type> lock(*m_objectManifestMutex);
     for(const auto &obj : objects) {
         if(!obj) continue;
-	const std::shared_ptr<reftools::mbsf::Object> object = obj->object();
-	if(!object) continue;
-	m_objectManifest->addObjects(std::move(object));
+        const std::shared_ptr<reftools::mbsf::Object> object = obj->object();
+        if(!object) continue;
+        m_objectManifest->addObjects(std::move(object));
     }
 }
 

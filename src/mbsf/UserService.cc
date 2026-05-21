@@ -249,7 +249,7 @@ bool UserService::processEvent(Open5GSEvent &event)
                             return true;
                         }
 
-			if(!checkAndSetUserServiceAnnouncementChannel(mbs_user_service, true)) {
+                        if(!checkAndSetUserServiceAnnouncementChannel(mbs_user_service, true)) {
                             static const char *err = "MBSF Cannot handle User Service Announcement.";
                             ogs_error("%s", err);
                             ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 1, message,
@@ -374,9 +374,9 @@ bool UserService::processEvent(Open5GSEvent &event)
                             int response_code = 200;
 
                             std::shared_ptr<UserService> user_service = UserService::find(user_service_id);
-			    bool current_user_services_requires_ann = user_service->requiresUserServiceAnnouncement();
+                            bool current_user_services_requires_ann = user_service->requiresUserServiceAnnouncement();
                             user_service->update(mbs_user_service, true);
-			    bool new_user_service_requires_ann = user_service->requiresUserServiceAnnouncement();
+                            bool new_user_service_requires_ann = user_service->requiresUserServiceAnnouncement();
                             App::self().context()->updateAnnChannelCounter(new_user_service_requires_ann, current_user_services_requires_ann);
                             CJson user_service_json(user_service->json(false));
                             std::string body(user_service_json.serialise());
@@ -419,7 +419,7 @@ bool UserService::processEvent(Open5GSEvent &event)
                                 // New delete request, trigger clean up of UserService and UserDataIngestSessions
                                 ogs_event_t *post_delete_event = reinterpret_cast<ogs_event_t*>(ogs_calloc(1, sizeof(*post_delete_event)));
                                 post_delete_event->id = LOCAL_REMOVE_EVENT;
-				bool requires_user_service_ann_channel = mbs_user_service->requiresUserServiceAnnouncement(); 
+                                bool requires_user_service_ann_channel = mbs_user_service->requiresUserServiceAnnouncement();
                                 post_delete_event->sbi.data = new LocalRemoveEventData{user_service_id, stream_id, requires_user_service_ann_channel};
                                 mbs_user_service->remove(std::make_shared<Open5GSEvent>(post_delete_event));
                             } else {
@@ -471,7 +471,7 @@ bool UserService::processEvent(Open5GSEvent &event)
             LocalRemoveEventData *local_remove_data = reinterpret_cast<LocalRemoveEventData*>(event.sbiData());
             if(local_remove_data->requires_user_service_ann_channel) App::self().context()->decAnnChannelCounter();
 
-	    App::self().context()->deleteUserService(local_remove_data->user_service_id);
+            App::self().context()->deleteUserService(local_remove_data->user_service_id);
             std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(std::nullopt, std::nullopt, std::nullopt, std::nullopt, 0, std::nullopt, nmbsf_mbs_userservice_api, app_meta));
             NfServer::populateResponse(response, "", OGS_SBI_HTTP_STATUS_NO_CONTENT);
             Open5GSSBIStream stream(local_remove_data->stream_id);
@@ -608,9 +608,9 @@ bool UserService::checkAndSetUserServiceAnnouncementChannel(const fiveg_mag_reft
         if (!service_ann_mode.has_value()) continue;
         if (service_ann_mode.value()->getValue() == reftools::mbsf::ServiceAnnouncementMode::VAL_VIA_MBS_DISTRIBUTION_SESSION) {
             App::self().context()->incAnnChannelCounter();
-	    if(App::self().context()->userServiceAnnouncementChannel()) return true;
+            if(App::self().context()->userServiceAnnouncementChannel()) return true;
             App::self().context()->setUserServiceAnnouncementChannel();
-	    break;
+            break;
         }
     }
     return true;

@@ -44,8 +44,8 @@ public:
 
     CarouselObject(fiveg_mag_reftools::CJson &json, bool as_request);
     CarouselObject(const std::shared_ptr<reftools::mbsf::Object> &object);
-    CarouselObject(const std::string &locator, std::optional<int32_t > repetition_interval = std::nullopt, 
-		    std::optional<int32_t > keep_updated_interval = std::nullopt, std::optional<std::string > earliest_fetch_time = std::nullopt); 
+    CarouselObject(const std::string &locator, std::optional<int32_t > repetition_interval = std::nullopt,
+                    std::optional<int32_t > keep_updated_interval = std::nullopt, std::optional<std::string > earliest_fetch_time = std::nullopt);
 
     CarouselObject() = delete;
     CarouselObject(CarouselObject &&other) = delete;

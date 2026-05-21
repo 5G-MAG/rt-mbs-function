@@ -283,11 +283,11 @@ SubscribedEvents &SubscribedEvents::setSubscribedEventTime(std::shared_ptr< Even
         } else {
             p->first.reset();
         }
-	if(status_add_info) {
-	    p->second.emplace(*status_add_info);
-	} else {
+        if(status_add_info) {
+            p->second.emplace(*status_add_info);
+        } else {
             p->second.reset();
-	}
+        }
 
     } else {
         ogs_info("Invalid Subscribed Event Type");
@@ -307,10 +307,10 @@ SubscribedEvents &SubscribedEvents::registerEvent(std::shared_ptr<DistSessionEve
             ogs_info("epoch parse failed");
             tp.first.emplace(DateTime::clock::now());
         }
-	tp.second.reset();
+        tp.second.reset();
     } else {
         tp.first.emplace(DateTime::clock::now());
-	tp.second.reset();
+        tp.second.reset();
     }
     return *this;
 }
