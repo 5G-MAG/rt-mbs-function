@@ -58,11 +58,13 @@
 #include "UserService.hh"
 
 using fiveg_mag_reftools::CJson;
+using fiveg_mag_reftools::ModelException;
 using reftools::mbsf::CreateReqData;
 using reftools::mbsf::ExternalMbsServiceArea;
 using reftools::mbsf::MbsServiceArea;
 using reftools::mbsf::MbsServiceType;
 using reftools::mbsf::MBSUserService;
+using reftools::mbsf::MBSUserServicePatch;
 using reftools::mbsf::TunnelAddress;
 using reftools::mbsf::ServiceNameDescription;
 
@@ -249,11 +251,22 @@ bool UserService::processEvent(Open5GSEvent &event)
                             return true;
                         }
 
-                        if(!checkAndSetUserServiceAnnouncementChannel(mbs_user_service, true)) {
-                            static const char *err = "MBSF cannot handle User Service Announcement channel without local configuration.";
-                            ogs_error("%s", err);
-                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 1, message,
-                                                                    app_meta, api, "Bad MBSF User Service", err));
+                        try {
+                            if(!checkAndSetUserServiceAnnouncementChannel(mbs_user_service, true)) {
+                                static const char *err = "MBSF cannot handle User Service Announcement channel without local configuration.";
+                                ogs_error("%s", err);
+                                ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 1, message,
+                                                                        app_meta, api, "Bad MBSF User Service", err));
+                                return true;
+                            }
+                        } catch (ModelException &ex) {
+                            if (ex.cause) {
+                                ogs_assert(true == NfServer::sendError(stream, ex.cause.value(), 1, message, app_meta,
+                                                api, "Mandatory information element missing", ex.what()));
+                            } else {
+                                ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 1, message,
+                                              app_meta, api, "Mandatory information element missing", ex.what()));
+                            }
                             return true;
                         }
 
@@ -406,6 +419,14 @@ bool UserService::processEvent(Open5GSEvent &event)
                             ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_NOT_FOUND, 2, message,
                                                                     app_meta, api, "MBS User Service not found",
                                                                     err.str(), std::nullopt, invalid_params));
+                        } catch (ModelException &ex) {
+                            if (ex.cause) {
+                                ogs_assert(true == NfServer::sendError(stream, ex.cause.value(), 2, message, app_meta,
+                                                api, "Mandatory information element missing", ex.what()));
+                            } else {
+                                ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 2, message,
+                                              app_meta, api, "Mandatory information element missing", ex.what()));
+                            }
                         }
 
                         return true;
