@@ -89,7 +89,9 @@ void MultipartMime::addFile(const std::filesystem::path &rootdir, const std::fil
         std::string disposition_hdr = std::format("Content-Disposition: {}; filename=\"{}\"\r\n", disposition_type.value(), filename.filename().string());
         m_body.insert(m_body.end(), disposition_hdr.begin(), disposition_hdr.end());
     }
-    std::string location_hdr = std::format("Content-Location: \"{}\"\r\n", filename.string());
+    // RFC 2557 SS4.1 defines Content-Location as a bare URI-reference (no quoted-string form),
+    // so the value must not be wrapped in literal quote characters.
+    std::string location_hdr = std::format("Content-Location: {}\r\n", filename.string());
     m_body.insert(m_body.end(), location_hdr.begin(), location_hdr.end());
 
     static const std::string crlf{"\r\n"};
