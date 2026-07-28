@@ -18,8 +18,7 @@ Please use a linux distribution with GCC 14 or later (e.g. Ubuntu 24.04 or later
 ```bash
 sudo add-apt-repository universe
 sudo apt update
-sudo apt install git ninja-build build-essential flex bison libsctp-dev libgnutls28-dev libgcrypt-dev libssl-dev libidn11-dev libmongoc-dev libbson-dev libyaml-dev libnghttp2-dev libmicrohttpd-dev libcurl4-gnutls-dev libtins-dev libtalloc-dev libpcre2-dev uuid-dev curl wget default-jdk cmake jq util-linux-extra
-sudo python3 -m pip install --upgrade meson
+sudo apt install git ninja-build build-essential flex bison libsctp-dev libgnutls28-dev libgcrypt-dev libssl-dev libidn11-dev libmongoc-dev libbson-dev libyaml-dev libnghttp2-dev libmicrohttpd-dev libcurl4-gnutls-dev libtins-dev libtalloc-dev libpcre2-dev uuid-dev curl wget default-jdk cmake jq util-linux-extra meson
 ```
 
 ## Downloading
