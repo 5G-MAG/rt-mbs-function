@@ -120,7 +120,13 @@ void MultipartMime::__removeFooterSep() {
 static std::string random_string(size_t chars)
 {
     std::string result;
-    static const char base_charset[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@/?\\+=_!:;";
+    // RFC 2046 SS5.1.1's boundary grammar only allows bcharsnospace (DIGIT / ALPHA / "'" / "("
+    // / ")" / "+" / "_" / "," / "-" / "." / "/" / ":" / "=" / "?"), quoted or not -- '@', '\'
+    // and '!' were never legal boundary characters, and ';' isn't either. '\' was additionally
+    // being written unescaped into the quoted-string Content-Type header parameter, so a
+    // strict RFC 2045 quoted-string parser would derive a different (unescaped) boundary value
+    // than the literal, un-unescaped delimiter text actually used in the body.
+    static const char base_charset[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/?+=_:";
 
     std::random_device r;
     std::default_random_engine e1(r());
