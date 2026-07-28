@@ -620,7 +620,26 @@ bool UserDataIngStatSubsc::processEvent(Open5GSEvent &event)
                         /* POST method allowed by TS 29.580 */
                         /* Also include OPTIONS method for RESTful introspection */
 
-                        if (method == OGS_SBI_HTTP_METHOD_POST) {
+                        if (method == OGS_SBI_HTTP_METHOD_GET) {
+                            // GET on the bare collection (TS 29.580 "MBS User Data Ingest Status
+                            // Subscriptions (Collection)"): all currently-known subscriptions, as
+                            // a JSON array.
+                            CJson subscs_json(CJson::newArray());
+                            for (const auto &entry : App::self().context()->userDataIngStatSubscs()) {
+                                subscs_json.append(entry.second->m_mbsUserDataIngStatSubsc.toJSON(false));
+                            }
+                            std::string body(subscs_json.serialise());
+                            ogs_debug("Parsed JSON: %s", body.c_str());
+                            std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(std::string(request.uri()),
+                                                    body.empty()?nullptr:"application/json",
+                                                    std::nullopt, std::nullopt,
+                                                    App::self().context()->cacheControl.defaultMaxAge,
+                                                    std::nullopt, api, app_meta));
+                            ogs_assert(response);
+                            NfServer::populateResponse(response, body, 200);
+                            ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *response));
+                            return true;
+                        } else if (method == OGS_SBI_HTTP_METHOD_POST) {
                             ogs_debug("POST response: status = %i", message.resStatus());
                             std::shared_ptr<UserDataIngStatSubsc> user_data_ing_stat_subsc = nullptr;
                             ogs_debug("Request body: %s", request.content());

@@ -306,11 +306,22 @@ bool UserService::processEvent(Open5GSEvent &event)
                         return true;
                     } else if (method == OGS_SBI_HTTP_METHOD_GET) {
                         if (!ptr_resource1) {
-                            std::ostringstream err;
-                            err << "Invalid resource [" << message.uri() << "]";
-                            ogs_error("%s", err.str().c_str());
-                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 1, message,
-                                                                    app_meta, api, "Bad Request", err.str()));
+                            // GET on the bare collection (TS 29.580 "MBS User Services (Collection)"):
+                            // all currently-known MBS User Services, as a JSON array.
+                            CJson user_services_json(CJson::newArray());
+                            for (const auto &entry : App::self().context()->UserServices) {
+                                user_services_json.append(entry.second->json(false));
+                            }
+                            std::string body(user_services_json.serialise());
+                            ogs_debug("Parsed JSON: %s", body.c_str());
+                            std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(std::string(request.uri()),
+                                                    body.empty()?nullptr:"application/json",
+                                                    std::nullopt, std::nullopt,
+                                                    App::self().context()->cacheControl.MBSUserServiceMaxAge,
+                                                    std::nullopt, api, app_meta));
+                            ogs_assert(response);
+                            NfServer::populateResponse(response, body, 200);
+                            ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *response));
                             return true;
                         }
                         std::string user_service_id(ptr_resource1);

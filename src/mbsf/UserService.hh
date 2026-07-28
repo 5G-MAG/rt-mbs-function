@@ -81,6 +81,7 @@ public:
     void addUserDataIngSession(const std::shared_ptr<UserDataIngSession> &userIngSession);
     void deleteUserDataIngSession(const std::string &userIngSessionId);
     const std::shared_ptr<UserDataIngSession> &findUserDataIngSession(const std::string &id) const;
+    const std::map<std::string, std::shared_ptr<UserDataIngSession> > &userDataIngSessions() const {return m_userDataIngSessions;};
     void removeUserDataIngSession(const std::string &userIngSessionId);
     void removeAllUserDataIngSessions();
     std::list<std::shared_ptr<UserServiceDesc::serviceNameLanguageDescription>> UserServiceDescriptionDescs();
