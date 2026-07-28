@@ -61,6 +61,7 @@ public:
 
     static const std::shared_ptr<UserService> &find(const std::string &id); // throws std::out_of_range if id does not exist
     void update(fiveg_mag_reftools::CJson &json, bool as_request);
+    void modify(fiveg_mag_reftools::CJson &json, bool as_request); // RFC 7396 JSON Merge Patch (MBSUserServicePatch)
     const std::string &userServiceId() const { return m_UserServiceId; };
     const std::shared_ptr<reftools::mbsf::MBSUserService> &getMBSUserService() const {return m_MBSUserService;};
     const reftools::mbsf::MBSUserService::ExtServiceIdsType &serviceIds() const {return m_MBSUserService->getExtServiceIds();};

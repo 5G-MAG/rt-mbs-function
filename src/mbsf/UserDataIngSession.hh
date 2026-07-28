@@ -177,6 +177,7 @@ public:
     const reftools::mbsf::DistSessionState &getDistSessionState(const std::optional<std::shared_ptr<reftools::mbsf::DistSessionState> > &user_state) const;
 
     void processUserDataIngSessionUpdate(ogs_pool_id_t stream_id, const std::shared_ptr<Open5GSSBIRequest> &request, fiveg_mag_reftools::CJson &json);
+    void processUserDataIngSessionPatch(ogs_pool_id_t stream_id, const std::shared_ptr<Open5GSSBIRequest> &request, fiveg_mag_reftools::CJson &patch_json); // RFC 7396 JSON Merge Patch (MBSUserDataIngSessionPatch)
     void processDistributionSessionInfo(ogs_pool_id_t stream_id, const std::shared_ptr<Open5GSSBIRequest> &request);
     void handleUserDataIngSessionUpdate(ogs_pool_id_t stream_id, const std::shared_ptr<Open5GSSBIRequest> &request);
     void updateMbstfRemovedDistSession();

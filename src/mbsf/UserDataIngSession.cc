@@ -84,6 +84,7 @@
 #include "UserDataIngSessionNotificationEvent.hh"
 #include "openapi/model/DistSession.h"
 #include "openapi/model/MBSUserDataIngSession.h"
+#include "openapi/model/MBSUserDataIngSessionPatch.h"
 #include "openapi/model/Tmgi.h"
 #include "openapi/model/TunnelAddress.h"
 #include "openapi/model/MBSDistributionSessionInfo.h"
@@ -134,6 +135,7 @@ using reftools::mbsf::MbsServiceType;
 using reftools::mbsf::MbsSessionId;
 using reftools::mbsf::MbStfIngestAddr;
 using reftools::mbsf::MBSUserDataIngSession;
+using reftools::mbsf::MBSUserDataIngSessionPatch;
 using reftools::mbsf::ObjAcquisitionMethod;
 using reftools::mbsf::ObjDistributionData;
 using reftools::mbsf::ObjDistributionOperatingMode;
@@ -531,15 +533,69 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
                             ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *response));
                         } catch (const std::out_of_range &e) {
                             send_invalid_user_data_ing_session_err(e, stream, 3, message, app_meta, api, user_data_ing_session_id);
+                        } catch (ModelException &ex) {
+                            send_model_error(ex, stream, 3, message, app_meta, api, "Problem with UserDataIngSession", "Updating UserDataIngSession");
                         }
 
                         return true;
 
                     } else if (method == OGS_SBI_HTTP_METHOD_PATCH) {
 
-                        ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_NOT_FOUND, 2, message,
-                                                            app_meta, api, "Method not allowed",
-                                                            "The PATCH method is not allowed for this path"));
+                        if (!ptr_resource1) {
+                            std::ostringstream err;
+                            err << "Invalid resource [" << message.uri() << "]";
+                            ogs_error("%s", err.str().c_str());
+                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 1, message,
+                                                                    app_meta, api, "Bad Request", err.str()));
+                            return true;
+                        }
+                        std::string user_data_ing_session_id(ptr_resource1);
+
+                        if (request.headerValue(OGS_SBI_CONTENT_TYPE, std::string()) != "application/merge-patch+json") {
+                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_UNSUPPORTED_MEDIA_TYPE,
+                                                                   3, message, app_meta, api, "Unsupported Media Type",
+                                                                   "Expected content type: application/merge-patch+json"));
+                            return true;
+                        }
+
+                        CJson user_data_ing_sess_patch(CJson::Null);
+                        try {
+                           user_data_ing_sess_patch = CJson::parse(request.content());
+                        } catch (std::exception &ex) {
+                            static const char *err = "Unable to parse MBSF User Data Ingest Session Patch as JSON.";
+                            ogs_error("%s", err);
+                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 1, message,
+                                                                    app_meta, api, "Bad MBSF User Data Ingest Session JSON Patch", err));
+                            return true;
+                        }
+
+                        {
+                            std::string txt(user_data_ing_sess_patch.serialise());
+                            ogs_debug("Patch Request Parsed JSON: %s", txt.c_str());
+                        }
+
+                        try {
+                            std::shared_ptr<UserDataIngSession> user_data_ing_sess = find(user_data_ing_session_id);
+                            user_data_ing_sess->processUserDataIngSessionPatch(stream_id, request_ctx, user_data_ing_sess_patch);
+                            user_data_ing_sess->configureUserServiceAnnouncementBundler();
+                            int response_code = 200;
+                            CJson user_data_ing_session_json(user_data_ing_sess->json(false));
+                            std::string body(user_data_ing_session_json.serialise());
+                            ogs_debug("Generated JSON: %s", body.c_str());
+                            std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(std::string(request.uri()),
+                                                    body.empty()?nullptr:"application/json",
+                                                    user_data_ing_sess->generated(),
+                                                    user_data_ing_sess->hash().c_str(),
+                                                    App::self().context()->cacheControl.MBSUserServiceMaxAge,
+                                                    std::nullopt/*nullptr*/, api, app_meta));
+                            ogs_assert(response);
+                            NfServer::populateResponse(response, body, response_code);
+                            ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *response));
+                        } catch (const std::out_of_range &e) {
+                            send_invalid_user_data_ing_session_err(e, stream, 3, message, app_meta, api, user_data_ing_session_id);
+                        } catch (ModelException &ex) {
+                            send_model_error(ex, stream, 3, message, app_meta, api, "Problem with UserDataIngSession", "Patching UserDataIngSession");
+                        }
 
                         return true;
 
@@ -1310,6 +1366,32 @@ void UserDataIngSession::processUserDataIngSessionUpdate(ogs_pool_id_t stream_id
         userServiceAnnouncement(nullptr);
     }
     handleUserDataIngSessionUpdate(stream_id, request);
+}
+
+void UserDataIngSession::processUserDataIngSessionPatch(ogs_pool_id_t stream_id, const std::shared_ptr<Open5GSSBIRequest> &request, CJson &patch_json)
+{
+    // Validate shape/types up front via the generated Patch model (throws ModelException on a
+    // bad patch body), same as the working status-subscription PATCH does. Note: a null value
+    // for a mbsDisSessInfos entry (RFC 7396's per-key removal signal) does not validate here --
+    // MBSUserDataIngSessionPatch's generated map parsing constructs a MBSDistributionSessionInfo
+    // from every entry unconditionally and has no representation for "this key was null", so it
+    // throws instead. Removing one distribution session without resending the others therefore
+    // isn't supported by this endpoint yet; the caller should still use PUT for that case.
+    MBSUserDataIngSessionPatch mbs_user_data_ing_session_patch(patch_json, true);
+
+    // Only actPeriods, actPeriodsRepRule and mbsDisSessInfos are patchable (TS 29.580). Rather
+    // than re-implement mbsDisSessInfos' add/update/remove-vs-current-state reconciliation (and
+    // its MBSTF/timer side effects) a second time, overlay the patch's present fields onto the
+    // session's current full representation and run it through the same
+    // processUserDataIngSessionUpdate() PUT already uses -- it already reconciles
+    // mbsDisSessInfos correctly against current state.
+    static const char *patchable_keys[] = {"actPeriods", "actPeriodsRepRule", "mbsDisSessInfos"};
+    CJson merged(json(true));
+    for (const char *key : patchable_keys) {
+        CJson value(patch_json.getObjectItemCaseSensitive(key));
+        if (!value.isNull()) merged.set(key, value);
+    }
+    processUserDataIngSessionUpdate(stream_id, request, merged);
 }
 
 void UserDataIngSession::processDistributionSessionInfo(ogs_pool_id_t stream_id, const std::shared_ptr<Open5GSSBIRequest> &request)

@@ -46,6 +46,7 @@
 #include "UserServiceDesc.hh"
 #include "UserDataIngSession.hh"
 #include "openapi/model/MBSUserService.h"
+#include "openapi/model/MBSUserServicePatch.h"
 #include "openapi/model/CreateReqData.h"
 #include "openapi/model/TunnelAddress.h"
 #include "openapi/model/MbsServiceType.h"
@@ -121,6 +122,26 @@ CJson UserService::json(bool as_request = false) const
 void UserService::update(CJson &json, bool as_request)
 {
     m_MBSUserService.reset(new MBSUserService(json, as_request));
+}
+
+void UserService::modify(CJson &json, bool as_request)
+{
+    MBSUserServicePatch mbs_user_service_patch(json, as_request);
+    if (mbs_user_service_patch.getExtServiceIds().has_value()) {
+        m_MBSUserService->setExtServiceIds(mbs_user_service_patch.getExtServiceIds().value());
+    }
+    if (mbs_user_service_patch.getServClass().has_value()) {
+        m_MBSUserService->setServClass(mbs_user_service_patch.getServClass().value());
+    }
+    if (mbs_user_service_patch.getServAnnModes().has_value()) {
+        m_MBSUserService->setServAnnModes(mbs_user_service_patch.getServAnnModes().value());
+    }
+    if (mbs_user_service_patch.getServNameDescs().has_value()) {
+        m_MBSUserService->setServNameDescs(mbs_user_service_patch.getServNameDescs().value());
+    }
+    if (mbs_user_service_patch.getMainServLang().has_value()) {
+        m_MBSUserService->setMainServLang(mbs_user_service_patch.getMainServLang().value());
+    }
 }
 
 
@@ -472,6 +493,81 @@ bool UserService::processEvent(Open5GSEvent &event)
                             }
                             return true;
                         }
+                    } else if (method == OGS_SBI_HTTP_METHOD_PATCH) {
+                        if (!ptr_resource1) {
+                            std::ostringstream err;
+                            err << "Invalid resource [" << message.uri() << "]";
+                            ogs_error("%s", err.str().c_str());
+                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 1, message,
+                                                                    app_meta, api, "Bad Request", err.str()));
+                            return true;
+                        }
+                        if (request.headerValue(OGS_SBI_CONTENT_TYPE, std::string()) != "application/merge-patch+json") {
+                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_UNSUPPORTED_MEDIA_TYPE,
+                                                                   3, message, app_meta, api, "Unsupported Media Type",
+                                                                   "Expected content type: application/merge-patch+json"));
+                            return true;
+                        }
+
+                        CJson mbs_user_service_patch(CJson::Null);
+                        try {
+                            mbs_user_service_patch = CJson::parse(request.content());
+                        } catch (std::exception &ex) {
+                            static const char *err = "Unable to parse MBSF User Service Patch as JSON.";
+                            ogs_error("%s", err);
+                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 1, message,
+                                                                    app_meta, api, "Bad MBSF User Service Patch", err));
+                            return true;
+                        }
+
+                        {
+                            std::string txt(mbs_user_service_patch.serialise());
+                            ogs_debug("Patch Request Parsed JSON: %s", txt.c_str());
+                        }
+
+                        std::string user_service_id(ptr_resource1);
+                        try {
+                            std::shared_ptr<UserService> user_service = UserService::find(user_service_id);
+                            bool current_user_services_requires_ann = user_service->requiresUserServiceAnnouncement();
+                            user_service->modify(mbs_user_service_patch, true);
+                            bool new_user_service_requires_ann = user_service->requiresUserServiceAnnouncement();
+                            App::self().context()->updateAnnChannelCounter(new_user_service_requires_ann, current_user_services_requires_ann);
+                            CJson user_service_json(user_service->json(false));
+                            std::string body(user_service_json.serialise());
+                            ogs_debug("Parsed JSON: %s", body.c_str());
+                            std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(std::string(request.uri()),
+                                                    body.empty()?nullptr:"application/json",
+                                                    user_service->generated(),
+                                                    user_service->hash().c_str(),
+                                                    App::self().context()->cacheControl.MBSUserServiceMaxAge,
+                                                    std::nullopt, api, app_meta));
+                            ogs_assert(response);
+                            NfServer::populateResponse(response, body, 200);
+                            ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *response));
+                        } catch (const std::out_of_range &e) {
+                            std::ostringstream err;
+                            err << "User Service [" << user_service_id << "] does not exist.";
+                            ogs_error("%s", err.str().c_str());
+
+                            static const std::string param("{mbsUserServId}");
+                            std::ostringstream reason;
+                            reason << "Invalid MBS User Service identifier [" << user_service_id << "]";
+                            std::map<std::string, std::string> invalid_params(
+                                                                        NfServer::makeInvalidParams(param, reason.str()));
+
+                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_NOT_FOUND, 2, message,
+                                                                    app_meta, api, "MBS User Service not found",
+                                                                    err.str(), std::nullopt, invalid_params));
+                        } catch (ModelException &ex) {
+                            if (ex.cause) {
+                                ogs_assert(true == NfServer::sendError(stream, ex.cause.value(), 2, message, app_meta,
+                                                api, "Mandatory information element missing", ex.what()));
+                            } else {
+                                ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 2, message,
+                                              app_meta, api, "Mandatory information element missing", ex.what()));
+                            }
+                        }
+                        return true;
                     } else {
                         std::ostringstream err;
 
