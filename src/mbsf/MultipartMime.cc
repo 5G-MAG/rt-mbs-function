@@ -63,6 +63,8 @@ HTTPXPP_NAMESPACE_USING(DocrootFile);
 MBSF_NAMESPACE_START
 
 static std::string random_string(size_t chars);
+static std::string encode_atom(const std::string &raw_str);
+static std::string escape_chars(const std::string_view &s, char esc, const std::string &other_chars_to_esc);
 
 MultipartMime::MultipartMime(MultipartMime::MultipartType typ)
     :m_headers()
@@ -70,7 +72,7 @@ MultipartMime::MultipartMime(MultipartMime::MultipartType typ)
     ,m_separator(random_string(64))
     ,m_bodyFooterSepPos(m_body.end())
 {
-    m_headers.insert(std::make_pair(std::string{"Content-Type"}, std::format("multipart/{}; boundary=\"{}\"", typ, m_separator)));
+    m_headers.insert(std::make_pair(std::string{"Content-Type"}, std::format("multipart/{}; boundary={}", typ, encode_atom(m_separator))));
     __insertFooterSep();
 }
 
@@ -86,10 +88,10 @@ void MultipartMime::addFile(const std::filesystem::path &rootdir, const std::fil
     }
 
     if (disposition_type) {
-        std::string disposition_hdr = std::format("Content-Disposition: {}; filename=\"{}\"\r\n", disposition_type.value(), filename.filename().string());
+        std::string disposition_hdr = std::format("Content-Disposition: {}; filename={}\r\n", disposition_type.value(), encode_atom(filename.filename().string()));
         m_body.insert(m_body.end(), disposition_hdr.begin(), disposition_hdr.end());
     }
-    std::string location_hdr = std::format("Content-Location: \"{}\"\r\n", filename.string());
+    std::string location_hdr = std::format("Content-Location: {}\r\n", encode_atom(filename.string()));
     m_body.insert(m_body.end(), location_hdr.begin(), location_hdr.end());
 
     static const std::string crlf{"\r\n"};
@@ -119,12 +121,8 @@ static std::string random_string(size_t chars)
 {
     std::string result;
     // RFC 2046 SS5.1.1's boundary grammar only allows bcharsnospace (DIGIT / ALPHA / "'" / "("
-    // / ")" / "+" / "_" / "," / "-" / "." / "/" / ":" / "=" / "?"), quoted or not -- '@', '\'
-    // and '!' were never legal boundary characters, and ';' isn't either. '\' was additionally
-    // being written unescaped into the quoted-string Content-Type header parameter, so a
-    // strict RFC 2045 quoted-string parser would derive a different (unescaped) boundary value
-    // than the literal, un-unescaped delimiter text actually used in the body.
-    static const char base_charset[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/?+=_:";
+    // / ")" / "+" / "_" / "," / "-" / "." / "/" / ":" / "=" / "?").
+    static const char base_charset[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'()+_,-./:=?";
 
     std::random_device r;
     std::default_random_engine e1(r());
@@ -133,6 +131,35 @@ static std::string random_string(size_t chars)
         result += base_charset[uniform_dist(e1)];
     }
 
+    return result;
+}
+
+static std::string encode_atom(const std::string &raw_str)
+{
+    // Encode a simple atom string according to the valid characters from RFC 2822 Section 3.2.4 atext definition
+    // Use a quoted string if the raw value contains characters outside of this list.
+    static const char unquoted_atom_chars[]="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!#$%&'*+-/=?^_`{|}~";
+    static const char q_esc = '\\';
+    static const std::string q_other_esc("\"");
+    std::string result;
+    if (raw_str.find_first_not_of(unquoted_atom_chars) != std::string::npos) {
+        // string contains special chars, quote it
+        result = std::format("\"{}\"", escape_chars(raw_str, q_esc, q_other_esc));
+    } else {
+        result = raw_str;
+    }
+    return result;
+}
+
+static std::string escape_chars(const std::string_view &s, char esc, const std::string &other_esc_chars)
+{
+    std::string result;
+    for (char c : s) {
+        if (c == esc || other_esc_chars.find_first_of(c) != std::string::npos) {
+            result += esc;
+        }
+        result += c;
+    }
     return result;
 }
 
