@@ -64,7 +64,6 @@ using reftools::mbsf::ExternalMbsServiceArea;
 using reftools::mbsf::MbsServiceArea;
 using reftools::mbsf::MbsServiceType;
 using reftools::mbsf::MBSUserService;
-using reftools::mbsf::MBSUserServicePatch;
 using reftools::mbsf::TunnelAddress;
 using reftools::mbsf::ServiceNameDescription;
 
