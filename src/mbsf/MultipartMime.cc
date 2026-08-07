@@ -64,6 +64,7 @@ MBSF_NAMESPACE_START
 
 static std::string random_string(size_t chars);
 static std::string encode_atom(const std::string &raw_str);
+static std::string encode_mime_token(const std::string &raw_str);
 static std::string escape_chars(const std::string_view &s, char esc, const std::string &other_chars_to_esc);
 
 MultipartMime::MultipartMime(MultipartMime::MultipartType typ)
