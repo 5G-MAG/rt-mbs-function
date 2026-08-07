@@ -72,7 +72,7 @@ MultipartMime::MultipartMime(MultipartMime::MultipartType typ)
     ,m_separator(random_string(64))
     ,m_bodyFooterSepPos(m_body.end())
 {
-    m_headers.insert(std::make_pair(std::string{"Content-Type"}, std::format("multipart/{}; boundary={}", typ, encode_atom(m_separator))));
+    m_headers.insert(std::make_pair(std::string{"Content-Type"}, std::format("multipart/{}; boundary={}", typ, encode_mime_token(m_separator))));
     __insertFooterSep();
 }
 
