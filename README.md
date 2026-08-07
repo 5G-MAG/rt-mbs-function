@@ -90,3 +90,21 @@ the [Gitflow workflow](https://www.atlassian.com/git/tutorials/comparing-workflo
 `development` branch of this project serves as an integration branch for new features. Consequently, please make sure to
 switch to the `development` branch before starting the implementation of a new feature.
 
+## Troubleshooting
+
+### Wrong Meson version
+
+If the Meson version installed via `apt` does not meet the project's minimum version requirement, you will see an error
+like this during the build:
+
+```text
+meson.build:12:20: ERROR: Meson version is 1.3.2 but project requires >= 1.4.0
+```
+
+In this case, remove the APT package and install the latest Meson version with `pip`:
+
+```bash
+sudo apt-get remove meson
+sudo python3 -m pip install --break-system-packages --upgrade meson
+```
+
