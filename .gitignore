@@ -34,6 +34,7 @@
 # Editor temporary files
 .*.swp
 *.bak
+.cache/
 
 # meson temporary files
 subprojects/.wraplock
