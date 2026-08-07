@@ -88,7 +88,7 @@ void MultipartMime::addFile(const std::filesystem::path &rootdir, const std::fil
     }
 
     if (disposition_type) {
-        std::string disposition_hdr = std::format("Content-Disposition: {}; filename={}\r\n", disposition_type.value(), encode_atom(filename.filename().string()));
+        std::string disposition_hdr = std::format("Content-Disposition: {}; filename={}\r\n", disposition_type.value(), encode_mime_token(filename.filename().string()));
         m_body.insert(m_body.end(), disposition_hdr.begin(), disposition_hdr.end());
     }
     std::string location_hdr = std::format("Content-Location: {}\r\n", encode_atom(filename.string()));
