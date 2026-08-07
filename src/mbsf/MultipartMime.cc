@@ -134,21 +134,36 @@ static std::string random_string(size_t chars)
     return result;
 }
 
-static std::string encode_atom(const std::string &raw_str)
+static std::string encode_value(const std::string &raw_str, const char *unquoted_chars)
 {
-    // Encode a simple atom string according to the valid characters from RFC 2822 Section 3.2.4 atext definition
-    // Use a quoted string if the raw value contains characters outside of this list.
-    static const char unquoted_atom_chars[]="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!#$%&'*+-/=?^_`{|}~";
     static const char q_esc = '\\';
     static const std::string q_other_esc("\"");
-    std::string result;
-    if (raw_str.find_first_not_of(unquoted_atom_chars) != std::string::npos) {
+    if (raw_str.find_first_not_of(unquoted_chars) != std::string::npos) {
         // string contains special chars, quote it
-        result = std::format("\"{}\"", escape_chars(raw_str, q_esc, q_other_esc));
-    } else {
-        result = raw_str;
+        return std::format("\"{}\"", escape_chars(raw_str, q_esc, q_other_esc));
     }
-    return result;
+    return raw_str;
+}
+
+// RFC 2822 Section 3.2.4 atext -- valid unquoted characters for a "word" (Content-Location is
+// defined via RFC 822's word/atom grammar per RFC 2557 Section 4.1, not a MIME parameter).
+static std::string encode_atom(const std::string &raw_str)
+{
+    static const char unquoted_atom_chars[] =
+        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!#$%&'*+-/=?^_`{|}~";
+    return encode_value(raw_str, unquoted_atom_chars);
+}
+
+// RFC 2045 Section 5.1 token -- valid unquoted characters for a MIME parameter value
+// (Content-Type's boundary=, Content-Disposition's filename=). Excludes tspecials
+// ( ) < > @ , ; : \ " / [ ] ? = -- notably '/', ':', '=', '?', all of which random_string()'s
+// own boundary charset can legitimately produce -- and additionally permits '.', which atext
+// does not.
+static std::string encode_mime_token(const std::string &raw_str)
+{
+    static const char unquoted_token_chars[] =
+        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!#$%&'*+-.^_`{|}~";
+    return encode_value(raw_str, unquoted_token_chars);
 }
 
 static std::string escape_chars(const std::string_view &s, char esc, const std::string &other_esc_chars)
