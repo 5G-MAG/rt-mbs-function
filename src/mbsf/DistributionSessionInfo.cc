@@ -162,6 +162,21 @@ CJson DistributionSessionInfo::json(bool as_request = false) const
     return m_mbsDistributionSessionInfo->toJSON(as_request);
 }
 
+namespace {
+// Compares two optional<shared_ptr<T>> fields, treating "absent" and "present but null" as the
+// same "no value" state so a field that's merely re-sent unchanged doesn't spuriously trip up as
+// "changed".
+template <typename T>
+bool optionalPtrFieldsEqual(const std::optional<std::shared_ptr<T>> &a, const std::optional<std::shared_ptr<T>> &b)
+{
+    bool a_has = a.has_value() && a.value();
+    bool b_has = b.has_value() && b.value();
+    if (a_has != b_has) return false;
+    if (!a_has) return true;
+    return *a.value() == *b.value();
+}
+}
+
 std::shared_ptr<MBSDistributionSessionInfo> &DistributionSessionInfo::updateMBSDistributionSessionInfo(
     std::shared_ptr<MBSDistributionSessionInfo> new_mbs_dist_session_infos)
 {
@@ -179,8 +194,24 @@ std::shared_ptr<MBSDistributionSessionInfo> &DistributionSessionInfo::updateMBSD
     // 2. Conditional updates – only when the session is INACTIVE
     // --------------------------------------------------------------------
     std::optional<std::shared_ptr< DistSessionState > > dist_session_state = m_mbsDistributionSessionInfo->getMbsDistSessState();
+    bool is_inactive = dist_session_state.has_value() && dist_session_state.value()->getValue() == DistSessionState::VAL_INACTIVE;
 
-    if (dist_session_state.has_value() && dist_session_state.value()->getValue() == DistSessionState::VAL_INACTIVE) {
+    // BUG FIX: objDistrInfo/pckDistrInfo (and hence e.g. objAcqIds) were previously only ever
+    // copied across below when the Distribution Session is INACTIVE -- if PATCHed while
+    // ESTABLISHED/ACTIVE the request was accepted (200) but the change was silently dropped, so
+    // e.g. a PATCH narrowing objAcqIds would echo back the OLD array. These fields are only
+    // mutable while INACTIVE, so reject the request outright instead of silently no-op'ing it.
+    if (!is_inactive) {
+        if (!optionalPtrFieldsEqual(m_mbsDistributionSessionInfo->getObjDistrInfo(), new_mbs_dist_session_infos->getObjDistrInfo()) ||
+            !optionalPtrFieldsEqual(m_mbsDistributionSessionInfo->getPckDistrInfo(), new_mbs_dist_session_infos->getPckDistrInfo())) {
+            throw ModelException(
+                "objDistrInfo/pckDistrInfo cannot be modified while the MBS Distribution Session is not INACTIVE",
+                "MBSDistributionSessionInfo", "objDistrInfo",
+                fiveg_mag_reftools::ProblemCause::MODIFICATION_NOT_ALLOWED);
+        }
+    }
+
+    if (is_inactive) {
         // ----- Max Continuous Bit Rate -----
         m_mbsDistributionSessionInfo->setMaxContBitRate(std::move(new_mbs_dist_session_infos->getMaxContBitRate()));
 
