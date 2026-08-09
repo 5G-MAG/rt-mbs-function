@@ -190,6 +190,12 @@ std::shared_ptr<MBSDistributionSessionInfo> &DistributionSessionInfo::updateMBSD
 
     m_mbsDistributionSessionInfo->setTgtServAreas(std::move(new_mbs_dist_session_infos->getTgtServAreas()));
 
+    // TS 26.502 clause 4.5.6 lists these among the parameters the MBS Application
+    // Provider may update at any time, alongside mbsServInfo/mbsFSAId/tgtServAreas
+    // above -- not gated on INACTIVE like the block below.
+    m_mbsDistributionSessionInfo->setExtTgtServAreas(std::move(new_mbs_dist_session_infos->getExtTgtServAreas()));
+    m_mbsDistributionSessionInfo->setNrRedCapUeInfo(std::move(new_mbs_dist_session_infos->getNrRedCapUeInfo()));
+
     // --------------------------------------------------------------------
     // 2. Conditional updates – only when the session is INACTIVE
     // --------------------------------------------------------------------
@@ -233,17 +239,11 @@ std::shared_ptr<MBSDistributionSessionInfo> &DistributionSessionInfo::updateMBSD
         // ----- Traffic Marking Info -----
         m_mbsDistributionSessionInfo->setTrafficMarkingInfo(std::move(new_mbs_dist_session_infos->getTrafficMarkingInfo()));
 
-        // ----- External Target Service Areas -----
-        m_mbsDistributionSessionInfo->setExtTgtServAreas(std::move(new_mbs_dist_session_infos->getExtTgtServAreas()));
-
         // ----- Multiplexed Service Flag -----
         m_mbsDistributionSessionInfo->setMultiplexedServFlag(std::move(new_mbs_dist_session_infos->getMultiplexedServFlag()));
 
         // ----- Restricted Flag -----
         m_mbsDistributionSessionInfo->setRestrictedFlag(std::move(new_mbs_dist_session_infos->getRestrictedFlag()));
-
-        // ----- NR RedCap UE Info -----
-        m_mbsDistributionSessionInfo->setNrRedCapUeInfo(std::move(new_mbs_dist_session_infos->getNrRedCapUeInfo()));
 
         // ----- Associated Session Id -----
         m_mbsDistributionSessionInfo->setAssociatedSessionId(std::move(new_mbs_dist_session_infos->getAssociatedSessionId()));
