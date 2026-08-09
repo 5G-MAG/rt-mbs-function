@@ -495,6 +495,26 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
                             ogs_debug("Patch Request Parsed JSON: %s", txt.c_str());
                         }
 
+                        // Reject actPeriods/actPeriodsRepRule given together, mirroring the
+                        // mutual-exclusion check validate_state_setting_options() already
+                        // enforces on POST (TS 29.580 clause 6: the two are mutually exclusive).
+                        // This is a PUT-only fix: PATCH on this resource is intentionally not
+                        // implemented yet (returns 404 above), so it is not affected.
+                        try {
+                            MBSUserDataIngSession update_model(user_data_ing_sess_update, true);
+                            if (update_model.getActPeriods() && update_model.getActPeriodsRepRule()) {
+                                std::map<std::string,std::string> invalid_params;
+                                invalid_params["actPeriods"] = "actPeriods cannot be present if actPeriodsRepRule is present";
+                                invalid_params["actPeriodsRepRule"] = "actPeriodsRepRule cannot be present if actPeriods is present";
+                                ogs_assert(true == NfServer::sendError(stream, ProblemCause::OPTIONAL_IE_INCORRECT, 3, message,
+                                                                        app_meta, api, std::nullopt, std::nullopt, std::nullopt, invalid_params));
+                                return true;
+                            }
+                        } catch (ModelException &ex) {
+                            send_model_error(ex, stream, 3, message, app_meta, api, "Problem with UserDataIngSession update", "Validating UserDataIngSession update");
+                            return true;
+                        }
+
                         try {
                             std::shared_ptr<UserDataIngSession> user_data_ing_sess = find(user_data_ing_session_id);
                             user_data_ing_sess->processUserDataIngSessionUpdate(stream_id, request_ctx, user_data_ing_sess_update);
@@ -1227,8 +1247,13 @@ void UserDataIngSession::processUserDataIngSessionUpdate(ogs_pool_id_t stream_id
                     // update
                     std::shared_ptr<MBSDistributionSessionInfo> update_info = sess_info_update.value();
 
-                    // Copy old MBS Dist Session Id
+                    // TS 29.580 clause 5.3.2.4.2: mbsSessionId, mbsDistSessionId and
+                    // locationDependent shall never be updated after provisioning --
+                    // restore all three from the stored value before comparing/applying,
+                    // not just mbsDistSessionId.
                     update_info->setMbsDistSessionId(info->getMbsDistSessionId());
+                    update_info->setMbsSessionId(info->getMbsSessionId());
+                    update_info->setLocationDependent(info->getLocationDependent());
 
                     if (*update_info != *info) {
                         context_data->needsUpdate = true;
