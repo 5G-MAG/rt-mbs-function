@@ -81,7 +81,9 @@ mb_smf_sc_ncgi_t *MBSNcgi::populateNcgi() {
 
     mb_smf_sc_ncgi_t *ncgi = mb_smf_sc_ncgi_new();
 
-    mb_smf_sc_ncgi_set_plmn_id(ncgi, mcc, mnc);
+    // Use the length-aware setter: mcc()/mnc() alone lose the MNC's actual digit
+    // count (2 vs 3), which a plain numeric value under 100 cannot distinguish.
+    mb_smf_sc_ncgi_set_plmn_id_len(ncgi, mcc, mnc, mbs_plmn_id->mncLen());
     uint64_t cell_id = nrCellId();
     ncgi->nr_cell_id = static_cast<uint64_t>(cell_id) & ((1ULL << 36) - 1);
     ncgi->nid = nid();
