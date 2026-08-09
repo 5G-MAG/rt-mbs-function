@@ -248,6 +248,16 @@ bool MBSMFMBSSession::processEvent(Open5GSEvent &MBSMFEvent)
                         }
                         UserDataIngSession::setMBSSessionFlag(*ids);
                     } else if (mbsf_event->result == OGS_ERROR) {
+                        // BUG FIX: the fallback call below used to run unconditionally, so even
+                        // when a specific cause was already matched and handled just above (e.g.
+                        // the registered 403 MBS_DIST_SESSION_ALREADY_CREATED), it was immediately
+                        // overwritten by a second, generic INBOUND_SERVER_ERROR call with no
+                        // problem_detail -- meaning the client only ever saw the generic 502-class
+                        // error regardless of what MB-SMF actually reported. Track whether a cause
+                        // (specific or the "no cause string" generic-with-detail case) was already
+                        // handled and only fall through to the bare generic call as a genuine
+                        // last resort (no problem_details at all, or an unregistered cause string).
+                        bool cause_handled = false;
                         if (mbsf_event->problem_details) {
                             cJSON *problem = OpenAPI_problem_details_convertToJSON((OpenAPI_problem_details_t*)mbsf_event->problem_details);
                             CJson problem_detail(problem, true);
@@ -256,12 +266,16 @@ bool MBSMFMBSSession::processEvent(Open5GSEvent &MBSMFEvent)
                                             MBSProblemCause::lookup(std::string(mbsf_event->problem_details->cause));
                                 if (cause.has_value()) {
                                     UserDataIngSession::setMBSSessionFailureFlag(*ids, cause.value(), problem_detail);
+                                    cause_handled = true;
                                 }
                             } else {
                                 UserDataIngSession::setMBSSessionFailureFlag(*ids, ProblemCause::INBOUND_SERVER_ERROR, problem_detail);
+                                cause_handled = true;
                             }
                         }
-                        UserDataIngSession::setMBSSessionFailureFlag(*ids, ProblemCause::INBOUND_SERVER_ERROR);
+                        if (!cause_handled) {
+                            UserDataIngSession::setMBSSessionFailureFlag(*ids, ProblemCause::INBOUND_SERVER_ERROR);
+                        }
                     } else {
                         UserDataIngSession::setMBSSessionFailureFlag(*ids, ProblemCause::INBOUND_SERVER_ERROR);
                     }

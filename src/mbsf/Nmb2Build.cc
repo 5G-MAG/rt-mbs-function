@@ -242,7 +242,10 @@ ogs_sbi_request_t *Nmb2Build::buildNmb2DistSessionPatch(void *context, void *dat
     std::shared_ptr<UserDataIngSession::ContextData> context_data_ptr(ing_session->getDistributionSessionInfoData(session_ids->second->second));
     DistSessionState req_state;
     if (context_data_ptr->needsUpdate) {
-        status_item.path = (char *)"/distSession";
+        // TS 29.581: PATCH /dist-sessions/{distSessionRef} operates on the flat
+        // DistSession resource directly, with no "distSession" wrapper property.
+        // RFC 6901: the whole document is addressed by the empty JSON Pointer "".
+        status_item.path = (char *)"";
         std::shared_ptr<DistSession> dist_session = build_nmb2_create_dist_session(ing_session, context_data_ptr);
 
         std::string sess_id(context_data_ptr->mbstfDistSessionId);
@@ -264,7 +267,9 @@ ogs_sbi_request_t *Nmb2Build::buildNmb2DistSessionPatch(void *context, void *dat
                 req_state = want_state;
             }
             patch_val = req_state.toJSON();
-            status_item.path = (char *)"/distSession/distSessionState";
+            // Flat DistSession resource: the field is at "/distSessionState",
+            // not under a non-existent "/distSession" wrapper (see above).
+            status_item.path = (char *)"/distSessionState";
         }
     }
 
