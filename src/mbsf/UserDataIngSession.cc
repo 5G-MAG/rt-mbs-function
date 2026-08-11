@@ -1155,9 +1155,20 @@ void UserDataIngSession::userServiceAnnChannelDistributionSessionInfo()
                             const std::optional<std::string> &dest_ipv4_addr = dest_ip_addr->getIpv4Addr();
                             const std::optional<std::shared_ptr<Ipv6Addr>> &dest_ipv6_addr = dest_ip_addr->getIpv6Addr();
                             std::shared_ptr<Ssm> ssm_data(new Ssm(*ssm_val));
-                            static std::random_device rd;
-                            static std::uniform_int_distribution<in_port_t> ud(32768, 65535);
-                            in_port_t port = ud(rd);
+                            // BUG FIX: this used to draw a fresh random port (ud(rd), the same
+                            // generator the regular per-content-session branch above uses, where a
+                            // new port every session is genuinely correct) for the Service
+                            // Announcement channel too -- but the announcement channel is meant to
+                            // be a single, fixed, well-known channel a client can bootstrap from
+                            // static configuration (see mbsf.yaml's userServiceAnnouncement.ssmPort,
+                            // and rt-mbs-client.conf's matching mbsf_client.announcement_channel).
+                            // Confirmed live: with the random port, MBSTF ended up transmitting the
+                            // real FLUTE carousel on some other, unpredictable port every run (e.g.
+                            // 41873), while any client bootstrapped from the configured ssmPort
+                            // (3000) filtered every real packet out silently, since it never matches
+                            // -- ssmPort was already correctly plumbed through Context (see
+                            // Context::userServiceAnnSsmPort()), it just wasn't used here.
+                            in_port_t port = static_cast<in_port_t>(App::self().context()->userServiceAnnSsmPort());
                             uint64_t tsi = 0;
                             if (info->getDistrMethod()->getValue() == DistributionMethod::VAL_OBJECT) {
                                 tsi = 1;
