@@ -226,7 +226,16 @@ bool UserService::processEvent(Open5GSEvent &event)
                 if (resource0 == "mbs-user-services") {
                     std::string method(message.method());
                     const char *ptr_resource1 = message.resourceComponent(1);
-                    if (method == OGS_SBI_HTTP_METHOD_POST) {
+                    // BUG FIX: this POST branch used to match any "mbs-user-services" prefix regardless
+                    // of what followed it, so a request actually meant for a sub-resource (e.g. a
+                    // misrouted or malformed "/mbs-user-services/{id}/ingest-sessions") would be parsed
+                    // as if it were a brand-new MBSUserService creation body instead -- confirmed live:
+                    // that body is missing fields MBSUserService requires (e.g. extServiceIds), and
+                    // checkAndSetUserServiceAnnouncementChannel() below constructs a raw MBSUserService
+                    // from it with no try/catch, so the resulting ModelException was uncaught and took
+                    // the whole process down. A real POST to create a user service has no resource1 at
+                    // all (mbs-user-services is a collection endpoint); only match that case here.
+                    if (method == OGS_SBI_HTTP_METHOD_POST && !ptr_resource1) {
                         ogs_debug("POST response: status = %i", message.resStatus());
                         std::shared_ptr<UserService> user_service;
                         ogs_debug("Request body: %s", request.content());
@@ -249,11 +258,23 @@ bool UserService::processEvent(Open5GSEvent &event)
                             return true;
                         }
 
-                        if(!checkAndSetUserServiceAnnouncementChannel(mbs_user_service, true)) {
-                            static const char *err = "MBSF cannot handle User Service Announcement channel without local configuration.";
-                            ogs_error("%s", err);
+                        // BUG FIX: checkAndSetUserServiceAnnouncementChannel() constructs a raw MBSUserService
+                        // straight from the request body (fiveg_mag_reftools::ModelException on any missing
+                        // required field, e.g. extServiceIds) with no try/catch of its own -- confirmed live:
+                        // an uncaught ModelException here calls std::terminate() and takes the whole MBSF
+                        // process down, rather than the 400 Bad Request a malformed client body should get.
+                        try {
+                            if(!checkAndSetUserServiceAnnouncementChannel(mbs_user_service, true)) {
+                                static const char *err = "MBSF cannot handle User Service Announcement channel without local configuration.";
+                                ogs_error("%s", err);
+                                ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 1, message,
+                                                                        app_meta, api, "Bad MBSF User Service", err));
+                                return true;
+                            }
+                        } catch (const std::exception &ex) {
+                            ogs_error("Malformed MBS User Service in request body: %s", ex.what());
                             ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 1, message,
-                                                                    app_meta, api, "Bad MBSF User Service", err));
+                                                                    app_meta, api, "Bad MBSF User Service", ex.what()));
                             return true;
                         }
 

@@ -31,6 +31,13 @@ mbsf:
       mbsUserServiceMaxAge: 60
       mbsUserDataIngestSessionMaxAge: 60
 
+  # NOTE: rt-mbs-function does not implement a real MBS-5 (TS 26.517 cl.9.2) discovery API or any
+  # MBS-4-MC bootstrap signalling, so a client has no protocol-level way to learn where the
+  # announcement channel actually is. If rt-mbs-client's mbsf_client.announcement_channel config
+  # (rt-mbs-client.conf) is used to bootstrap it automatically instead of a manual ManualActivate
+  # call, its multicast_address/port must match ssmDestinationAddress/ssmPort below, and its tsi
+  # must match the announcement channel's TSI (hardcoded to 1 in UserDataIngSession.cc -- see
+  # g_next_tsi there, which starts real content sessions at 2 to leave 1 free for this).
   userServiceAnnouncement:
     announcementRepetitionTime: 10000
     ssmPort: 3000
