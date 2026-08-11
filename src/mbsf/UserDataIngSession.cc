@@ -1663,6 +1663,24 @@ bool UserDataIngSession::handleMbstfDiscover(ogs_sbi_nf_instance_t *nf_instance,
 
 bool UserDataIngSession::createMbsSession(const std::shared_ptr<UserDataIngSession::ContextData> &context_data)
 {
+    // BUG FIX: this function used to unconditionally build a brand new MBSMFMBSSession (and the
+    // underlying mb_smf_sc_mbs_session_new_ipv4()/_ipv6() C session object) on every call, only
+    // guarding the *assignment* to context_data->MBSSession ("if (!context_data->MBSSession)"
+    // below) rather than the work itself. isMBSSessionCreated() only flips to true once the
+    // underlying MB-SMF session genuinely reaches CREATED state -- if MBSTF ever rejects the
+    // distribution session (e.g. a malformed request), that never happens, and
+    // userServiceAnnChannelDistributionSessionInfo()'s periodic check
+    // ("if (!isMBSSessionCreated(key)) createMbsSession(...)") called this again, immediately,
+    // every single loop iteration, forever: no backoff, no bound. Confirmed live -- MBSF spun at
+    // the workerLoop's tick rate (dozens of iterations/second) reconstructing the C session object
+    // and re-notifying MB-SMF each time, until it crashed. Skip entirely once a session object for
+    // this context already exists; the caller's own retry-driving state (MBSSessionStatus,
+    // receivedMBSTFResponse) is what should progress it from here, not another blind rebuild.
+    if (context_data->MBSSession) {
+        ogs_debug("createMbsSession: MBS Session already exists for this context, not recreating");
+        return true;
+    }
+
     const auto &ssm_ptr = context_data->ssm;
     if (!ssm_ptr) ogs_error("Unable to get SSM from Context Data");
 
