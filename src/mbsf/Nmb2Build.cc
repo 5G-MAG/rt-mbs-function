@@ -267,9 +267,20 @@ ogs_sbi_request_t *Nmb2Build::buildNmb2DistSessionPatch(void *context, void *dat
                 req_state = want_state;
             }
             patch_val = req_state.toJSON();
-            // Flat DistSession resource: the field is at "/distSessionState",
-            // not under a non-existent "/distSession" wrapper (see above).
-            status_item.path = (char *)"/distSessionState";
+            // BUG FIX (found live, 2026-08-10): MBSTF's actual PATCH target for
+            // /dist-sessions/{id} is CreateReqData (see DistributionSession::_apiSessionPatch(),
+            // which patches distributionSessionReqData(), a CreateReqData), and CreateReqData's
+            // generated applyPatch() (CreateReqData.cc) only recognises paths under its own
+            // "/distSession" property -- it does NOT expose DistSession's fields at the top
+            // level. The previous "/distSessionState" (no wrapper) path was rejected by MBSTF
+            // with "Runtime Error: Unknown path in JSON Patch", which meant every state-only
+            // PATCH (activate/deactivate) silently failed and triggered a rollback -- including
+            // the one that activates the built-in "USER SERVICE ANNOUNCEMENT CHANNEL" session,
+            // i.e. the real MBS-4-MC broadcast Service Announcement carousel never got updated
+            // with newly-provisioned services. Confirmed against CreateReqData.cc's path_prefix
+            // dispatch: it matches "/distSession" then delegates the remainder ("/distSessionState")
+            // to the nested DistSession object, which does recognise it (see DistSession.cc).
+            status_item.path = (char *)"/distSession/distSessionState";
         }
     }
 
