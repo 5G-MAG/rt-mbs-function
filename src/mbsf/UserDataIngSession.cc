@@ -1273,9 +1273,36 @@ void UserDataIngSession::processUserDataIngSessionUpdate(ogs_pool_id_t stream_id
                     update_info->setMbsSessionId(info->getMbsSessionId());
                     update_info->setLocationDependent(info->getLocationDependent());
 
-                    if (*update_info != *info) {
+                    // BUG FIX (found live, 2026-08-11): mbsDistSessState is included in
+                    // MBSDistributionSessionInfo::operator!=, so a PUT that changes ONLY the
+                    // state (activate/deactivate -- the common case, since this API has no
+                    // separate lightweight state-only endpoint) always took the needsUpdate
+                    // branch below, which rebuilds and PATCHes the ENTIRE MBSTF distribution
+                    // session, instead of the purpose-built, lightweight stateUpdate path (see
+                    // setDistSessionState() / buildNmb2DistSessionPatch()'s
+                    // "/distSession/distSessionState" branch) meant for exactly this. Compare
+                    // with state normalised out first, so pure state changes are classified
+                    // as stateUpdate, not needsUpdate; a change to anything else still counts
+                    // as needsUpdate regardless of whether state also changed (the needsUpdate
+                    // path's rebuilt DistSession already carries the new state along with it).
+                    const auto orig_update_state = update_info->getMbsDistSessState();
+                    update_info->setMbsDistSessState(info->getMbsDistSessState());
+                    bool content_changed = (*update_info != *info);
+                    update_info->setMbsDistSessState(orig_update_state);
+
+                    if (content_changed) {
                         context_data->needsUpdate = true;
                         context_data->distributionSessionInfo->updateMBSDistributionSessionInfo(update_info);
+                    } else if (orig_update_state != info->getMbsDistSessState()) {
+                        context_data->stateUpdate = true;
+                        info->setMbsDistSessState(orig_update_state);
+                        // buildNmb2DistSessionPatch()'s stateUpdate branch reads the wanted
+                        // state off context_data->info, which is normally the same object as
+                        // this loop's info -- set both explicitly rather than relying on that
+                        // aliasing.
+                        if (context_data->info && context_data->info != info) {
+                            context_data->info->setMbsDistSessState(orig_update_state);
+                        }
                     }
                 }
                 update_dist_sess_infos.erase(key_in_update);

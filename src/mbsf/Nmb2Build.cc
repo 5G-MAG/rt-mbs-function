@@ -242,8 +242,6 @@ ogs_sbi_request_t *Nmb2Build::buildNmb2DistSessionPatch(void *context, void *dat
     std::shared_ptr<UserDataIngSession::ContextData> context_data_ptr(ing_session->getDistributionSessionInfoData(session_ids->second->second));
     DistSessionState req_state;
     if (context_data_ptr->needsUpdate) {
-        // TS 29.581: PATCH /dist-sessions/{distSessionRef} operates on the flat
-        // DistSession resource directly, with no "distSession" wrapper property.
         // RFC 6901: the whole document is addressed by the empty JSON Pointer "".
         status_item.path = (char *)"";
         std::shared_ptr<DistSession> dist_session = build_nmb2_create_dist_session(ing_session, context_data_ptr);
@@ -253,7 +251,20 @@ ogs_sbi_request_t *Nmb2Build::buildNmb2DistSessionPatch(void *context, void *dat
         dist_session->setDistSessionId(sess_id);
         UserDataIngSession::addToRegistry(sess_id, session_ids->second);
 
-        patch_val = dist_session->toJSON(true);
+        // BUG FIX (found live, 2026-08-11): MBSTF stores the PATCH target for
+        // /dist-sessions/{id} as a CreateReqData (see DistributionSession.cc, which patches
+        // distributionSessionReqData() -- a CreateReqData, not a bare DistSession), and
+        // CreateReqData::fromJSON() (invoked by its applyJSONPatch() for an empty-path
+        // add/replace) requires its value to be a full CreateReqData document -- i.e. an
+        // object with a "distSession" property wrapping the DistSession fields, not the
+        // DistSession's own JSON directly. Sending dist_session->toJSON() unwrapped, as this
+        // used to, made every needsUpdate PATCH (a content/session change, not just a state
+        // change -- see the stateUpdate branch below for that) fail with "Mandatory
+        // Information Element Missing: distSession: Field \"distSession\" is required",
+        // silently breaking updates to any already-created distribution session.
+        CJson wrapped_patch_val = CJson::newObject();
+        wrapped_patch_val.set("distSession", dist_session->toJSON(true));
+        patch_val = wrapped_patch_val;
         const auto &state = dist_session->getDistSessionState();
         if (state) req_state = *state;
     } else if (context_data_ptr->stateUpdate) {
