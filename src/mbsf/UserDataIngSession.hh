@@ -124,6 +124,14 @@ public:
         reftools::mbsf::DistSessionState last_reported_state;
         std::shared_ptr<reftools::mbsf::DistSession> distSession = nullptr;
         std::shared_ptr<LIBRTSDP_NAMESPACE_NAME(SDP)> sdp = nullptr;
+        // BUG FIX (found live, 2026-08-10): captured here, at construction time in the owning
+        // UserDataIngSession instance method (which has "this" and so can call
+        // mbsUserService()), rather than looked up later inside the static createMbsSession() via
+        // locate(ingSessionId) -- that lookup raced against this object's own registration into
+        // the id->instance map and always lost (this ContextData is built and createMbsSession()
+        // is invoked on it *before* the constructing UserDataIngSession finishes registering
+        // itself), so it always silently fell back to "MULTICAST". See createMbsSession().
+        std::string userServType = std::string{};
     };
 
     UserDataIngSession(fiveg_mag_reftools::CJson &json, bool as_request);

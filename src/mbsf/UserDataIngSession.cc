@@ -1094,7 +1094,10 @@ void UserDataIngSession::updateContexts(ogs_pool_id_t stream_id, const std::shar
                                         .ssm_port = port,
                                         .request = request,
                                         .streamId = stream_id,
-                                        .tsi = tsi
+                                        .tsi = tsi,
+                                        // See createMbsSession()'s comment: captured here (an
+                                        // instance method, has "this") rather than looked up later.
+                                        .userServType = mbsUserService() ? mbsUserService()->getMBSUserServiceType() : std::string{}
                                 });
                                 addToDistributionSessionInfos(key, ctx_data);
                                 createMbsSession(ctx_data);
@@ -1171,7 +1174,11 @@ void UserDataIngSession::userServiceAnnChannelDistributionSessionInfo()
                                         .ssm_port = port,
                                         .request = nullptr,
                                         .streamId = 0,
-                                        .tsi = tsi
+                                        .tsi = tsi,
+                                        // This is the built-in Service Announcement carousel
+                                        // channel (see this method's name) -- MBS-4-MC Service
+                                        // Announcement is inherently a broadcast delivery, always.
+                                        .userServType = std::string("BROADCAST")
                                 });
                                 addToDistributionSessionInfos(key, ctx_data);
                                 nmbstfDiscoverOnly(ctx_data);
@@ -1732,7 +1739,21 @@ bool UserDataIngSession::createMbsSession(const std::shared_ptr<UserDataIngSessi
         mb_smf_mbs_session->setTunnelRequest(true);
         mb_smf_mbs_session->setTmgiRequest(true);
 
-        mb_smf_mbs_session->setServiceType(MBS_SERVICE_TYPE_MULTICAST);
+        // BUG FIX (found live, 2026-08-10): this unconditionally sent MULTICAST to the SMF/MB-SMF
+        // regardless of the parent MBS User Service's own servType. SMF's Nmbsmf handler
+        // (n4mb-handler.c) only triggers the Namf_MBSBroadcast context-create call -- the step
+        // that actually drives NGAP Broadcast Session Setup to the gNB -- "if the service type is
+        // broadcast service" (TS 23.247 cl.7.3.1 step 2); for MULTICAST it correctly does nothing
+        // here (multicast UE-join uses a separate, currently-unimplemented Namf_MBSCommunication
+        // procedure instead). So every BROADCAST User Service ended up silently treated as
+        // MULTICAST at the MB-SMF boundary: PFCP/N4mb and MBSTF FLUTE transmission all completed
+        // normally, but NGAP never reached the gNB, no MRB was ever created for the new session,
+        // and content had no bearer to travel over -- dropped after leaving the UPF with no
+        // visible error anywhere. Confirmed via UserService::getMBSUserServiceType(), which reads
+        // the real value ("BROADCAST"/"MULTICAST") straight from the User Service's own servType.
+        mb_smf_mbs_session->setServiceType(
+            ogs_strcasecmp(context_data->userServType.c_str(), "BROADCAST") == 0
+                ? MBS_SERVICE_TYPE_BROADCAST : MBS_SERVICE_TYPE_MULTICAST);
         if (!context_data->MBSSession) context_data->MBSSession = mb_smf_mbs_session;
         mb_smf_mbs_session->setCallback(UserDataIngDistSessId(context_data->ingSessionId, context_data->distSessionInfoKey));
         populate_mb_smf_mbs_session(context_data, mb_smf_mbs_session);
