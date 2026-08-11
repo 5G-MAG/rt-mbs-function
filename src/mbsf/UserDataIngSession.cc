@@ -534,6 +534,18 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
                             ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *response));
                         } catch (const std::out_of_range &e) {
                             send_invalid_user_data_ing_session_err(e, stream, 3, message, app_meta, api, user_data_ing_session_id);
+                        } catch (ModelException &ex) {
+                            // BUG FIX (found live, 2026-08-11): processUserDataIngSessionUpdate()
+                            // (via updateMBSDistributionSessionInfo()) throws a ModelException for
+                            // a genuinely invalid update -- e.g. PATCHing objDistrInfo/pckDistrInfo
+                            // while the Distribution Session isn't INACTIVE (correctly rejected,
+                            // not a bug in itself) -- but nothing here caught it, so it propagated
+                            // all the way out of the SBI request handler uncaught and crashed the
+                            // entire MBSF process via std::terminate(), taking down every other
+                            // active session with it over a single bad client request. Convert it
+                            // to a proper error response instead, same pattern as the
+                            // actPeriods/actPeriodsRepRule validation above.
+                            send_model_error(ex, stream, 3, message, app_meta, api, "Problem with UserDataIngSession update", "Applying UserDataIngSession update");
                         }
 
                         return true;
