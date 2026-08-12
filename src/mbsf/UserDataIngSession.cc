@@ -2186,8 +2186,20 @@ void UserDataIngSession::setMBSSessionDeleted(const UserDataIngDistSessId &ids)
             }
             ing_sess->m_deleteRequests.clear();
             if (context_data->markForDeletion) {
-                removeFromRegistry(ids.second);
-                ing_sess->removeDistributionSessionInfo(ids.first);
+                // BUG FIX (found live, 2026-08-12): these used to pass ids.second (the
+                // distSessionInfoKey, e.g. "AP_MBS_SESSION_1") to removeFromRegistry() -- which
+                // is keyed by the real MBSTF-assigned distribution session ID -- and ids.first
+                // (the ingSessionId, a UUID) to removeDistributionSessionInfo() -- which is keyed
+                // by distSessionInfoKey. Both erase()-by-wrong-key calls silently no-op (no
+                // exception, no log), so s_distSessionIdRegistry and m_distributionSessionInfos
+                // were never actually cleared here. Confirmed live: this left the deleted
+                // session's MbsSessionId (and thus its SSM address) permanently registered in
+                // Context::m_mbsSessionIds (see Context::addMbsSessionId's "Attempt to insert
+                // duplicate" warning), reproducible on every create+delete+recreate cycle with
+                // the same SSM, even minutes apart. Fixed to use context_data's own, correctly
+                // populated fields instead of the mismatched ids pair.
+                removeFromRegistry(context_data->mbstfDistSessionId);
+                ing_sess->removeDistributionSessionInfo(context_data->distSessionInfoKey);
             }
             App::self().context()->deleteUserDataIngSession(ing_sess->m_UserDataIngSessionId);
         }
@@ -2255,15 +2267,38 @@ void UserDataIngSession::setMBSTFDistSessionDeletedFlag(const std::string &dist_
             ogs_debug("Deleting MBS Session for Dist Session %s", dist_session_id.c_str());
             context_data->MBSSession->deleteSession();
         }
-        //if (context_data->markForDeletion) {
-            //removeFromRegistry(dist_session_id);
-            //ing_sess->removeDistributionSessionInfo(ids->first);
-            //return;
-        //}
+        // BUG FIX (found live, 2026-08-12): this whole cleanup was commented out, and the
+        // original draft passed ids->first (the ingSessionId, a UUID) to
+        // removeDistributionSessionInfo() -- which is keyed by distSessionInfoKey (e.g.
+        // "AP_MBS_SESSION_1") -- so even re-enabled as-is it would have silently no-op'd (see
+        // the identical bug fixed in setMBSSessionDeleted() above). With nothing here to ever
+        // erase this session from s_distSessionIdRegistry/m_distributionSessionInfos or drop the
+        // UserDataIngSession's last shared_ptr reference, a deleted MBS User Service's
+        // MbsSessionId (and its SSM address) stayed registered in Context::m_mbsSessionIds
+        // forever once its Distribution Session's deletion was confirmed via this path.
+        // Confirmed live via Context::addMbsSessionId's "Attempt to insert duplicate" warning,
+        // reproducible on every create+delete+recreate cycle using the same SSM. dist_session_id
+        // (this function's own parameter) is already the correct registry key -- no field
+        // lookup needed for that one.
+        if (context_data->markForDeletion) {
+            removeFromRegistry(dist_session_id);
+            ing_sess->removeDistributionSessionInfo(context_data->distSessionInfoKey);
+            return;
+        }
     }
-    //if (ing_sess->checkIfAllMBSTFDistSessionDeleted()) {
-    //    App::self().context()->deleteUserDataIngSession(ing_sess->m_UserDataIngSessionId);
-    //}
+    // NOT calling deleteUserDataIngSession() here (found live, 2026-08-12): setMBSSessionDeleted()
+    // is the authoritative "whole ingest session torn down" trigger -- it already sends the
+    // deferred DELETE HTTP response(s) queued in m_deleteRequests before destroying the session,
+    // gated on checkIfAllMBSSessionDeletionsReceived(). A normal delete fires BOTH this function
+    // (MBSTF distribution session deleted) and setMBSSessionDeleted() (MB-SMF MBS Session deleted)
+    // for the same logical session; re-enabling this call as well raced the two paths and
+    // destroyed the UserDataIngSession from here first, before setMBSSessionDeleted() could send
+    // its queued response -- confirmed live: "User Data Ingest Session deleted before 1 pending
+    // responses sent" followed by the portal's DELETE request timing out after 30s waiting for a
+    // response that could now never be sent. checkIfAllMBSTFDistSessionDeleted() still runs, for
+    // its s_distSessionIdRegistry cleanup side effect, but its own deleteUserDataIngSession() call
+    // stays commented out (see the function itself) for the same reason.
+    ing_sess->checkIfAllMBSTFDistSessionDeleted();
 }
 
 void UserDataIngSession::populateAndSendError(UserDataIngDistSessId *ids, const std::optional<fiveg_mag_reftools::ProblemCause> &cause, const std::optional<CJson> &problem_detail_json)
