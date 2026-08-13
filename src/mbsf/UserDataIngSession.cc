@@ -2086,19 +2086,19 @@ void UserDataIngSession::setMBSSessionDeleted(const UserDataIngDistSessId &ids)
 
 void UserDataIngSession::setMBSSessionFailureFlag(const UserDataIngDistSessId &ids, const std::optional<fiveg_mag_reftools::ProblemCause> &cause, const std::optional<CJson> &problem_detail_json)
 {
+    std::string ids_first(ids.first);
     try {
         std::shared_ptr<UserDataIngSession> ing_sess = find(ids.first);
         std::shared_ptr<ContextData> context_data = ing_sess->getDistributionSessionInfoData(ids.second);
         context_data->MBSSessionStatus = MBSSessionState::FAILED;
         //context_data->hasMBSSession = true;
         if (ing_sess->checkIfAllMBSSessionResponsesReceived()) {
-            std::string user_data_ingest_session_id(ids.first);
             populateAndSendError(new UserDataIngDistSessId(ids), cause, problem_detail_json);
-            App::self().context()->deleteUserDataIngSession(user_data_ingest_session_id);
+            App::self().context()->deleteUserDataIngSession(ids_first);
         }
     } catch (const std::out_of_range &e) {
         std::ostringstream err;
-        err << "MBS User Data Ingest Session [" << ids.first << "] does not exist.";
+        err << "MBS User Data Ingest Session [" << ids_first << "] does not exist.";
         ogs_error("%s", err.str().c_str());
     }
 }
@@ -2819,7 +2819,7 @@ static std::string print_mbs_session_error(const std::shared_ptr<UserDataIngSess
         first = false;
     }
 
-    oss << "] already exists in the MBS System\n";
+    oss << "] could not be created\n";
     return oss.str();
 
 }

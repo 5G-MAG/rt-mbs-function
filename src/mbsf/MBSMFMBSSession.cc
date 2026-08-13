@@ -77,11 +77,13 @@ MBSMFMBSSession::~MBSMFMBSSession()
 void MBSMFMBSSession::deleteSession()
 {
     if (m_session) {
+        ogs_debug("MBSMFMBSSession::deleteSession: this=%p, m_session=%p", this, m_session);
         if (m_subscription) mb_smf_sc_mbs_status_subscription_delete(m_subscription);
         mb_smf_sc_mbs_session_delete(m_session);
-        mb_smf_sc_mbs_session_push_changes(m_session);
-        m_changesInFlight = true;
-        m_sendUpdates = false;
+        if (mb_smf_sc_mbs_session_push_changes(m_session)) {
+            m_changesInFlight = true;
+            m_sendUpdates = false;
+        }
     }
 }
 
@@ -209,13 +211,13 @@ bool MBSMFMBSSession::processEvent(Open5GSEvent &MBSMFEvent)
             LocalEvent *mbsf_event = ogs_container_of(event, LocalEvent, event);
 
             ogs_debug("MBSMF Event: %s", MBSMFMBSSession::mbsfLocalGetName(mbsf_event));
+            UserDataIngDistSessId *ids = reinterpret_cast<UserDataIngDistSessId*>(event->sbi.data);
             switch (mbsf_event->id) {
             case MBSF_LOCAL_EVENT_MBS_SESSION_NOTIFY:
                 MBSMFMBSSession::processMbsSessionNotify(mbsf_event->notification,  event->sbi.data);
                 break;
             case MBSF_LOCAL_EVENT_MBS_SESSION_CREATE_RESULT:
                 {
-                    UserDataIngDistSessId *ids = reinterpret_cast<UserDataIngDistSessId*>(event->sbi.data);
                     if (mbsf_event->result == OGS_OK) {
                         ogs_info("MBS Session %s [%p] created", mb_smf_sc_mbs_session_get_resource_id(mbsf_event->mbs_session),
                                  mbsf_event->mbs_session);
@@ -268,12 +270,13 @@ bool MBSMFMBSSession::processEvent(Open5GSEvent &MBSMFEvent)
                 }
                 break;
             case MBSF_LOCAL_EVENT_MBS_SESSION_DELETED:
-                UserDataIngSession::setMBSSessionDeleted(*reinterpret_cast<UserDataIngDistSessId*>(event->sbi.data));
+                UserDataIngSession::setMBSSessionDeleted(*ids);
                 break;
             default:
                 ogs_warn("Unexpected local event: %s", mbsfEventGetName(event));
                 break;
             }
+            if (ids) delete ids;
             if (mbsf_event && mbsf_event->problem_details) {
                 OpenAPI_problem_details_free(mbsf_event->problem_details);
                 mbsf_event->problem_details = nullptr;
@@ -353,14 +356,16 @@ void MBSMFMBSSession::mbsSessionCallback(mb_smf_sc_mbs_session_t *session, int r
 
     ogs_debug("MB-SMF result callback (%i)", result);
 
-    /* queue result event */
-    sendLocalEvent((result != OGS_DONE)?MBSF_LOCAL_EVENT_MBS_SESSION_CREATE_RESULT:MBSF_LOCAL_EVENT_MBS_SESSION_DELETED,
-                   session, result, problem_details, mbs_session->m_id);
-
     if (result == OGS_DONE) {
+        /* SMF session has gone, stop anything else using it */
+        ogs_debug("MBSMFMBSSession::mbsSessionCallback: session %p deleted", mbs_session->m_session);
         mbs_session->m_session = nullptr;
         mbs_session->m_subscription = nullptr;
     }
+
+    /* queue result event */
+    sendLocalEvent((result != OGS_DONE)?MBSF_LOCAL_EVENT_MBS_SESSION_CREATE_RESULT:MBSF_LOCAL_EVENT_MBS_SESSION_DELETED,
+                   session, result, problem_details, mbs_session->m_id);
 
     /* if we have pending changes, try to send them */
     if (mbs_session->m_sendUpdates) {
@@ -502,7 +507,7 @@ void MBSMFMBSSession::sendLocalEvent(LocalEventId event_id, mb_smf_sc_mbs_sessio
 
     event->id = event_id;
     event->event.id = MBSF_LOCAL;
-    event->event.sbi.data = reinterpret_cast<void*>(const_cast<UserDataIngDistSessId*>(&ids));
+    event->event.sbi.data = new UserDataIngDistSessId(ids);
 
     event->mbs_session = session;
     if (problem_details) {

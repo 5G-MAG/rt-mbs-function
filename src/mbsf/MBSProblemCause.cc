@@ -45,7 +45,11 @@ const std::unordered_map<std::string, const ProblemCause *> MBSProblemCause::pro
         // 404 Not Found equivalents
         { "UNKNOWN_TMGI",                         nullptr },
         { "UNKNOWN_MBS_SESSION",                  nullptr },
-        { "UNKNOWN_MBS_SERVICE_AREA",             &MBSProblemCause::UNKNOWN_MBS_SERVICE_AREA }
+        { "UNKNOWN_MBS_SERVICE_AREA",             &MBSProblemCause::UNKNOWN_MBS_SERVICE_AREA },
+
+        // 500 Server Error
+        { "INSUFFICIENT_RESOURCES",               &ProblemCause::INSUFFICIENT_RESOURCES },
+        { "SYSTEM_FAILURE",                       &ProblemCause::SYSTEM_FAILURE }
     };
 
 
