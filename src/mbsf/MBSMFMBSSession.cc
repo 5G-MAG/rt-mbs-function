@@ -211,13 +211,14 @@ bool MBSMFMBSSession::processEvent(Open5GSEvent &MBSMFEvent)
             LocalEvent *mbsf_event = ogs_container_of(event, LocalEvent, event);
 
             ogs_debug("MBSMF Event: %s", MBSMFMBSSession::mbsfLocalGetName(mbsf_event));
-            UserDataIngDistSessId *ids = reinterpret_cast<UserDataIngDistSessId*>(event->sbi.data);
+            UserDataIngDistSessId *ids = nullptr;
             switch (mbsf_event->id) {
             case MBSF_LOCAL_EVENT_MBS_SESSION_NOTIFY:
                 MBSMFMBSSession::processMbsSessionNotify(mbsf_event->notification,  event->sbi.data);
                 break;
             case MBSF_LOCAL_EVENT_MBS_SESSION_CREATE_RESULT:
                 {
+                    ids = reinterpret_cast<UserDataIngDistSessId*>(event->sbi.data);
                     if (mbsf_event->result == OGS_OK) {
                         ogs_info("MBS Session %s [%p] created", mb_smf_sc_mbs_session_get_resource_id(mbsf_event->mbs_session),
                                  mbsf_event->mbs_session);
@@ -270,6 +271,7 @@ bool MBSMFMBSSession::processEvent(Open5GSEvent &MBSMFEvent)
                 }
                 break;
             case MBSF_LOCAL_EVENT_MBS_SESSION_DELETED:
+                ids = reinterpret_cast<UserDataIngDistSessId*>(event->sbi.data);
                 UserDataIngSession::setMBSSessionDeleted(*ids);
                 break;
             default:
