@@ -1343,8 +1343,19 @@ bool UserDataIngSession::processDistSession(const std::shared_ptr<DistSession> &
 
     process_mbs_distribution_session_info(context_data, dist_session);
 
+    // If this is an object PUSH method Distribution Session, copy DistSession.objDistributionData.objIngestBaseUrl to
+    // MBSDistributionSessionInfo.objDistrInfo.objIngUri for return to the caller.
     context_data->receivedMBSTFResponse = true;
     context_data->distSession = dist_session;
+    const auto &dist_sess_obj_data = dist_session->getObjDistributionData();
+    if (dist_sess_obj_data && *dist_sess_obj_data.value()->getObjAcquisitionMethod() == ObjAcquisitionMethod::VAL_PUSH) {
+        // This is an object PUSH method so copy objIngestBaseUrl to MBSDistributionSessionInfo.objDistrInfo.objIngUri
+        const auto &mbs_dist_sess_info = context_data->info;
+        const auto &obj_distr_info = mbs_dist_sess_info->getObjDistrInfo();
+        if (obj_distr_info) {
+            obj_distr_info.value()->setObjIngUri(dist_sess_obj_data.value()->getObjIngestBaseUrl());
+        }
+    }
 
     try {
         //std::shared_ptr<UserDataIngSession> ing_sess = find(ids->first);
