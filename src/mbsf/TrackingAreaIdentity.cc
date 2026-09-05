@@ -86,7 +86,9 @@ mb_smf_sc_tai_t *TrackingAreaIdentity::populateTai() {
     tracking_area = tac();
     n_id = nid();
 
-    return mb_smf_sc_tai_new(mcc, mnc, tracking_area, n_id);
+    // Use the length-aware constructor: mcc()/mnc() alone lose the MNC's actual
+    // digit count (2 vs 3), which a plain numeric value under 100 cannot distinguish.
+    return mb_smf_sc_tai_new_len(mcc, mnc, mbs_plmn_id->mncLen(), tracking_area, n_id);
 }
 
 uint32_t TrackingAreaIdentity::tac() {
@@ -124,12 +126,9 @@ uint32_t TrackingAreaIdentity::tac() {
 uint64_t* TrackingAreaIdentity::nid() {
     const std::optional<std::string > &nid = getNid();
     if (!nid.has_value()) return nullptr;
-    uint64_t value = 0;
-    for (char ch : nid.value()) {
-        if (std::isdigit(static_cast<unsigned char>(ch))) {
-            value = value * 10 + (ch - '0');
-        }
-    }
+    // TS 29.571 Nid is an 11-character hex string (44-bit SNPN Network Id) --
+    // parse as base 16, matching the correct sibling implementation MBSNcgi::nid().
+    uint64_t value = std::stoull(nid.value(), nullptr, 16);
 
     uint64_t *result = static_cast<uint64_t*>(std::malloc(sizeof(uint64_t)));
     if (result != nullptr) {

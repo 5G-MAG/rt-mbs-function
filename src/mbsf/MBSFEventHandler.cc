@@ -224,8 +224,13 @@ void MBSFEventHandler::dispatch(Open5GSFSM &fsm, Open5GSEvent &event)
                     ogs_error("Invalid resource name [%s]", resource.c_str());
                 }
             } else {
+                // This generic SBI-client dispatch branch has cases only for OGS_SBI_SERVICE_NAME_NNRF_NFM and
+                // NNRF_DISC (see the enclosing if/else chain), but MBSF legitimately calls other services and so
+                // receives their responses here too: "nmbsmf-mbssession", MB-SMF's own session service, arrives
+                // on Broadcast Context Create and Release. An unexpected service name is therefore logged and
+                // ignored, matching the "Invalid resource name" and "Invalid HTTP method" cases just above,
+                // rather than reaching ogs_assert_if_reached() and taking the process down.
                 ogs_error("Invalid service name [%s]", service_name.c_str());
-                ogs_assert_if_reached();
             }
         }
         break;

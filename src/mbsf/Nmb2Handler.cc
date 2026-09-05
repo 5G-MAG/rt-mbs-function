@@ -202,7 +202,10 @@ bool Nmb2Handler::processEvent(Open5GSEvent &event)
                 ogs_assert(sbi_xact_id >= OGS_MIN_POOL_ID && sbi_xact_id <= OGS_MAX_POOL_ID);
 
                 sbi_xact = ogs_sbi_xact_find_by_id(sbi_xact_id);
-                ogs_assert(sbi_xact);
+                // Checked rather than asserted: a distribution session's downstream chain can fail after the
+                // session has already been torn down elsewhere, which is the case the null check immediately
+                // below is written to handle gracefully. An assertion here would abort the process before
+                // reaching it.
                 if (!sbi_xact) {
                     /* CLIENT_WAIT timer could remove SBI transaction
                      * before receiving SBI message */
@@ -231,7 +234,17 @@ bool Nmb2Handler::processEvent(Open5GSEvent &event)
                     }
 
                 } else if (method == OGS_SBI_HTTP_METHOD_DELETE) {
-                    if (message.resStatus() == OGS_SBI_HTTP_STATUS_NO_CONTENT)
+                    // A non-204 response still has to complete this side of the delete.
+                    // handle_mbstf_dist_session_delete() is what eventually lets the whole User Service DELETE
+                    // finish (see UserDataIngSession::setMBSTFDistSessionDeletedFlag()), so returning without calling
+                    // it leaves the client's original DELETE with no response and the resource permanently
+                    // un-deletable. DELETE is idempotent and MBSTF not holding the resource already achieves this
+                    // step's goal state, so 404 calls through as success; any other status is logged as an error but
+                    // still completes this side.
+                    if (message.resStatus() != OGS_SBI_HTTP_STATUS_NO_CONTENT &&
+                        message.resStatus() != OGS_SBI_HTTP_STATUS_NOT_FOUND) {
+                        ogs_error("Unexpected HTTP response status [%d] from MBSTF for DELETE", message.resStatus());
+                    }
                     {
                         std::string resource_id(message.resourceComponent(1));
                         if (!resource_id.empty()) {
@@ -318,9 +331,18 @@ static bool handle_mbstf_dist_session_response(ogs_sbi_xact_t *xact, Open5GSSBIR
         send_error(xact);
         return true;
     }
+    /* The two responses have different shapes, and parsing one as the other fails.
+       TS 29.581 V18.6.0 table 6.1.3.2.3.1-3 gives the collection POST a CreateRspData body, which
+       wraps the session under "distSession". Table 6.1.3.3.3.1-3 gives the individual resource's
+       PATCH a bare DistSession: "Upon success, a response body containing the updated
+       representation of Distribution Session shall be returned". */
     try {
-        create_rsp_data.reset(new CreateRspData(create_rsp_data_from_mbstf, false));
-
+        if (update) {
+            dist_session.reset(new DistSession(create_rsp_data_from_mbstf, false));
+        } else {
+            create_rsp_data.reset(new CreateRspData(create_rsp_data_from_mbstf, false));
+            dist_session = create_rsp_data->getDistSession();
+        }
     } catch (std::exception &err) {
         UserDataIngSession::deleteMBSTFSession(xact);
         char *error = ogs_msprintf("%s", err.what());
@@ -329,8 +351,6 @@ static bool handle_mbstf_dist_session_response(ogs_sbi_xact_t *xact, Open5GSSBIR
         ogs_free(error);
         return true;
     }
-
-    dist_session = create_rsp_data->getDistSession();
     if(!update) {
         ogs_expect(true == UserDataIngSession::processDistSession(dist_session));
     } else {
