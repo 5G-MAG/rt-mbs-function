@@ -3290,7 +3290,7 @@ static bool request_too_large(Open5GSSBIRequest &request, Open5GSSBIStream &stre
  * returns the intersection. TS 29.580 V18.8.0 cl.6.2.8, Table 6.2.8-1 (Nmbsf_MBSUserDataIngestSession
  * API) defines exactly four features: 1 5MBS2, 2 MBSEventsExt, 3 MBSErrorHandling, 4 MBSPatchEnh.
  * Of these, only MBSEventsExt (feature 2) is genuinely implemented in this repository -- this
- * mask reflects what's actually there, not an aspiration (rule 12). TS 29.571's own
+  * mask reflects what's actually there, not an aspiration. TS 29.571's own
  * SupportedFeatures encoding (its own copy of TS 29.500 table 5.2.2-3): each hex character
  * represents 4 features, and the last character in the string represents features 1 to 4 -- since
  * this API defines no feature above 4, only that last character is ever relevant here. */

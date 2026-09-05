@@ -17,8 +17,8 @@
  */
 
 /* Covers MultipartMime's own body-assembly logic directly -- no App::self() dependency anywhere
- * in this class or in DocrootFile, so unlike test_announcement_bundle_gating.cc (abandoned, see
- * rt-mbs-function.md's own register entry), this one genuinely link-isolates. */
+ * in this class or in DocrootFile, so unlike test_announcement_bundle_gating.cc (abandoned), this
+ * one genuinely link-isolates. */
 
 #include <cstdio>
 #include <cstdlib>

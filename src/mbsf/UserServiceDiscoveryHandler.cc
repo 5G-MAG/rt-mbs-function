@@ -186,12 +186,11 @@ HTTPResponse UserServiceDiscoveryHandler::buildBundleResponse(
 
     for (const auto &svc : matches) {
         // A UserService may have more than one active Ingest Session (e.g. more than one
-        // Distribution Session for the same service); this pass uses only the first with an
-        // available announcement bundle to describe it, the same limitation
+        // Distribution Session for the same service); only the first with an
+        // available announcement bundle is used to describe it, the same limitation
         // UserServiceAnnBundle's own per-session model already has for the MBS-4-MC carousel
         // path -- combining several sessions' own DistributionSessionDescriptions into a single
-        // UserServiceDescription here is not attempted this pass (rule 12: no clause read this
-        // pass establishes how MBSF should choose/merge across sessions for MBS-5 specifically).
+        // UserServiceDescription here is not attempted (no clause read so far governs it).
         for (const auto &session : svc->userDataIngSessions()) {
             if (!session || !session->isUserServiceAnnBundleAvailable()) continue;
             auto user_service_desc = session->userServiceDesc();
