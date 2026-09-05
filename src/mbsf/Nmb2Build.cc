@@ -242,7 +242,8 @@ ogs_sbi_request_t *Nmb2Build::buildNmb2DistSessionPatch(void *context, void *dat
     std::shared_ptr<UserDataIngSession::ContextData> context_data_ptr(ing_session->getDistributionSessionInfoData(session_ids->second->second));
     DistSessionState req_state;
     if (context_data_ptr->needsUpdate) {
-        status_item.path = (char *)"/distSession";
+        // RFC 6901: the whole document is addressed by the empty JSON Pointer "".
+        status_item.path = (char *)"";
         std::shared_ptr<DistSession> dist_session = build_nmb2_create_dist_session(ing_session, context_data_ptr);
 
         std::string sess_id(context_data_ptr->mbstfDistSessionId);
@@ -250,6 +251,11 @@ ogs_sbi_request_t *Nmb2Build::buildNmb2DistSessionPatch(void *context, void *dat
         dist_session->setDistSessionId(sess_id);
         UserDataIngSession::addToRegistry(sess_id, session_ids->second);
 
+        /* The resource representation is DistSession, so the whole-document replace value is a
+           DistSession. TS 29.581 V18.6.0 table 6.1.3.3.3.1-3 gives the 200 response body as
+           DistSession, "Upon success, a response body containing the updated representation of
+           Distribution Session shall be returned"; CreateReqData is the collection POST body only
+           (table 6.1.3.2.3.1-2). */
         patch_val = dist_session->toJSON(true);
         const auto &state = dist_session->getDistSessionState();
         if (state) req_state = *state;
@@ -264,7 +270,12 @@ ogs_sbi_request_t *Nmb2Build::buildNmb2DistSessionPatch(void *context, void *dat
                 req_state = want_state;
             }
             patch_val = req_state.toJSON();
-            status_item.path = (char *)"/distSession/distSessionState";
+            /* JSON Pointer into the DistSession representation, per RFC 6902 as required by
+               TS 29.581 V18.6.0 table 6.1.3.3.3.1-2: "List of changes to be made to the MBS
+               session resource, according to the JSON PATCH format specified in IETF RFC 6902".
+               The pointer addresses distSessionState on the DistSession itself; there is no
+               enclosing wrapper on this resource. */
+            status_item.path = (char *)"/distSessionState";
         }
     }
 
@@ -317,9 +328,31 @@ std::shared_ptr<UpTrafficFlowInfo> populate_mbstf_up_traffic_flow_info(const std
         }
 
         flow_info.reset(new UpTrafficFlowInfo() );
-        flow_info->setDestIpAddr(ds_context->ssm->getDestIpAddr());
+        // ds_context->ssm is optional here. A genuine Broadcast Distribution Session carries a TMGI-only
+        // MBS Session ID and no AF-supplied SSM: TS29571_CommonData.yaml's MbsSessionId permits tmgi
+        // alone, and TS 29.580 cl.5.3.2.2.2 does not require ssm. TS 26.502 cl.4.5.6 and Annex B.3.1:
+        // "The MBSF nominates the MBS-4-MC multicast group destination IP address and UDP ports to be
+        // used inside the Nmb9 unicast tunnel" -- so with no AF-supplied SSM to derive the label from,
+        // MBSF nominates its own from mbsf.yaml's broadcastDistribution config rather than requiring the
+        // AF to supply something Broadcast sessions do not carry.
+        if (ds_context->ssm) {
+            flow_info->setDestIpAddr(ds_context->ssm->getDestIpAddr());
+            flow_info->setSrcIpAddr(ds_context->ssm->getSourceIpAddr());
+        } else {
+            // broadcastDistribution config carries plain address strings (mirrors
+            // userServiceAnnouncement's own ssmSourceAddress/ssmDestinationAddress); IpAddr
+            // construction here matches DistributionSessionInfo::populateSsm's own AF_INET branch
+            // (DistributionSessionInfo.cc:759-761) -- IPv4 only, since that is all either config
+            // option documents or offers an operator.
+            std::shared_ptr<IpAddr> dest_ip_addr(new IpAddr());
+            dest_ip_addr->setIpv4Addr(App::self().context()->broadcastDistributionDestinationAddress());
+            flow_info->setDestIpAddr(dest_ip_addr);
+
+            std::shared_ptr<IpAddr> src_ip_addr(new IpAddr());
+            src_ip_addr->setIpv4Addr(App::self().context()->broadcastDistributionSourceAddress());
+            flow_info->setSrcIpAddr(src_ip_addr);
+        }
         flow_info->setPortNumber(ds_context->ssm_port);
-        flow_info->setSrcIpAddr(ds_context->ssm->getSourceIpAddr());
         if (ds_context->tsi != 0) flow_info->setTransportSessionId(ds_context->tsi);
     }
 
@@ -375,10 +408,24 @@ static std::shared_ptr< ObjDistributionData > populate_mbstf_obj_distribution_da
     mbstf_obj_dist_data->setObjIngestBaseUrl(obj_ingest_url);
     mbstf_obj_dist_data->setObjDistributionBaseUrl(obj_disribution_url);
     if (acquisition_method) {
+        /* TS 29.581 V18.6.0 table 6.1.6.2.5-1 NOTE 6: "When the "objDistributionOperatingMode" is
+           set to "SINGLE" and the "objAcquisitionMethod" is set to "PUSH", the
+           "objAcquisitionIdsPull" attribute and the "objAcquisitionIdPush" attribute shall be
+           omitted."
+
+           TS 26.502 V18.6.0 table 6.1-1, OBJECT_SINGLE: "When the push-based object acquisition
+           method is provisioned, the set of Object acquisition identifiers shall be empty."
+
+           For SINGLE with PUSH the MBSTF supplies objIngestBaseUrl in its create response, and
+           that conveys the push target, so no acquisition identifier is carried. The restriction is
+           on SINGLE with PUSH only: SINGLE with PULL still carries objAcquisitionIdsPull. */
+        const bool single_operating_mode =
+            operating_mode && operating_mode->getString() == "SINGLE";
+
         if (acquisition_method->getString() == "PULL") {
             mbstf_obj_dist_data->setObjAcquisitionIdsPull(obj_acquisition_ids);
         } else if (acquisition_method->getString() == "PUSH") {
-            if (!obj_acquisition_ids.empty()) {
+            if (!single_operating_mode && !obj_acquisition_ids.empty()) {
                 mbstf_obj_dist_data->setObjAcquisitionIdPush(obj_acquisition_ids.front());
             }
         }

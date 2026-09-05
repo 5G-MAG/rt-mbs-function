@@ -32,10 +32,13 @@
 #include "ExternalServiceArea.hh"
 #include "ServiceArea.hh"
 #include "AssociatedSessId.hh"
+#include "MBSPlmnId.hh"
 #include "UserDataIngSession.hh"
 #include "utilities.hh"
 #include "openapi/model/CJson.hh"
 #include "openapi/model/ProblemCause.hh"
+#include "openapi/model/PlmnId.h"
+#include "openapi/model/Tmgi.h"
 
 #include "MBSMFMBSSession.hh"
 
@@ -45,12 +48,15 @@ using reftools::mbsf::AssociatedSessionId;
 using reftools::mbsf::ExternalMbsServiceArea;
 using reftools::mbsf::MbsServiceArea;
 using reftools::mbsf::MbsServiceInfo;
+using reftools::mbsf::PlmnId;
+using reftools::mbsf::Tmgi;
 
 MBSF_NAMESPACE_START
 
 MBSMFMBSSession::MBSMFMBSSession()
     :m_session(nullptr)
     ,m_subscription(nullptr)
+    ,m_afSuppliedTmgi(nullptr)
     ,m_changesInFlight(false)
     ,m_sendUpdates(false)
     ,m_id({"",""})
@@ -60,6 +66,7 @@ MBSMFMBSSession::MBSMFMBSSession()
 MBSMFMBSSession::MBSMFMBSSession(mb_smf_sc_mbs_session_t *session)
     :m_session(session)
     ,m_subscription(nullptr)
+    ,m_afSuppliedTmgi(nullptr)
     ,m_changesInFlight(false)
     ,m_sendUpdates(false)
     ,m_id({"",""})
@@ -72,6 +79,15 @@ MBSMFMBSSession::~MBSMFMBSSession()
     deleteSession();
     if (m_session) mb_smf_sc_mbs_session_set_callback(m_session, nullptr, nullptr);
     if (m_subscription) mb_smf_sc_mbs_status_subscription_set_notification_callback(m_subscription, nullptr, nullptr);
+    if (m_afSuppliedTmgi) {
+        // Ownership: see setTmgi()'s own comment. The library neither copies an AF-supplied
+        // TMGI nor frees it when the session is torn down (mbs-session.c's own
+        // _mbs_session_public_clear() only frees session->tmgi "if (session->tmgi_req &&
+        // session->tmgi != NULL)", and setTmgi() clears tmgi_req for exactly this case) -- this
+        // MBSF allocated m_afSuppliedTmgi and is the only owner responsible for freeing it.
+        mb_smf_sc_tmgi_free(m_afSuppliedTmgi);
+        m_afSuppliedTmgi = nullptr;
+    }
 }
 
 void MBSMFMBSSession::deleteSession()
@@ -251,6 +267,14 @@ bool MBSMFMBSSession::processEvent(Open5GSEvent &MBSMFEvent)
                         }
                         UserDataIngSession::setMBSSessionFlag(*ids);
                     } else if (mbsf_event->result == OGS_ERROR) {
+                        // The generic fallback below runs only when nothing more specific has already answered. A cause
+                        // matched above (the registered 403 MBS_DIST_SESSION_ALREADY_CREATED, say), or the generic case
+                        // that at least carries a problem_detail, is a better answer than a bare INBOUND_SERVER_ERROR
+                        // with none; letting the fallback run as well would replace it and leave the client seeing only
+                        // the generic 502-class error whatever MB-SMF actually reported. The flag records that an answer
+                        // has been sent, so the bare call is reached only with no problem_details at all or an
+                        // unregistered cause string.
+                        bool cause_handled = false;
                         if (mbsf_event->problem_details) {
                             cJSON *problem = OpenAPI_problem_details_convertToJSON((OpenAPI_problem_details_t*)mbsf_event->problem_details);
                             CJson problem_detail(problem, true);
@@ -259,12 +283,16 @@ bool MBSMFMBSSession::processEvent(Open5GSEvent &MBSMFEvent)
                                             MBSProblemCause::lookup(std::string(mbsf_event->problem_details->cause));
                                 if (cause.has_value()) {
                                     UserDataIngSession::setMBSSessionFailureFlag(*ids, cause.value(), problem_detail);
+                                    cause_handled = true;
                                 }
                             } else {
                                 UserDataIngSession::setMBSSessionFailureFlag(*ids, ProblemCause::INBOUND_SERVER_ERROR, problem_detail);
+                                cause_handled = true;
                             }
                         }
-                        UserDataIngSession::setMBSSessionFailureFlag(*ids, ProblemCause::INBOUND_SERVER_ERROR);
+                        if (!cause_handled) {
+                            UserDataIngSession::setMBSSessionFailureFlag(*ids, ProblemCause::INBOUND_SERVER_ERROR);
+                        }
                     } else {
                         UserDataIngSession::setMBSSessionFailureFlag(*ids, ProblemCause::INBOUND_SERVER_ERROR);
                     }
@@ -452,6 +480,44 @@ MBSMFMBSSession &MBSMFMBSSession::setTmgiRequest(bool tmgi_req)
     if (m_session) {
         //mb_smf_sc_mbs_session_set_tmgi_request(m_session, req_tmgi);
         m_session->tmgi_req = tmgi_req;
+    }
+    return *this;
+}
+
+MBSMFMBSSession &MBSMFMBSSession::setTmgi(std::shared_ptr<Tmgi> tmgi)
+{
+    if (m_session && tmgi) {
+        if (m_afSuppliedTmgi) {
+            // Replacing an AF-supplied TMGI this object already built and attached, before it
+            // was ever pushed to the MB-SMF. mb_smf_sc_mbs_session_set_tmgi() below only
+            // overwrites the session's own tmgi pointer, it does not free what it replaces
+            // (mbs-session.c's own _mbs_session_set_tmgi(), code-derived) -- free the stale one
+            // now rather than leak it.
+            mb_smf_sc_tmgi_free(m_afSuppliedTmgi);
+            m_afSuppliedTmgi = nullptr;
+        }
+
+        m_afSuppliedTmgi = mb_smf_sc_tmgi_new();
+        mb_smf_sc_tmgi_set_mbs_service_id(m_afSuppliedTmgi, tmgi->getMbsServiceId().c_str());
+        const std::shared_ptr<PlmnId> &plmn_id = tmgi->getPlmnId();
+        if (plmn_id) {
+            MBSPlmnId mbs_plmn_id(plmn_id);
+            mb_smf_sc_tmgi_set_plmn(m_afSuppliedTmgi, mbs_plmn_id.mcc(), mbs_plmn_id.mnc());
+        }
+
+        // Ownership, resolved by reading mb-smf-service-consumer's own code rather than
+        // assuming it (code-derived, mbs-session.c): mb_smf_sc_mbs_session_set_tmgi() stores
+        // the pointer given to it directly ("session->session.tmgi =
+        // _priv_tmgi_to_public(tmgi);" in _mbs_session_set_tmgi()) -- it does not copy the
+        // mb_smf_sc_tmgi_t. It also clears the session's own tmgi_req flag as a side effect
+        // (mbs-session.h's own documented contract for this function: "the ... TMGI request
+        // flag and setting a TMGI are mutually exclusive"), and _mbs_session_public_clear()
+        // -- run when the session is eventually torn down -- only calls _tmgi_free() "if
+        // (session->tmgi_req && session->tmgi != NULL)", i.e. only for a TMGI the library
+        // itself allocated via the TMGI-request path. An AF-supplied TMGI set here is
+        // therefore never freed by the library at any point; m_afSuppliedTmgi tracks it so
+        // this class's own destructor can free it instead.
+        mb_smf_sc_mbs_session_set_tmgi(m_session, m_afSuppliedTmgi);
     }
     return *this;
 }
