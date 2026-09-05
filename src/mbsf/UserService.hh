@@ -25,6 +25,7 @@
 
 #include <chrono>
 #include <memory>
+#include <vector>
 #include "openapi/model/MBSUserService.h"
 #include "common.hh"
 #include "UserServiceDesc.hh"
@@ -81,12 +82,24 @@ public:
     void addUserDataIngSession(const std::shared_ptr<UserDataIngSession> &userIngSession);
     void deleteUserDataIngSession(const std::string &userIngSessionId);
     const std::shared_ptr<UserDataIngSession> &findUserDataIngSession(const std::string &id) const;
+    // MBS-5 (TS 26.517 cl.9.2) needs to enumerate every active Ingest Session of a matching
+    // UserService to assemble a complete User Service Descriptions Bundle -- m_userDataIngSessions
+    // itself stays private (callers must not mutate the map directly), this is a read-only
+    // snapshot of its values.
+    std::vector<std::shared_ptr<UserDataIngSession>> userDataIngSessions() const;
     void removeUserDataIngSession(const std::string &userIngSessionId);
     void removeAllUserDataIngSessions();
     std::list<std::shared_ptr<UserServiceDesc::serviceNameLanguageDescription>> UserServiceDescriptionDescs();
     std::list<std::shared_ptr<UserServiceDesc::serviceNameLanguageDescription>> UserServiceDescriptionNames();
 
     bool requiresUserServiceAnnouncement();
+    // Broader than requiresUserServiceAnnouncement() above (which checks VIA_MBS_DISTRIBUTION_SESSION
+    // only -- correctly, for its own callers, which gate the MBS-4-MC carousel channel specifically).
+    // This checks whether an on-disk UserServiceAnnBundle needs to exist for VIA_MBS_5 (this MBSF's
+    // own co-located MBS AF, UserServiceDiscoveryHandler) or VIA_MBS_DISTRIBUTION_SESSION (MBS-4-MC
+    // carousel). PASSED_BACK is deliberately excluded here -- see the .cc file's own comment at this
+    // function's PASSED_BACK case for why.
+    bool requiresUserServiceAnnouncementBundle();
     static bool canMbsfHandleServiceAnnouncementModes(const fiveg_mag_reftools::CJson &json, bool as_request);
     static bool checkAndSetUserServiceAnnouncementChannel(const fiveg_mag_reftools::CJson &json, bool as_request);
 
