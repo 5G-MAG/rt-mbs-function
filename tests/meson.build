@@ -20,3 +20,19 @@ libuuid_dep=dependency('uuid', required:true)
 
 #test_http_server = executable('test_http_server', 'test_http_server.cc', dependencies : [libhttpxpp_dep], install:false)
 #test('test_http_server', test_http_server, verbose: true, timeout: 600, protocol: 'exitcode')
+
+# MBSMFMBSSession::setTmgi() AF-supplied-TMGI passthrough, see the test's own file comment.
+test_mbsmf_tmgi_exe = executable('test_mbsmf_tmgi', 'test_mbsmf_tmgi.cc',
+    include_directories : [libmbsf_libinc, libinc],
+    dependencies : [libmbsf_dep],
+    install : false)
+test('test_mbsmf_tmgi', test_mbsmf_tmgi_exe, suite: 'unit',
+     args: ['-c'] + files('test_mbsmf_tmgi.yaml'), timeout: 60, protocol: 'exitcode')
+
+# MultipartMime's own body assembly (RFC 2045/2387/2557 boundary, ordering, filename/Content-
+# Location escaping), see the test's own file comment.
+test_multipart_mime_exe = executable('test_multipart_mime', 'test_multipart_mime.cc',
+    include_directories : [libmbsf_libinc, libinc],
+    dependencies : [libmbsf_dep],
+    install : false)
+test('test_multipart_mime', test_multipart_mime_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')
