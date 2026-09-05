@@ -70,6 +70,12 @@ static const NfServer::InterfaceMetadata g_nmbsf_userdataingstatsubsc_api_metada
 std::recursive_mutex UserDataIngStatSubsc::m_mutex;
 
 static bool check_for_user_data_ing_session_and_distributions_sessions( CJson &subsc);
+/* TS 29.500 V18.10.0 cl.5.2.7.2/table 5.2.7.1-1: 413 (Payload Too Large), mandatory for PATCH and
+ * POST; see UserService.cc's own copy of this helper for the full citation and the residual
+ * shared-framework gap it does not close. */
+static bool request_too_large(Open5GSSBIRequest &request, Open5GSSBIStream &stream, int path_segments,
+                              Open5GSSBIMessage &message, const NfServer::AppMetadata &app_meta,
+                              const std::optional<NfServer::InterfaceMetadata> &api);
 static int notify_client_callback(int status, ogs_sbi_response_t *response, void *data);
 static void send_model_error(const ModelException &err, Open5GSSBIStream &stream, int path_segments, Open5GSSBIMessage &message,
                              const NfServer::AppMetadata &app_meta, const std::optional<NfServer::InterfaceMetadata> &api,
@@ -445,6 +451,22 @@ std::list<std::shared_ptr< EventNotification > > UserDataIngStatSubsc::makeEvent
 
 }
 
+static bool request_too_large(Open5GSSBIRequest &request, Open5GSSBIStream &stream, int path_segments,
+                              Open5GSSBIMessage &message, const NfServer::AppMetadata &app_meta,
+                              const std::optional<NfServer::InterfaceMetadata> &api)
+{
+    const auto &max_size = App::self().context()->maxRequestBodySize;
+    if (!max_size || request.contentLength() <= *max_size) return false;
+
+    std::ostringstream err;
+    err << "Request body of " << request.contentLength() << " bytes exceeds the configured maximum of "
+        << *max_size << " bytes";
+    ogs_error("%s", err.str().c_str());
+    ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_PAYLOAD_TOO_LARGE, path_segments, message,
+                                            app_meta, api, "Payload Too Large", err.str()));
+    return true;
+}
+
 static bool check_for_user_data_ing_session_and_distributions_sessions(CJson &subsc)
 {
     std::shared_ptr<MBSUserDataIngStatSubsc> mbs_user_data_ing_stat_subsc = nullptr;
@@ -585,6 +607,17 @@ bool UserDataIngStatSubsc::processEvent(Open5GSEvent &event)
                             return true;
                         }
                         if (method == OGS_SBI_HTTP_METHOD_GET) {
+                            /* TS 29.500 V18.10.0 table 5.2.7.1-1 marks 406 mandatory for GET. This response is always
+                               application/json, so a client whose Accept header cannot take that is answered 406 rather
+                               than sent a body it did not ask for. */
+                            std::optional<std::string> accept_hdr;
+                            if (message.accept()) accept_hdr = message.accept();
+                            if (!NfServer::acceptsMediaType(accept_hdr, "application/json")) {
+                                ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_NOT_ACCEPTABLE, 4, message,
+                                                                        app_meta, api, "Not Acceptable",
+                                                                        "This resource is only available as application/json"));
+                                return true;
+                            }
                              user_data_ing_stat_subsc->sendResponse(stream, api, app_meta);
                             return true;
                         } else if (method == OGS_SBI_HTTP_METHOD_PUT) {
@@ -630,6 +663,7 @@ bool UserDataIngStatSubsc::processEvent(Open5GSEvent &event)
                                                                    "Expected content type: application/json"));
                                 return true;
                             }
+                            if (request_too_large(request, stream, 3, message, app_meta, api)) return true;
                             CJson subsc(CJson::Null);
                             try {
                                 subsc = CJson::parse(request.content());
@@ -646,14 +680,30 @@ bool UserDataIngStatSubsc::processEvent(Open5GSEvent &event)
                                 ogs_debug("Request Parsed JSON: %s", txt.c_str());
                             }
 
-                            if (!check_for_user_data_ing_session_and_distributions_sessions(subsc)) {
-                                std::ostringstream err;
-                                err << "Invalid User Data Ing Session or Distribution session present in User Data Ingest Stat Subsc";
-                                ogs_error("%s", err.str().c_str());
-                                ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 3, message, app_meta,
-                                                            api, "Bad request", err.str()));
+                            /* This check parses the request body into the model before the guarded
+                               construction below does, so a malformed body threw ModelException from
+                               here, out of the SBI request handler, and terminated the process. The
+                               catch below could never see it: the throw happens first. Report it the
+                               same way the construction does, so one bad request is answered rather
+                               than fatal. */
+                            try {
+                                if (!check_for_user_data_ing_session_and_distributions_sessions(subsc)) {
+                                    std::ostringstream err;
+                                    err << "Invalid User Data Ing Session or Distribution session present in User Data Ingest Stat Subsc";
+                                    ogs_error("%s", err.str().c_str());
+                                    ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 3, message, app_meta,
+                                                                api, "Bad request", err.str()));
+                                    return true;
+                                }
+                            } catch (ModelException &ex) {
+                                if (ex.cause) {
+                                    ogs_assert(true == NfServer::sendError(stream, ex.cause.value(), 3, message, app_meta,
+                                                    api, "Mandatory information element missing", ex.what(), std::nullopt, std::nullopt));
+                                } else {
+                                    ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 3, message,
+                                                    app_meta, api, "Mandatory information element missing", ex.what(), std::nullopt, std::nullopt));
+                                }
                                 return true;
-
                             }
 
                             try {
@@ -824,9 +874,18 @@ bool UserDataIngStatSubsc::processClientResponse(const Open5GSEvent &event)
         if (looks_like_pointer) {
             RequestData *req_data = reinterpret_cast<RequestData*>(const_cast<void*>(raw));
             if (req_data && req_data->subscription == this) {
-                if (event.sbiState() == OGS_OK) {
+                // The peer's HTTP status decides whether the notification was accepted: a 4xx or 5xx from the
+                // notification receiver is a failure, not a success. One bounded retry follows, guarded by
+                // m_cache->notifyRetried so a persistently failing peer gets exactly one extra attempt rather
+                // than an unbounded loop. A full retry queue would be more than this needs.
+                bool notify_failed = (event.sbiState() != OGS_OK);
+                if (!notify_failed) {
                     auto resp = event.sbiResponse(true);
                     ogs_debug("Got %i response from notification(s) to %s", resp.status(), req_data->request->uri());
+                    if (resp.status() < 200 || resp.status() >= 300) {
+                        ogs_warn("Notification to %s rejected with HTTP status %i", req_data->request->uri(), resp.status());
+                        notify_failed = true;
+                    }
                 } else {
                     ogs_debug("Problem sending notification(s) to %s", req_data->request->uri());
                 }
@@ -834,6 +893,17 @@ bool UserDataIngStatSubsc::processClientResponse(const Open5GSEvent &event)
                 req_data->request->setOwner(true);
                 req_data->request.reset();
                 delete req_data;
+
+                if (m_cache) {
+                    if (!notify_failed) {
+                        // Successful notification -- a future failure gets its own fresh retry.
+                        m_cache->notifyRetried = false;
+                    } else if (!m_cache->notifyRetried) {
+                        m_cache->notifyRetried = true;
+                        ogs_warn("UserDataIngStatSubsc[%p]: retrying failed notification once", this);
+                        sendNotifications();
+                    }
+                }
 
                 return true;
             }
@@ -1000,6 +1070,7 @@ void UserDataIngStatSubsc::subscriptionPatch(Open5GSSBIStream &stream, Open5GSSB
                                 1, message, app_meta, api, "Unsupported Media Type", "Expected content type: application/merge-patch+json"));
         return;
     }
+    if (request_too_large(request, stream, 1, message, app_meta, api)) return;
 
     CJson req_json(CJson::Null);
     try {
