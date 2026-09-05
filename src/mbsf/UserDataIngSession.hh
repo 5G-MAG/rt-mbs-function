@@ -54,6 +54,7 @@ namespace reftools::mbsf {
     class DistSession;
     class PacketDistrMethInfo;
     class Ssm;
+    class Tmgi;
 }
 
 MBSF_NAMESPACE_START
@@ -118,12 +119,31 @@ public:
         std::string mbstfDistSessionId = std::string{};
         bool distSessionState = false;
         mb_smf_sc_tmgi_t *tmgi = nullptr;
+        // AF-supplied TMGI for a Broadcast Distribution Session identified by an
+        // mbsSessionId.tmgi, as distinct from the field above (the TMGI *returned* by MB-SMF
+        // after a TMGI-allocation request). TS 23.247 V18.8.0 cl.7.1.1.2 step 8 lists
+        // "[MBS Session ID]" and "[TMGI allocation request]" as separate, coexisting Create
+        // parameters; TS 29.580 V18.8.0 cl.5.3.2.2.2 confirms the same at this northbound API.
+        // Carried from parse time (UserDataIngSession.cc's mbsSessionId branch) to
+        // createMbsSession(), which calls MBSMFMBSSession::setTmgi() with it instead of
+        // setTmgiRequest(true) -- the two are mutually exclusive by the vendored
+        // mb-smf-service-consumer library's own contract (mbs-session.h's own documented
+        // contract for mb_smf_sc_mbs_session_set_tmgi()).
+        std::shared_ptr<reftools::mbsf::Tmgi> afSuppliedTmgi = nullptr;
         std::string mbstfNotificationUrl = std::string{};
         uint64_t tsi;
         reftools::mbsf::DistSessionState last_requested_state;
         reftools::mbsf::DistSessionState last_reported_state;
         std::shared_ptr<reftools::mbsf::DistSession> distSession = nullptr;
         std::shared_ptr<LIBRTSDP_NAMESPACE_NAME(SDP)> sdp = nullptr;
+        // Captured here, at construction time, rather than looked up later inside the static
+        // createMbsSession() through locate(ingSessionId). This is an instance method of the owning
+        // UserDataIngSession, so it can call mbsUserService() directly; the later lookup would race
+        // against this object's own registration into the id->instance map and lose, since the
+        // ContextData is built and createMbsSession() invoked on it before the constructing
+        // UserDataIngSession finishes registering itself, leaving the value silently defaulted to
+        // MULTICAST. See createMbsSession().
+        std::string userServType = std::string{};
     };
 
     UserDataIngSession(fiveg_mag_reftools::CJson &json, bool as_request);

@@ -162,6 +162,31 @@ CJson DistributionSessionInfo::json(bool as_request = false) const
     return m_mbsDistributionSessionInfo->toJSON(as_request);
 }
 
+namespace {
+// Compares two optional<shared_ptr<T>> fields, treating "absent" and "present but null" as the
+// same "no value" state so a field that's merely re-sent unchanged doesn't spuriously trip up as
+// "changed".
+template <typename T>
+bool optionalPtrFieldsEqual(const std::optional<std::shared_ptr<T>> &a, const std::optional<std::shared_ptr<T>> &b)
+{
+    bool a_has = a.has_value() && a.value();
+    bool b_has = b.has_value() && b.value();
+    if (a_has != b_has) return false;
+    if (!a_has) return true;
+    return *a.value() == *b.value();
+}
+
+// Same "absent and present-but-null are both no value" comparison as optionalPtrFieldsEqual, for a field
+// typed as a bare shared_ptr<T> rather than optional<shared_ptr<T>> (DistrMethod is the one field among
+// this INACTIVE-gated group modelled this way -- see MBSDistributionSessionInfo.h).
+template <typename T>
+bool ptrFieldsEqual(const std::shared_ptr<T> &a, const std::shared_ptr<T> &b)
+{
+    if (!a || !b) return !a && !b;
+    return *a == *b;
+}
+}
+
 std::shared_ptr<MBSDistributionSessionInfo> &DistributionSessionInfo::updateMBSDistributionSessionInfo(
     std::shared_ptr<MBSDistributionSessionInfo> new_mbs_dist_session_infos)
 {
@@ -175,12 +200,50 @@ std::shared_ptr<MBSDistributionSessionInfo> &DistributionSessionInfo::updateMBSD
 
     m_mbsDistributionSessionInfo->setTgtServAreas(std::move(new_mbs_dist_session_infos->getTgtServAreas()));
 
+    // TS 26.502 clause 4.5.6 lists these among the parameters the MBS Application
+    // Provider may update at any time, alongside mbsServInfo/mbsFSAId/tgtServAreas
+    // above -- not gated on INACTIVE like the block below.
+    m_mbsDistributionSessionInfo->setExtTgtServAreas(std::move(new_mbs_dist_session_infos->getExtTgtServAreas()));
+    m_mbsDistributionSessionInfo->setNrRedCapUeInfo(std::move(new_mbs_dist_session_infos->getNrRedCapUeInfo()));
+
     // --------------------------------------------------------------------
     // 2. Conditional updates – only when the session is INACTIVE
     // --------------------------------------------------------------------
     std::optional<std::shared_ptr< DistSessionState > > dist_session_state = m_mbsDistributionSessionInfo->getMbsDistSessState();
+    bool is_inactive = dist_session_state.has_value() && dist_session_state.value()->getValue() == DistSessionState::VAL_INACTIVE;
 
-    if (dist_session_state.has_value() && dist_session_state.value()->getValue() == DistSessionState::VAL_INACTIVE) {
+    // The attributes handled here are mutable only while the Distribution Session is INACTIVE, so a
+    // PATCH touching any of them in another state is rejected outright rather than accepted and
+    // dropped: accepting it would return 200 while echoing back the unchanged value.
+    //
+    // TS 29.580 V18.8.0 clause 5.3.2.4.2 defines the class: its list of what "may be updated only if
+    // the corresponding MBS Distribution Session is in the 'INACTIVE' state" covers every attribute of
+    // the map entry except mbsSessionId, mbsDistSessionId and locationDependent (handled separately
+    // above) and the always-updatable mbsServInfo, mbsFSAId, tgtServAreas, extTgtServAreas and
+    // NrRedCapUeInfo (section 1 above). That leaves maxContBitRate, maxContDelay, distrMethod,
+    // fecConfig, objDistrInfo, pckDistrInfo, trafficMarkingInfo, multiplexedServFlag, restrictedFlag
+    // and associatedSessionId, all treated alike here.
+    if (!is_inactive) {
+        if (!optionalPtrFieldsEqual(m_mbsDistributionSessionInfo->getObjDistrInfo(), new_mbs_dist_session_infos->getObjDistrInfo()) ||
+            !optionalPtrFieldsEqual(m_mbsDistributionSessionInfo->getPckDistrInfo(), new_mbs_dist_session_infos->getPckDistrInfo()) ||
+            m_mbsDistributionSessionInfo->getMaxContBitRate() != new_mbs_dist_session_infos->getMaxContBitRate() ||
+            m_mbsDistributionSessionInfo->getMaxContDelay() != new_mbs_dist_session_infos->getMaxContDelay() ||
+            !ptrFieldsEqual(m_mbsDistributionSessionInfo->getDistrMethod(), new_mbs_dist_session_infos->getDistrMethod()) ||
+            !optionalPtrFieldsEqual(m_mbsDistributionSessionInfo->getFecConfig(), new_mbs_dist_session_infos->getFecConfig()) ||
+            m_mbsDistributionSessionInfo->getTrafficMarkingInfo() != new_mbs_dist_session_infos->getTrafficMarkingInfo() ||
+            m_mbsDistributionSessionInfo->getMultiplexedServFlag() != new_mbs_dist_session_infos->getMultiplexedServFlag() ||
+            m_mbsDistributionSessionInfo->getRestrictedFlag() != new_mbs_dist_session_infos->getRestrictedFlag() ||
+            !optionalPtrFieldsEqual(m_mbsDistributionSessionInfo->getAssociatedSessionId(), new_mbs_dist_session_infos->getAssociatedSessionId())) {
+            throw ModelException(
+                "maxContBitRate/maxContDelay/distrMethod/fecConfig/objDistrInfo/pckDistrInfo/trafficMarkingInfo/"
+                "multiplexedServFlag/restrictedFlag/associatedSessionId cannot be modified while the MBS "
+                "Distribution Session is not INACTIVE",
+                "MBSDistributionSessionInfo", "objDistrInfo",
+                fiveg_mag_reftools::ProblemCause::MODIFICATION_NOT_ALLOWED);
+        }
+    }
+
+    if (is_inactive) {
         // ----- Max Continuous Bit Rate -----
         m_mbsDistributionSessionInfo->setMaxContBitRate(std::move(new_mbs_dist_session_infos->getMaxContBitRate()));
 
@@ -202,17 +265,11 @@ std::shared_ptr<MBSDistributionSessionInfo> &DistributionSessionInfo::updateMBSD
         // ----- Traffic Marking Info -----
         m_mbsDistributionSessionInfo->setTrafficMarkingInfo(std::move(new_mbs_dist_session_infos->getTrafficMarkingInfo()));
 
-        // ----- External Target Service Areas -----
-        m_mbsDistributionSessionInfo->setExtTgtServAreas(std::move(new_mbs_dist_session_infos->getExtTgtServAreas()));
-
         // ----- Multiplexed Service Flag -----
         m_mbsDistributionSessionInfo->setMultiplexedServFlag(std::move(new_mbs_dist_session_infos->getMultiplexedServFlag()));
 
         // ----- Restricted Flag -----
         m_mbsDistributionSessionInfo->setRestrictedFlag(std::move(new_mbs_dist_session_infos->getRestrictedFlag()));
-
-        // ----- NR RedCap UE Info -----
-        m_mbsDistributionSessionInfo->setNrRedCapUeInfo(std::move(new_mbs_dist_session_infos->getNrRedCapUeInfo()));
 
         // ----- Associated Session Id -----
         m_mbsDistributionSessionInfo->setAssociatedSessionId(std::move(new_mbs_dist_session_infos->getAssociatedSessionId()));
@@ -501,7 +558,15 @@ std::optional<std::list<std::shared_ptr<ApplicationServiceDesc>>> DistributionSe
         auto &obj_dist_method_info = m_mbsDistributionSessionInfo->getObjDistrInfo();
         if (obj_dist_method_info && obj_dist_method_info.value()) {
             auto &dist_method_info = obj_dist_method_info.value();
-            if (dist_method_info->getOperatingMode()->getValue() == ObjDistributionOperatingMode::VAL_STREAMING) {
+            // TS 26.517 clause 5.2.4 conditions the applicationServiceDescriptions array's presence only on
+            // "The distributionMethod property of the DistributionSessionDescription shall be set to OBJECT",
+            // which the obj_dist_method_info check above already guarantees, and not on any particular
+            // ObjDistributionOperatingMode. The array is therefore populated for every operating mode:
+            // entryPointLocator and contentType are what an MBS-aware Application needs in order to find the
+            // DASH manifest, and CAROUSEL, SINGLE and COLLECTION mode sessions need that as much as STREAMING
+            // does. code-derived: objDistrUri, objIngUri and objAcqIds are already generic across operating
+            // modes, so nothing else here depends on the mode.
+            {
                 std::string entry_point_prefix;
                 const auto &obj_distr_uri = dist_method_info->getObjDistrUri();
                 if (!obj_distr_uri) {
