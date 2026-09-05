@@ -202,7 +202,14 @@ bool UserServiceAnnBundle::writeServiceDescriptionProtocolDoc(const std::shared_
 
     std::filesystem::path sdp_filename{dist_session_ctx->distSessionInfoKey + ".sdp"};
 
-    std::string session_name = user_data_ing_session->mbsUserService()->getMBSUserService()->getServNameDescs().front().value()->getServName().value_or(std::string("-"));
+    // servNameDescs is required with minItems:1 (TS29580_Nmbsf_MBSUserService.yaml), so front() itself
+    // is schema-safe. Each list entry is still individually optional in the generated model, wrapped in
+    // std::optional<std::shared_ptr<...>>, and front() being present says nothing about whether
+    // front()'s own optional is empty; hence the check below.
+    const auto &serv_name_descs = user_data_ing_session->mbsUserService()->getMBSUserService()->getServNameDescs();
+    std::string session_name = (!serv_name_descs.empty() && serv_name_descs.front().has_value())
+        ? serv_name_descs.front().value()->getServName().value_or(std::string("-"))
+        : std::string("-");
 
     auto [start_time, end_time] = user_data_ing_session->activeTimeRange();
     auto timings = TimingInformation::makeTimingInformation(start_time.value_or(TimingInformation::NO_TIMESTAMP),
@@ -231,9 +238,23 @@ bool UserServiceAnnBundle::writeServiceDescriptionProtocolDoc(const std::shared_
             ogs_error("Unknown SSM address type while building SDP file %s", sdp_filename.string().c_str());
             return false;
         }
-        svc_str = "multicast";
-    } else {
-        svc_str = "broadcast";
+    }
+
+    /* The attribute states which kind of MBS Session delivers this Distribution Session, not how
+       its content is addressed. TS 26.517 V18.6.0 clause 6.2.2.2, table 6.2.2.2-1: "broadcast: The
+       MBS Distribution Session is delivered using a Broadcast MBS Session."
+
+       Deriving it from the presence of an SSM address pair, as this did, is a different question:
+       a Broadcast MBS Session carries SSM-addressed content perfectly well, and every Broadcast
+       session provisioned with an SSM was therefore announced to receivers as multicast. The
+       service's own type is already carried per Distribution Session for exactly this kind of
+       decision (see UserDataIngSession.cc's own BROADCAST test), so use it, and fall back to the
+       address-shape guess only where the type is unknown. */
+    if (!dist_session_ctx->userServType.empty()) {
+        svc_str = (ogs_strcasecmp(dist_session_ctx->userServType.c_str(), "BROADCAST") == 0)
+                      ? "broadcast" : "multicast";
+    } else if (svc_str.empty()) {
+        svc_str = dist_session_ctx->ssm ? "multicast" : "broadcast";
     }
     if (dist_session_ctx->tmgi) {
         uint64_t tmgi_val = std::stoll(dist_session_ctx->tmgi->mbs_service_id, nullptr, 16);
@@ -244,7 +265,10 @@ bool UserServiceAnnBundle::writeServiceDescriptionProtocolDoc(const std::shared_
     }
 
 
-    auto &primary_language = user_data_ing_session->mbsUserService()->mainServiceLanguage();
+    /* The main service language is deliberately not carried in the Session Description. TS 26.517
+       V18.6.0 clause 6.2.2.1, Restrictions: "The Service-language(s) per media (clause 7.3.2.9 of
+       [7]) shall not be used. It is assumed that the service languages are described within an
+       application manifest." Clause 7.3.2.9 of TS 26.346 is the "a=lang" attribute. */
     auto media = MediaDescription::makeMediaDescription("application", dist_session_ctx->ssm_port, "FLUTE/UDP", "0");
     if (!ssm_dest.empty()) {
         auto conn_info = ConnectionInformation::makeConnectionInformation(ssm_dest, family);
@@ -255,7 +279,6 @@ bool UserServiceAnnBundle::writeServiceDescriptionProtocolDoc(const std::shared_
         media->bandwidthInformationAdd(*bitrate/1000); // SDP bit rates are in kilobits/s
         delete bitrate;
     }
-    if (primary_language) media->mediaAttributeAdd("lang", primary_language.value());
     media->mediaAttributeAdd("FEC", "0");
 
     if (dist_session_ctx->sdp) {
@@ -285,7 +308,22 @@ bool UserServiceAnnBundle::writeServiceDescriptionProtocolDoc(const std::shared_
         dist_session_ctx->sdp->sessionAttributeAdd("flute-tsi", std::format("{}", dist_session_ctx->tsi));
     }
 
-    bool rv = writeToFile(root_dir.string(), sdp_filename.string(), std::format("{}", *dist_session_ctx->sdp), err);
+    // SessionDescriptionProtocol::operator std::string() (rt-common-shared/lib/rtsdp) throws
+    // std::out_of_range for an SDP with no valid origin and no connection information at either
+    // session or media level, which is what the code above leaves for a BROADCAST (no SSM)
+    // Distribution Session: only the SSM branch supplies an origin address or media connection info.
+    // Caught here, consistent with the early-return-on-error pattern used above for an unrecognised
+    // SSM address family, so the announcement document is not written and the caller is told; uncaught
+    // it would end the MBSF process on every BROADCAST activation using PUSH or SINGLE.
+    std::string sdp_content;
+    try {
+        sdp_content = std::format("{}", *dist_session_ctx->sdp);
+    } catch (const std::out_of_range &ex) {
+        ogs_error("Failed to serialise SDP for %s: %s", sdp_filename.string().c_str(), ex.what());
+        return false;
+    }
+
+    bool rv = writeToFile(root_dir.string(), sdp_filename.string(), sdp_content, err);
     if (rv) {
         rv = writeToFile(metadata_dir.string(), sdp_filename.string(), "Content-Type: application/sdp\r\n", err);
         if (rv) {
