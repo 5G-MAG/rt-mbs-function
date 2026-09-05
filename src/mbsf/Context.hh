@@ -193,7 +193,7 @@ public:
     std::optional<std::string> allowedMulticastRange;
 
     // TS 29.500 V18.10.0 cl.5.2.7.2/table 5.2.7.1-1: 413 (Payload Too Large) is mandatory for
-    // PATCH and POST. No clause, and no MBSF documented default, names a byte limit (rule 12)
+    // PATCH and POST. No clause, and no MBSF documented default, names a byte limit
     // -- unset means no limit is enforced, as before this option existed. Only partially closes
     // the requirement even when set: the shared open5gs SBI server silently truncates bodies
     // past its own OGS_MAX_SDU_LEN before this check (or any NF's) ever runs -- see

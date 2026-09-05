@@ -782,7 +782,7 @@ void Context::createUserServAnnRequestHandler()
         // TS 26.517 V18.6.0 cl.9.2.2: the standard MBS-5 User Service Description retrieval API,
         // base path "{apiRoot}/3gpp-mbs-user-service-discovery/{apiVersion}/" -- served from this
         // same co-located MBS AF server, alongside the pre-existing private docroot path above
-        // (left untouched; nothing established this pass about what else may depend on it).
+        // (left untouched; what else may depend on it has not been established).
         auto discovery_handler = std::shared_ptr<UserServiceDiscoveryHandler>(new UserServiceDiscoveryHandler);
         auto handler = std::shared_ptr<PathDelegatorHTTPRequestHandler>(new PathDelegatorHTTPRequestHandler({
             {"/x-5gmag-service-announcements/v1/user-data-ingest-session/", std::static_pointer_cast<HTTPRequestHandler>(docroot_handler)},
