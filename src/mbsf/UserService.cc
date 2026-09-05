@@ -117,9 +117,46 @@ CJson UserService::json(bool as_request = false) const
     return m_MBSUserService->toJSON(as_request);
 }
 
+static std::string serv_type_of(const std::shared_ptr<MBSUserService> &service)
+{
+    const std::shared_ptr<MbsServiceType> mbs_service_type = service ? service->getServType() : nullptr;
+    return mbs_service_type ? mbs_service_type->getString() : std::string();
+}
+
+/* TS 29.500 V18.10.0 cl.5.2.7.2/table 5.2.7.1-1: 413 (Payload Too Large) is mandatory for PATCH and
+ * POST; its own table 5.2.7.2-1 defines no named cause for it, so this constructs the numeric status
+ * directly, the same pattern as the 405/406/415/501 direct-dispatch checks already in this file.
+ * Returns true (and has already sent the 413 response) only when App::self().context()->
+ * maxRequestBodySize is configured and the request exceeds it. Does not close the requirement for a
+ * body genuinely exceeding the shared open5gs SBI server's own OGS_MAX_SDU_LEN -- see
+ * rt-mbs-transport-function.md's own M8 entry for that residual gap, which this repository shares. */
+static bool request_too_large(Open5GSSBIRequest &request, Open5GSSBIStream &stream, int path_segments,
+                              Open5GSSBIMessage &message, const NfServer::AppMetadata &app_meta,
+                              const std::optional<NfServer::InterfaceMetadata> &api)
+{
+    const auto &max_size = App::self().context()->maxRequestBodySize;
+    if (!max_size || request.contentLength() <= *max_size) return false;
+
+    std::ostringstream err;
+    err << "Request body of " << request.contentLength() << " bytes exceeds the configured maximum of "
+        << *max_size << " bytes";
+    ogs_error("%s", err.str().c_str());
+    ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_PAYLOAD_TOO_LARGE, path_segments, message,
+                                            app_meta, api, "Payload Too Large", err.str()));
+    return true;
+}
+
 void UserService::update(CJson &json, bool as_request)
 {
-    m_MBSUserService.reset(new MBSUserService(json, as_request));
+    // servType must not change on a PUT (TS 29.580), so the incoming value is compared against the
+    // stored one before the object is replaced.
+    const std::string old_serv_type(serv_type_of(m_MBSUserService));
+    std::shared_ptr<MBSUserService> new_service(new MBSUserService(json, as_request));
+    if (!old_serv_type.empty() && serv_type_of(new_service) != old_serv_type) {
+        throw ModelException("servType cannot be changed once provisioned", "MBSUserService", "servType",
+                              fiveg_mag_reftools::ProblemCause::MANDATORY_IE_INCORRECT);
+    }
+    m_MBSUserService = std::move(new_service);
 }
 
 
@@ -152,7 +189,11 @@ std::list<std::shared_ptr<UserServiceDesc::serviceNameLanguageDescription>> User
     for (const auto &service_name_description : service_name_descriptions) {
         if (service_name_description.has_value()) {
             std::shared_ptr< ServiceNameDescription > service_name_desc = service_name_description.value();
-            if (!service_name_desc->getServName().has_value()) continue;
+            // The guard tests getServDescrip(), the same field read below. TS 29.580's
+            // ServiceNameDescription is anyOf(servName, servDescrip), so an entry carrying only servName is a
+            // legitimate request and .value() on the empty servDescrip optional would end the process. The
+            // sibling UserServiceDescriptionNames() below guards and reads getServName() the same way.
+            if (!service_name_desc->getServDescrip().has_value()) continue;
             std::shared_ptr<UserServiceDesc::serviceNameLanguageDescription> desc(new UserServiceDesc::serviceNameLanguageDescription(service_name_desc->getServDescrip().value(), service_name_desc->getLanguage()));
             user_service_description_descs.push_back(std::move(desc));
         }
@@ -227,7 +268,13 @@ bool UserService::processEvent(Open5GSEvent &event)
                 if (resource0 == "mbs-user-services") {
                     std::string method(message.method());
                     const char *ptr_resource1 = message.resourceComponent(1);
-                    if (method == OGS_SBI_HTTP_METHOD_POST) {
+                    // Matches only a POST with no resource1, mbs-user-services being a collection endpoint. Matching
+                    // the prefix regardless of what follows would parse a request meant for a sub-resource, a
+                    // misrouted "/mbs-user-services/{id}/ingest-sessions" say, as a new MBSUserService creation body.
+                    // That body lacks fields MBSUserService requires, such as extServiceIds, and
+                    // checkAndSetUserServiceAnnouncementChannel() below constructs a raw MBSUserService from it with
+                    // no try/catch, so the ModelException would end the process.
+                    if (method == OGS_SBI_HTTP_METHOD_POST && !ptr_resource1) {
                         ogs_debug("POST response: status = %i", message.resStatus());
                         std::shared_ptr<UserService> user_service;
                         ogs_debug("Request body: %s", request.content());
@@ -238,6 +285,7 @@ bool UserService::processEvent(Open5GSEvent &event)
                                                                    "Expected content type: application/json"));
                             return true;
                         }
+                        if (request_too_large(request, stream, 3, message, app_meta, api)) return true;
 
                         CJson mbs_user_service(CJson::Null);
                         try {
@@ -250,6 +298,10 @@ bool UserService::processEvent(Open5GSEvent &event)
                             return true;
                         }
 
+                        // checkAndSetUserServiceAnnouncementChannel() constructs a raw MBSUserService straight from the
+                        // request body, throwing fiveg_mag_reftools::ModelException on any missing required field such as
+                        // extServiceIds, and catches nothing itself. Caught here so a malformed client body is answered
+                        // 400 Bad Request; uncaught it would reach std::terminate() and end the process.
                         try {
                             if(!checkAndSetUserServiceAnnouncementChannel(mbs_user_service, true)) {
                                 static const char *err = "MBSF cannot handle User Service Announcement channel without local configuration.";
@@ -266,6 +318,11 @@ bool UserService::processEvent(Open5GSEvent &event)
                                 ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 1, message,
                                               app_meta, api, "Mandatory information element missing", ex.what()));
                             }
+                            return true;
+                        } catch (const std::exception &ex) {
+                            ogs_error("Malformed MBS User Service in request body: %s", ex.what());
+                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 1, message,
+                                                                    app_meta, api, "Bad MBSF User Service", ex.what()));
                             return true;
                         }
 
@@ -304,6 +361,17 @@ bool UserService::processEvent(Open5GSEvent &event)
                         ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *response));
                         return true;
                     } else if (method == OGS_SBI_HTTP_METHOD_GET) {
+                        /* TS 29.500 V18.10.0 table 5.2.7.1-1 marks 406 mandatory for GET. This response is always
+                           application/json, so a client whose Accept header cannot take that is answered 406 rather
+                           than sent a body it did not ask for. */
+                        std::optional<std::string> accept_hdr;
+                        if (message.accept()) accept_hdr = message.accept();
+                        if (!NfServer::acceptsMediaType(accept_hdr, "application/json")) {
+                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_NOT_ACCEPTABLE, 1, message,
+                                                                    app_meta, api, "Not Acceptable",
+                                                                    "This resource is only available as application/json"));
+                            return true;
+                        }
                         if (!ptr_resource1) {
                             std::ostringstream err;
                             err << "Invalid resource [" << message.uri() << "]";
@@ -364,6 +432,7 @@ bool UserService::processEvent(Open5GSEvent &event)
                                                                    "Expected content type: application/json"));
                             return true;
                         }
+                        if (request_too_large(request, stream, 3, message, app_meta, api)) return true;
 
                         CJson mbs_user_service(CJson::Null);
                         try {
@@ -460,6 +529,17 @@ bool UserService::processEvent(Open5GSEvent &event)
                             }
                             return true;
                         }
+                        // A malformed DELETE path, missing {mbsUserServId} or carrying an extra segment, is answered 400
+                        // Bad Request here, as POST, GET, PUT and PATCH each answer their own. Without this fallback such
+                        // a request falls through the whole if/else chain with no response sent at all.
+                        {
+                            std::ostringstream err;
+                            err << "Invalid resource [" << message.uri() << "]";
+                            ogs_error("%s", err.str().c_str());
+                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 1, message,
+                                                                    app_meta, api, "Bad Request", err.str()));
+                        }
+                        return true;
                     } else {
                         std::ostringstream err;
 
@@ -592,6 +672,17 @@ const std::shared_ptr<UserDataIngSession> &UserService::findUserDataIngSession(c
     return null_udis;
 }
 
+std::vector<std::shared_ptr<UserDataIngSession>> UserService::userDataIngSessions() const
+{
+    std::lock_guard<std::recursive_mutex> lock(*m_userDataIngSessMutex);
+    std::vector<std::shared_ptr<UserDataIngSession>> result;
+    result.reserve(m_userDataIngSessions.size());
+    for (const auto &[id, session] : m_userDataIngSessions) {
+        result.push_back(session);
+    }
+    return result;
+}
+
 bool UserService::isServiceAnnModePassedBack()
 {
     //std::list<std::optional<std::shared_ptr< ServiceAnnouncementMode > >
@@ -644,6 +735,30 @@ bool UserService::requiresUserServiceAnnouncement()
         if (!service_ann_mode.has_value()) continue;
         if (service_ann_mode.value()->getValue() == reftools::mbsf::ServiceAnnouncementMode::VAL_VIA_MBS_DISTRIBUTION_SESSION) {
             return true;
+        }
+    }
+    return false;
+}
+
+bool UserService::requiresUserServiceAnnouncementBundle()
+{
+    if(!m_MBSUserService) return false;
+    const reftools::mbsf::MBSUserService::ServAnnModesType &service_ann_modes =  m_MBSUserService->getServAnnModes();
+    for( const auto &service_ann_mode : service_ann_modes) {
+        if (!service_ann_mode.has_value()) continue;
+        switch (service_ann_mode.value()->getValue()) {
+        case reftools::mbsf::ServiceAnnouncementMode::VAL_VIA_MBS_5:
+        case reftools::mbsf::ServiceAnnouncementMode::VAL_VIA_MBS_DISTRIBUTION_SESSION:
+            return true;
+        // PASSED_BACK deliberately excluded: UserDataIngSession::sendNmbsfMbsUserDataIngestResponse()
+        // already has its own, separate, unconditional mechanism for it
+        // (userServiceAnnouncement(), gated on isServiceAnnModePassedBack() directly, operating on
+        // the in-memory UserServiceDescription with no dependency on this bundle). Including it here
+        // would additionally build an on-disk UserServiceAnnBundle nothing then serves, since MBS-5
+        // discovery (TS 26.517 V18.6.0 cl.9.2.1) is specific to services using VIA_MBS_5.
+        case reftools::mbsf::ServiceAnnouncementMode::VAL_PASSED_BACK:
+        default:
+            break;
         }
     }
     return false;
