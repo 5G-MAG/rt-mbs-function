@@ -216,8 +216,10 @@ std::shared_ptr<MBSDistributionSessionInfo> &DistributionSessionInfo::updateMBSD
     // PATCH touching any of them in another state is rejected outright rather than accepted and
     // dropped: accepting it would return 200 while echoing back the unchanged value.
     //
-    // TS 29.580 V18.8.0 clause 5.3.2.4.2 defines the class: its list of what "may be updated only if
-    // the corresponding MBS Distribution Session is in the 'INACTIVE' state" covers every attribute of
+    // TS 29.580 V18.8.0 clause 5.3.2.4.2 defines the class. Its list of what may be updated only if
+    // the corresponding MBS Distribution Session is in the INACTIVE state (stated without quotation
+    // marks: the specification writes the state name inside its own quotation marks, which cannot be
+    // nested in a quoted sentence) covers every attribute of
     // the map entry except mbsSessionId, mbsDistSessionId and locationDependent (handled separately
     // above) and the always-updatable mbsServInfo, mbsFSAId, tgtServAreas, extTgtServAreas and
     // NrRedCapUeInfo (section 1 above). That leaves maxContBitRate, maxContDelay, distrMethod,

@@ -1402,9 +1402,11 @@ void UserDataIngSession::processUserDataIngSessionUpdate(ogs_pool_id_t stream_id
                     // update
                     std::shared_ptr<MBSDistributionSessionInfo> update_info = sess_info_update.value();
 
-                    // TS 29.580 V18.8.0 clause 5.3.2.4.2: "The other attributes, except for the 'mbsSessionId', the
-                    // 'mbsDistSessionId' and the 'locationDependent' attributes, which shall never be updated after
-                    // being provisioned, ...".
+                    // TS 29.580 V18.8.0 clause 5.3.2.4.2 names mbsSessionId, mbsDistSessionId and
+                    // locationDependent as "attributes, which shall never be updated after being
+                    // provisioned" (the attribute names are omitted from the quotation: the
+                    // specification writes each inside its own quotation marks, which cannot be
+                    // nested in a quoted sentence).
                     //
                     // An update touching any of those three is rejected rather than silently restored from the stored
                     // value: restoring honours the clause in substance, but answers 200 or 204, leaving a client no
