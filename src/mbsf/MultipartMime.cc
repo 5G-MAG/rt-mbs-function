@@ -110,8 +110,8 @@ void MultipartMime::addPart(const std::vector<char> &body, const std::map<std::s
            the cross-reference in TS 26.517 V18.6.0 clause 5.3.1A then never matches.
 
            Finding F11: clause 4.4.1 continues -- "If such a URI occurs, all spaces and other illegal
-           characters in it must be encoded using one of the methods described in [MIME3] section 4"
-           -- [MIME3] is RFC 2047, whose section 4 defines the "=?charset?encoding?encoded-text?="
+           characters in it must be encoded using one of the methods described in [MIME3] section 4."
+           [MIME3] is RFC 2047, whose section 4 defines the "=?charset?encoding?encoded-text?="
            encoded-word syntax. Only applied when the value actually needs it, since clause 4.4.1's
            own "if such a URI occurs" is conditional -- an ordinary path is left as a bare URI exactly
            as the paragraph above requires. */
@@ -143,9 +143,11 @@ void MultipartMime::__removeFooterSep() {
 }
 
 
-// RFC 2557 clause 4.4.1: "Some documents may contain URIs with characters that are inappropriate
-// for an RFC 822 header... If such a URI occurs, all spaces and other illegal characters in it
-// must be encoded". A plain RFC 822/5322 unstructured header field body permits printable
+// RFC 2557 clause 4.4.1 opens: "Some documents may contain URIs with characters that are
+// inappropriate for an RFC 822 header". Its obligation follows a page break in the document and is
+// quoted separately rather than joined across it: "If such a URI occurs, all spaces and other
+// illegal characters in it must be encoded using one of the methods described in [MIME3] section 4."
+// A plain RFC 822/5322 unstructured header field body permits printable
 // US-ASCII and folding whitespace only -- control characters, DEL and any non-ASCII octet are
 // illegal there regardless of this clause, and clause 4.4.1 additionally names space itself
 // (otherwise a legal header character) as requiring encoding here, since Content-Location's value
@@ -158,9 +160,10 @@ static bool content_location_needs_encoding(const std::string &uri)
     return false;
 }
 
-// RFC 2557 clause 4.4.1: "...must be encoded using one of the methods described in [MIME3]
-// section 4" -- [MIME3] is RFC 2047 ("MIME Part Three: Message Header Extensions for Non-ASCII
-// Text"), whose section 4 defines encoded-word syntax "=?charset?encoding?encoded-text?=" with
+// RFC 2557 clause 4.4.1: "If such a URI occurs, all spaces and other illegal characters in it
+// must be encoded using one of the methods described in [MIME3] section 4."
+// [MIME3] is RFC 2047, MIME Part Three: Message Header Extensions for Non-ASCII
+// Text, whose section 4 defines encoded-word syntax "=?charset?encoding?encoded-text?=" with
 // two encodings, "Q" and "B"; section 4 itself: "The 'Q' encoding is recommended for use when
 // most of the characters to be encoded are in the ASCII character set" -- true for a docroot
 // path, which is what this function encodes. Section 4.2's Q-encoding rules: any octet may be

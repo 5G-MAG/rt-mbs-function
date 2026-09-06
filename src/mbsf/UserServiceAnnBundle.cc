@@ -241,8 +241,8 @@ bool UserServiceAnnBundle::writeServiceDescriptionProtocolDoc(const std::shared_
     }
 
     /* The attribute states which kind of MBS Session delivers this Distribution Session, not how
-       its content is addressed. TS 26.517 V18.6.0 clause 6.2.2.2, table 6.2.2.2-1: "broadcast: The
-       MBS Distribution Session is delivered using a Broadcast MBS Session."
+       its content is addressed. TS 26.517 V18.6.0 clause 6.2.2.2, table 6.2.2.2-1, row broadcast:
+       "The MBS Distribution Session is delivered using a Broadcast MBS Session."
 
        Deriving it from the presence of an SSM address pair, as this did, is a different question:
        a Broadcast MBS Session carries SSM-addressed content perfectly well, and every Broadcast
