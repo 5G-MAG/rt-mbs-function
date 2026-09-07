@@ -162,7 +162,15 @@ void UserServiceAnnChannel::workerLoop()
     m_announcementChannelRunning = true;
 
 #define CHECK_CANCEL_MS 100
+    // sendMbstfRequests() is retried after a bounded number of wait iterations rather than issued once
+    // and waited on indefinitely. MBSTF's response to a single request can be lost to a transient SBI
+    // or SCP fault while the TCP connection stays established and idle, and this worker thread would
+    // then sit in the wait_for() below for the life of the process: the announcement channel's
+    // distribution session would never be created and no Service Announcement content would ever be
+    // pushed, recoverable only by restarting MBSF.
+#define MBSTF_DIST_SESSION_RETRY_AFTER_ITERATIONS (5000 / CHECK_CANCEL_MS) /* 5 seconds */
     bool requested_mbstf_dist_session = false;
+    unsigned mbstf_dist_session_wait_iterations = 0;
     std::lock_guard<decltype(m_announcementChannelMutex)::element_type> lock(*m_announcementChannelMutex);
     while (true) {
 
@@ -181,9 +189,16 @@ void UserServiceAnnChannel::workerLoop()
             ogs_debug("Request creation of USAC MBSTF Dist Session");
             m_userServiceAnnChannelDataIngSession->sendMbstfRequests();
             requested_mbstf_dist_session = true;
+            mbstf_dist_session_wait_iterations = 0;
         }
 
         if (!m_userServiceAnnChannelDataIngSession->hasMbstfResponded(USER_SERVICE_ANN_CHANNEL)) {
+            if (++mbstf_dist_session_wait_iterations >= MBSTF_DIST_SESSION_RETRY_AFTER_ITERATIONS) {
+                ogs_warn("No response from MBSTF for USAC Dist Session after %u ms -- retrying",
+                         mbstf_dist_session_wait_iterations * CHECK_CANCEL_MS);
+                requested_mbstf_dist_session = false;
+                continue;
+            }
             // dist session not present, wait for change
             ogs_debug("Wait for USAC MBSTF Dist Session");
             m_announcementChannelChange.wait_for(*m_announcementChannelMutex, std::chrono::milliseconds(CHECK_CANCEL_MS));

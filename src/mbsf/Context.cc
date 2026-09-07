@@ -43,6 +43,7 @@
 
 #include "common.hh"
 #include "AnnouncementBundleIndexHandler.hh"
+#include "UserServiceDiscoveryHandler.hh"
 #include "App.hh"
 #include "Open5GSNetworkFunction.hh"
 #include "Open5GSSBIHeader.hh"
@@ -147,6 +148,7 @@ Context::Context()
     ,cacheControl({60, 60, 60})
     ,capacity({100,100})
     ,allowedMulticastRange()
+    ,maxRequestBodySize(std::nullopt)
     ,notificationBindAddress(nullptr)
     ,m_userDataIngSessMutex(new std::recursive_mutex)
     ,m_userDataIngSessIndex()
@@ -258,8 +260,28 @@ bool Context::parseConfig()
                 } else if (mbsf_key == "actPeriodGoToEstablishedState") {
                      std::string act_period_established_state_dur(mbsf_iter.value());
                      actPeriodEstablishedStateDuration = std::stoll( act_period_established_state_dur);
+                } else if (mbsf_key == "maxRequestBodySize") {
+                    std::string max_request_body_size(mbsf_iter.value());
+                    size_t idx = 0;
+                    maxRequestBodySize = std::stoul(max_request_body_size, &idx);
+                    if (idx != max_request_body_size.size()) {
+                        throw std::out_of_range("Bad configuration value at mbsf.maxRequestBodySize");
+                    }
                 } else if (mbsf_key == "allowedMulticastRange" ) {
                     allowedMulticastRange = std::string(mbsf_iter.value());
+                } else if (mbsf_key == "broadcastDistribution") {
+                    Open5GSYamlIter bd_array(mbsf_iter);
+                    if (bd_array.type() == YAML_MAPPING_NODE) {
+                        parseBroadcastDistribution(bd_array);
+                    } else if (bd_array.type() == YAML_SEQUENCE_NODE) {
+                        if (!bd_array.next()) break;
+                        Open5GSYamlIter bd_iter(bd_array);
+                        parseBroadcastDistribution(bd_iter);
+                    } else if (bd_array.type() == YAML_SCALAR_NODE) {
+                        break;
+                    } else {
+                        throw std::out_of_range("Bad configuration node at mbsf.broadcastDistribution");
+                    }
                 } else if (mbsf_key == "mbsUserServices" || mbsf_key == "mbsUserDataIngestSession") {
                     Open5GSYamlIter mbsUserServices_array(mbsf_iter);
                     do {
@@ -477,6 +499,17 @@ void Context::parseObjectRepairParameters(Open5GSYamlIter &iter) {
                 objectRepairParameters.objectRepairBaseLocator = std::string(orp_val);
             }
 
+    }
+}
+
+void Context::parseBroadcastDistribution(Open5GSYamlIter &iter) {
+    while (iter.next()) {
+        std::string bd_key(iter.key());
+        if (bd_key == "sourceAddress") {
+            broadcastDistribution.sourceAddress = std::string(iter.value());
+        } else if (bd_key == "destinationAddress") {
+            broadcastDistribution.destinationAddress = std::string(iter.value());
+        }
     }
 }
 
@@ -746,8 +779,14 @@ void Context::createUserServAnnRequestHandler()
         std::shared_ptr<AnnouncementBundleIndexHandler> announce_index{new AnnouncementBundleIndexHandler};
         std::shared_ptr<DocrootHTTPRequestHandler> docroot_handler{new DocrootHTTPRequestHandler(path, std::static_pointer_cast<DocrootHTTPRequestHandler::IndexHandler>(announce_index))};
         docroot_handler->addMimeType("sdp", "application/sdp");
+        // TS 26.517 V18.6.0 cl.9.2.2: the standard MBS-5 User Service Description retrieval API,
+        // base path "{apiRoot}/3gpp-mbs-user-service-discovery/{apiVersion}/" -- served from this
+        // same co-located MBS AF server, alongside the pre-existing private docroot path above
+        // (left untouched; what else may depend on it has not been established).
+        auto discovery_handler = std::shared_ptr<UserServiceDiscoveryHandler>(new UserServiceDiscoveryHandler);
         auto handler = std::shared_ptr<PathDelegatorHTTPRequestHandler>(new PathDelegatorHTTPRequestHandler({
-            {"/x-5gmag-service-announcements/v1/user-data-ingest-session/", std::static_pointer_cast<HTTPRequestHandler>(docroot_handler)}
+            {"/x-5gmag-service-announcements/v1/user-data-ingest-session/", std::static_pointer_cast<HTTPRequestHandler>(docroot_handler)},
+            {"/3gpp-mbs-user-service-discovery/v1/", std::static_pointer_cast<HTTPRequestHandler>(discovery_handler)}
         }));
         m_userServAnnRequestHandler = std::static_pointer_cast<HTTPRequestHandler>(handler);
     } catch (std::error_condition &ex) {

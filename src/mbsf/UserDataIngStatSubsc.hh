@@ -147,7 +147,7 @@ private:
     SubscribedEvents m_subscribedEventTimestamps;
 
     struct CacheType {
-        CacheType() : lastReportedEventTimes(), client(), notifyUri() {};
+        CacheType() : lastReportedEventTimes(), client(), notifyUri(), notifyRetried(false) {};
         CacheType(const CacheType &other) : lastReportedEventTimes(other.lastReportedEventTimes), client() {};
         CacheType(CacheType &&other) : lastReportedEventTimes(std::move(other.lastReportedEventTimes)), client(std::move(other.client)) {};
         CacheType &operator=(const CacheType &other) {lastReportedEventTimes = other.lastReportedEventTimes; client.reset(); return *this; };
@@ -155,6 +155,10 @@ private:
         SubscribedEvents lastReportedEventTimes;
         std::unique_ptr<Open5GSSBIClient> client;
         std::string notifyUri;
+        // Bounds the one-shot StatusNotify retry in processClientResponse() to a single attempt per
+        // notification, so a persistently failing peer is not retried forever. Reset to false whenever a
+        // fresh notification is sent.
+        bool notifyRetried;
     } *m_cache;
 };
 

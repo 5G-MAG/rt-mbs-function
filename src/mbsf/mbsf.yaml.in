@@ -31,6 +31,13 @@ mbsf:
       mbsUserServiceMaxAge: 60
       mbsUserDataIngestSessionMaxAge: 60
 
+  # NOTE: rt-mbs-function does not implement a real MBS-5 (TS 26.517 cl.9.2) discovery API or any
+  # MBS-4-MC bootstrap signalling, so a client has no protocol-level way to learn where the
+  # announcement channel actually is. If rt-mbs-client's mbsf_client.announcement_channel config
+  # (rt-mbs-client.conf) is used to bootstrap it automatically instead of a manual ManualActivate
+  # call, its multicast_address/port must match ssmDestinationAddress/ssmPort below, and its tsi
+  # must match the announcement channel's TSI (hardcoded to 1 in UserDataIngSession.cc -- see
+  # g_next_tsi there, which starts real content sessions at 2 to leave 1 free for this).
   userServiceAnnouncement:
     announcementRepetitionTime: 10000
     ssmPort: 3000
@@ -38,6 +45,25 @@ mbsf:
     ssmDestinationAddress: 232.0.0.1
     mbr: 10 Mbps
     docRoot: @localstatedir@/cache/mbsf/user-service-announcements
+
+  # TS 26.502 V18.6.0 cl.4.5.6 / Annex B.3.1: for a Distribution Session whose MBS Session ID is a
+  # TMGI with no AF-supplied SSM (a genuine Broadcast session -- TS29571_CommonData.yaml's
+  # MbsSessionId permits tmgi alone), this MBSF has no AF-nominated address to derive the Nmb9
+  # unicast tunnel's own internal traffic-flow label from, and the clause requires this MBSF to
+  # nominate one itself instead. Only used for such sessions; multicast Distribution Sessions carry
+  # their own SSM and never reach this. The clause's own "to be used inside the Nmb9 unicast
+  # tunnel" wording does not make this a purely cosmetic label: MBSTF's FLUTE transmitter
+  # (rt-libflute Transmitter::send_next_packet(), code-derived) sends the real N3mb-tunnelled copy
+  # to the MB-UPF using this address only as an embedded inner-header field, but also fires a
+  # second, best-effort, fire-and-forget plain UDP copy addressed directly to this value -- existing
+  # behaviour for any Distribution Session, not Broadcast-specific, meant to serve a receiver doing
+  # a direct SSM join. Nothing is expected to receive that copy for a Broadcast session (there is no
+  # AF-supplied SSM to join in the first place), and its failure is silently logged and does not
+  # affect the tunnelled delivery Broadcast actually depends on, but the value is a real address a
+  # real packet is sent to, not an inert tag.
+  broadcastDistribution:
+    sourceAddress: 127.0.0.68
+    destinationAddress: 232.0.0.2
 
   activeDistributionSessionsSoftLimit: 1000
   activeUserServicesSoftLimit: 50

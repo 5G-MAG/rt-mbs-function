@@ -19,6 +19,8 @@
 
 #include "ogs-sbi.h"
 
+#include <algorithm>
+#include <cctype>
 #include <format>
 #include <map>
 #include <sstream>
@@ -47,10 +49,12 @@ static Open5GSSBIResponse new_response(const NfServer::AppMetadata &app,
                                        const std::optional<std::string> &etag = std::nullopt, int cache_control_max_age = 0,
                                        const std::optional<std::string> &allow_methods = std::nullopt);
 static bool send_problem(Open5GSSBIStream &stream, OpenAPI_problem_details_t *problem,
-                         const std::optional<NfServer::InterfaceMetadata> &interface, const NfServer::AppMetadata &app);
+                         const std::optional<NfServer::InterfaceMetadata> &interface, const NfServer::AppMetadata &app,
+                         const std::optional<std::string> &allow_methods = std::nullopt);
 static Open5GSSBIResponse build_response(Open5GSSBIMessage &message, int status,
                                          const std::optional<NfServer::InterfaceMetadata> &interface,
-                                         const NfServer::AppMetadata &app);
+                                         const NfServer::AppMetadata &app,
+                                         const std::optional<std::string> &allow_methods = std::nullopt);
 static bool build_content(ogs_sbi_http_message_t *http, Open5GSSBIMessage &message);
 static char *build_json(Open5GSSBIMessage &message);
 
@@ -113,9 +117,10 @@ bool NfServer::sendError(Open5GSSBIStream &stream, int status, size_t number_of_
                          const std::optional<std::string> &title, const std::optional<std::string> &detail,
                          const std::optional<CJson> &problem_detail_json,
                          const std::optional<std::map<std::string,std::string> > &invalid_params,
-                         const std::optional<std::string> &problem_type)
+                         const std::optional<std::string> &problem_type,
+                         const std::optional<std::string> &allow_methods)
 {
-    return __sendError(stream, status, std::nullopt, number_of_components, message, app, interface, title, detail, problem_detail_json, invalid_params, problem_type);
+    return __sendError(stream, status, std::nullopt, number_of_components, message, app, interface, title, detail, problem_detail_json, invalid_params, problem_type, allow_methods);
 }
 
 bool NfServer::sendError(Open5GSSBIStream &stream, const fiveg_mag_reftools::ProblemCause &cause, size_t number_of_components,
@@ -124,9 +129,10 @@ bool NfServer::sendError(Open5GSSBIStream &stream, const fiveg_mag_reftools::Pro
                          const std::optional<std::string> &title, const std::optional<std::string> &detail,
                          const std::optional<CJson> &problem_detail_json,
                          const std::optional<std::map<std::string,std::string> > &invalid_params,
-                         const std::optional<std::string> &problem_type)
+                         const std::optional<std::string> &problem_type,
+                         const std::optional<std::string> &allow_methods)
 {
-    return __sendError(stream, cause.statusCode(), cause, number_of_components, message, app, interface, title?title:cause.reason(), detail, problem_detail_json, invalid_params, problem_type);
+    return __sendError(stream, cause.statusCode(), cause, number_of_components, message, app, interface, title?title:cause.reason(), detail, problem_detail_json, invalid_params, problem_type, allow_methods);
 }
 
 bool NfServer::__sendError(Open5GSSBIStream &stream, int status, const std::optional<fiveg_mag_reftools::ProblemCause> &cause,
@@ -136,7 +142,8 @@ bool NfServer::__sendError(Open5GSSBIStream &stream, int status, const std::opti
                          const std::optional<std::string> &title, const std::optional<std::string> &detail,
                          const std::optional<CJson> &problem_detail_json,
                          const std::optional<std::map<std::string,std::string> > &invalid_params,
-                         const std::optional<std::string> &problem_type)
+                         const std::optional<std::string> &problem_type,
+                         const std::optional<std::string> &allow_methods)
 {
     OpenAPI_problem_details_t *problem = OpenAPI_problem_details_create(nullptr, nullptr, false, 0, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
     OpenAPI_problem_details_t *problem_details = NULL;
@@ -205,7 +212,7 @@ bool NfServer::__sendError(Open5GSSBIStream &stream, int status, const std::opti
     if (title) problem->title = ogs_strdup(title->c_str());
     if (detail) problem->detail = ogs_strdup(detail->c_str());
 
-    send_problem(stream, problem, interface, app);
+    send_problem(stream, problem, interface, app, allow_methods);
     return true;
 }
 
@@ -236,6 +243,44 @@ std::map<std::string, std::string> NfServer::makeInvalidParams(const std::string
     retval.insert(std::make_pair(std::string(param), std::string(reason)));
 
     return retval;
+}
+
+namespace {
+
+std::string trim(const std::string &s)
+{
+    size_t start = s.find_first_not_of(" \t");
+    if (start == std::string::npos) return std::string();
+    size_t end = s.find_last_not_of(" \t");
+    return s.substr(start, end - start + 1);
+}
+
+std::string to_lower(std::string s)
+{
+    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return std::tolower(c); });
+    return s;
+}
+
+}  // namespace
+
+bool NfServer::acceptsMediaType(const std::optional<std::string> &accept_header, const std::string &media_type)
+{
+    if (!accept_header.has_value() || accept_header->empty()) return true;
+
+    const std::string wanted = to_lower(media_type);
+    const std::string wanted_type = wanted.substr(0, wanted.find('/'));
+
+    std::istringstream ranges(*accept_header);
+    std::string range;
+    while (std::getline(ranges, range, ',')) {
+        std::string media_range = trim(range.substr(0, range.find(';')));
+        media_range = to_lower(media_range);
+        if (media_range == "*/*" || media_range == wanted ||
+            media_range == wanted_type + "/*") {
+            return true;
+        }
+    }
+    return false;
 }
 
 // NfServer class private methods
@@ -294,14 +339,15 @@ static Open5GSSBIResponse new_response(const NfServer::AppMetadata &app,
 }
 
 static bool send_problem(Open5GSSBIStream &stream, OpenAPI_problem_details_t *problem,
-                         const std::optional<NfServer::InterfaceMetadata> &interface, const NfServer::AppMetadata &app)
+                         const std::optional<NfServer::InterfaceMetadata> &interface, const NfServer::AppMetadata &app,
+                         const std::optional<std::string> &allow_methods)
 {
     Open5GSSBIMessage message(new ogs_sbi_message_t({}), true);;
     char *content_type = ogs_strdup("application/problem+json");
     message.contentType(content_type);
     message.problemDetails(problem);
 
-    Open5GSSBIResponse response(build_response(message, problem->status, interface, app));
+    Open5GSSBIResponse response(build_response(message, problem->status, interface, app, allow_methods));
 
     Open5GSSBIServer::sendResponse(stream, response);
     ogs_free(content_type);
@@ -311,9 +357,10 @@ static bool send_problem(Open5GSSBIStream &stream, OpenAPI_problem_details_t *pr
 
 
 static Open5GSSBIResponse build_response(Open5GSSBIMessage &message, int status,
-                                           const std::optional<NfServer::InterfaceMetadata> &interface, const NfServer::AppMetadata &app)
+                                           const std::optional<NfServer::InterfaceMetadata> &interface, const NfServer::AppMetadata &app,
+                                           const std::optional<std::string> &allow_methods)
 {
-    Open5GSSBIResponse response(new_response(app, interface));
+    Open5GSSBIResponse response(new_response(app, interface, std::nullopt, std::nullopt, std::nullopt, std::nullopt, 0, allow_methods));
 
     response.status(status);
 

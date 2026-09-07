@@ -103,7 +103,8 @@ public:
                           const std::optional<std::string> &detail = std::nullopt,
                           const std::optional<fiveg_mag_reftools::CJson> &problem_detail_json = std::nullopt,
                           const std::optional<std::map<std::string,std::string> > &invalid_params = std::nullopt,
-                          const std::optional<std::string> &problem_type = std::nullopt);
+                          const std::optional<std::string> &problem_type = std::nullopt,
+                          const std::optional<std::string> &allow_methods = std::nullopt);
 
     static bool sendError(Open5GSSBIStream &stream, const fiveg_mag_reftools::ProblemCause &cause, size_t number_of_components,
                           const Open5GSSBIMessage &message, const AppMetadata &app,
@@ -112,7 +113,8 @@ public:
                           const std::optional<std::string> &detail = std::nullopt,
                           const std::optional<fiveg_mag_reftools::CJson> &problem_detail_json = std::nullopt,
                           const std::optional<std::map<std::string,std::string> > &invalid_params = std::nullopt,
-                          const std::optional<std::string> &problem_type = std::nullopt);
+                          const std::optional<std::string> &problem_type = std::nullopt,
+                          const std::optional<std::string> &allow_methods = std::nullopt);
 
     static std::shared_ptr<Open5GSSBIResponse> newResponse(const std::optional<std::string> &location,
                                                            const std::optional<std::string> &content_type,
@@ -126,6 +128,16 @@ public:
 
     static std::map<std::string, std::string> makeInvalidParams(const std::string &param, const std::string &reason);
 
+    // TS 29.500 V18.10.0 table 5.2.7.1-1 marks HTTP 406 mandatory for GET, generically across the 5GC
+    // SBI APIs (table 5.2.7.2-1 defines no named cause for it). RFC 9110 s12.5.1: "A request without
+    // any Accept header field implies that the user agent will accept any media type in response" --
+    // only present-and-incompatible Accept values make a response unacceptable. This checks whether
+    // media_type (the single, fixed content type this NF is about to serve -- it never negotiates among
+    // several) is compatible with one of accept_header's comma-separated media ranges, ignoring any
+    // ";q=..."/other parameters (this NF has only one representation to offer, so relative preference
+    // never changes the outcome, only presence/absence of a compatible range does).
+    static bool acceptsMediaType(const std::optional<std::string> &accept_header, const std::string &media_type);
+
 private:
     static bool __sendError(Open5GSSBIStream &stream, int status, const std::optional<fiveg_mag_reftools::ProblemCause> &cause,
                             size_t number_of_components,
@@ -135,7 +147,8 @@ private:
                             const std::optional<std::string> &detail = std::nullopt,
                             const std::optional<fiveg_mag_reftools::CJson> &problem_detail_json = std::nullopt,
                             const std::optional<std::map<std::string,std::string> > &invalid_params = std::nullopt,
-                            const std::optional<std::string> &problem_type = std::nullopt);
+                            const std::optional<std::string> &problem_type = std::nullopt,
+                            const std::optional<std::string> &allow_methods = std::nullopt);
 };
 
 MBSF_NAMESPACE_STOP

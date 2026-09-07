@@ -1,0 +1,6 @@
+logger:
+    level: warn
+
+global:
+  max:
+    ue: 1024
