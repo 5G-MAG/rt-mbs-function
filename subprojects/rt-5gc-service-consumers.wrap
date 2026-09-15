@@ -1,4 +1,7 @@
 [wrap-git]
 directory = rt-5gc-service-consumers
 url = https://github.com/5G-MAG/rt-5gc-service-consumers.git
-revision = v2.1.x
+revision = feature/mbs-compliance-fixes
+# The MBS branch of the service consumers, which is what this repository is built against. v2.1.x
+# does not carry mb_smf_sc_ncgi_set_plmn_id_len, which src/mbsf/MBSNcgi.cc calls, so a clean build
+# against it does not compile.
