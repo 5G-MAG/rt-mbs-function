@@ -301,7 +301,40 @@ bool UserServiceAnnBundle::writeServiceDescriptionProtocolDoc(const std::shared_
         dist_session_ctx->sdp->mediaDescriptionAdd(media);
 
         dist_session_ctx->sdp->sessionAttributeAdd("mbs-servicetype", svc_str);
-        dist_session_ctx->sdp->sessionAttributeAdd("FEC-declaration", "0 encoding-id=0");
+
+        // TS 26.346 V18.2.0 clause 7.3.2.8 gives the shape of this attribute as
+        // "a=FEC-declaration:" fec-ref SP fec-enc-id, and its example as "a=FEC-declaration:0
+        // encoding-id=1". The encoding ID is not free to choose: TS 29.580 V18.8.0 clause 6.2.6.2.14
+        // says fecScheme "shall be identified using a term from the IANA: "Reliable Multicast
+        // Transport (RMT) FEC Encoding IDs and FEC Instance IDs" [20] expressed as a URN, e.g.:
+        // urn:ietf:rmt:fec:encoding:0", so the trailing integer of that URN is the encoding ID
+        // itself and is read from the session rather than assumed. A session with no FEC
+        // configuration is Compact No-Code, encoding ID 0, which is what this announced
+        // unconditionally before: that was right only when no FEC was provisioned, and announced
+        // "no FEC" for a Raptor session, which is a statement the receiver would act on.
+        unsigned fec_encoding_id = 0;
+        if (dist_session_ctx->info) {
+            const auto &fc = dist_session_ctx->info->getFecConfig();
+            if (fc.has_value() && fc.value()) {
+                static const std::string urn_prefix{"urn:ietf:rmt:fec:encoding:"};
+                const std::string &scheme = fc.value()->getFecScheme();
+                if (scheme.compare(0, urn_prefix.size(), urn_prefix) == 0) {
+                    const std::string id_part = scheme.substr(urn_prefix.size());
+                    if (!id_part.empty() &&
+                        id_part.find_first_not_of("0123456789") == std::string::npos) {
+                        fec_encoding_id = static_cast<unsigned>(std::stoul(id_part));
+                    } else {
+                        ogs_warn("fecScheme \"%s\" is not a %s<id> URN; announcing no FEC instead of "
+                                 "guessing an encoding ID", scheme.c_str(), urn_prefix.c_str());
+                    }
+                } else {
+                    ogs_warn("fecScheme \"%s\" is not a %s<id> URN; announcing no FEC instead of "
+                             "guessing an encoding ID", scheme.c_str(), urn_prefix.c_str());
+                }
+            }
+        }
+        dist_session_ctx->sdp->sessionAttributeAdd(
+            "FEC-declaration", std::format("0 encoding-id={}", fec_encoding_id));
 
         // The AL-FEC overhead the MBSTF was provisioned with is the receiver's only source for the
         // level protecting these objects: the download profile forbids carrying it per object in the
