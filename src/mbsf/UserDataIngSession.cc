@@ -1482,7 +1482,21 @@ void UserDataIngSession::processUserDataIngSessionUpdate(ogs_pool_id_t stream_id
                     }
                 }
                 update_dist_sess_infos.erase(key_in_update);
-                present_in_update = true;
+                /* A map entry carrying NULL is a deletion request, not a description of a session to
+                   keep, so it must not mark the stored session as present. Leaving present_in_update
+                   false lets the !present_in_update branch below remove it.
+
+                   TS 29.580 V18.8.0 clause 5.3.2.4.2: "if an existing MBS Distribution Session shall
+                   be deleted, the AF shall include the corresponding map entry set to the value
+                   "NULL" within the "mbsDisSessInfos" attribute with the map key set to its
+                   string-based map key provisioned during the request that initially created the MBS
+                   Distribution Session."
+
+                   The erase above still happens for a NULL entry, so the add loop that follows does
+                   not resurrect it as a new session. */
+                if (sess_info_update.has_value() && sess_info_update.value()) {
+                    present_in_update = true;
+                }
                 break;
             }
         }
