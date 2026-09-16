@@ -302,6 +302,23 @@ bool UserServiceAnnBundle::writeServiceDescriptionProtocolDoc(const std::shared_
 
         dist_session_ctx->sdp->sessionAttributeAdd("mbs-servicetype", svc_str);
         dist_session_ctx->sdp->sessionAttributeAdd("FEC-declaration", "0 encoding-id=0");
+
+        // The AL-FEC overhead the MBSTF was provisioned with is the receiver's only source for the
+        // level protecting these objects: the download profile forbids carrying it per object in the
+        // FDT (TS 26.346 V18.2.0 clause L.4.4 lists mbms2012:FEC-Redundancy-Level among the
+        // attributes that "shall not be carried in the FDT sent by the FLUTE sender:"), so the
+        // session description is the only route. TS 29.580 V18.8.0 clause 6.2.6.2.14 defines
+        // fecOverHead as a percentage of the unprotected data, which is the same quantity as the
+        // redundancy level, so it is emitted unchanged. Omitted when the session provisioned no FEC,
+        // since there is then no level to declare.
+        if (dist_session_ctx->info) {
+            const auto &fec_config = dist_session_ctx->info->getFecConfig();
+            if (fec_config.has_value() && fec_config.value()) {
+                dist_session_ctx->sdp->sessionAttributeAdd(
+                    "FEC-redundancy-level",
+                    std::format("0 redundancy-level={}", fec_config.value()->getFecOverHead()));
+            }
+        }
         if (!ssm_source.empty()) {
             dist_session_ctx->sdp->sessionAttributeAdd("source-filter", std::format("incl {} * {}", ssm_proto, ssm_source));
         }
