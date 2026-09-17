@@ -104,6 +104,26 @@ void MBSNcgiTai::ncgis(mb_smf_sc_ncgi_tai_t *ncgi_tai) {
     }
 }
 
+
+std::shared_ptr<NcgiTai> MBSNcgiTai::fromNcgiTai(const mb_smf_sc_ncgi_tai_t *ncgi_tai)
+{
+    if (!ncgi_tai) return nullptr;
+
+    std::shared_ptr<Tai> tai = TrackingAreaIdentity::fromTai(&ncgi_tai->tai);
+    if (!tai) return nullptr;
+
+    std::shared_ptr<NcgiTai> result(new NcgiTai());
+    result->setTai(tai);
+
+    mb_smf_sc_ncgi_t *ncgi;
+    ogs_list_for_each(&ncgi_tai->ncgis, ncgi) {
+        std::shared_ptr<Ncgi> cell = MBSNcgi::fromNcgi(ncgi);
+        if (cell) result->addCellList(cell);
+    }
+
+    return result;
+}
+
 MBSF_NAMESPACE_STOP
 
 /* vim:ts=8:sts=4:sw=4:expandtab:

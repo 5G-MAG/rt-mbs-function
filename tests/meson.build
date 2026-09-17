@@ -36,3 +36,12 @@ test_multipart_mime_exe = executable('test_multipart_mime', 'test_multipart_mime
     dependencies : [libmbsf_dep],
     install : false)
 test('test_multipart_mime', test_multipart_mime_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')
+
+# ServiceArea::fromServiceArea() and MBSMFMBSSession::getReducedServiceArea(), the direction that
+# reads an MBS Service Area back out of the mb-smf-service-consumer types, see the test's own
+# file comment.
+test_service_area_from_exe = executable('test_service_area_from', 'test_service_area_from.cc',
+    include_directories : [libmbsf_libinc, libinc],
+    dependencies : [libmbsf_dep],
+    install : false)
+test('test_service_area_from', test_service_area_from_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')

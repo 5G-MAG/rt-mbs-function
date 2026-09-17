@@ -52,6 +52,12 @@ public:
     const reftools::mbsf::MbsServiceArea::TaiListType &getTaiList() const {return m_mbsServiceArea->getTaiList();};
 
     mb_smf_sc_mbs_service_area_t *populateServiceArea();
+
+    // The reverse of populateServiceArea(): build an MbsServiceArea model from what the
+    // mb-smf-service-consumer library parsed out of an MB-SMF response, such as the reduced
+    // service area the MB-SMF reports when it cannot cover the one that was asked for.
+    static std::shared_ptr<reftools::mbsf::MbsServiceArea> fromServiceArea(
+                    const mb_smf_sc_mbs_service_area_t *area);
     void ncgiTais(mb_smf_sc_mbs_service_area_t *mbs_service_area);
     void tais(mb_smf_sc_mbs_service_area_t *mbs_service_area);
 
