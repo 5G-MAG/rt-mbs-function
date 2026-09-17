@@ -613,6 +613,22 @@ std::optional<std::shared_ptr<ObjRepairParameters>> DistributionSessionInfo::pop
         const std::optional<std::string > &obj_distr_uri = dist_method_info->getObjDistrUri();
         if (!obj_distr_uri.has_value()) return std::nullopt;
 
+        /* Announcing repair parameters for a segment streaming session would invite a conformant MBS
+           Client to run the post-session Object Repair procedure on it, which this Release forbids.
+
+           TS 26.517 V18.6.0 clause 6.2.3.1: “The Object Repair mechanism for FLUTE shall not be used with the OBJECT_STREAMING mode (as specified in clause 6.2.3.5) in this Release.”
+
+           Enforced here rather than in the client: the client cannot decline what it is never told
+           about, and the operating mode is known at this point while the client only sees the
+           announcement. The operator's objectRepairParameters configuration stays in effect for every
+           other operating mode. */
+        const auto &operating_mode = dist_method_info->getOperatingMode();
+        if (operating_mode && operating_mode->getValue() == ObjDistributionOperatingMode::VAL_STREAMING) {
+            ogs_debug("Object Repair parameters withheld for a segment streaming Distribution Session, "
+                      "per TS 26.517 clause 6.2.3.1");
+            return std::nullopt;
+        }
+
         //auto obj_repair_parameters = std::make_shared<ObjRepairParameters>(std::optional<std::string>{obj_distr_uri});
 
 
