@@ -212,6 +212,12 @@ int main(int argc, char *argv[])
             CHECK(reduced->getTaiList().has_value() && reduced->getTaiList().value().size() == 1,
                   "the reported reduced service area carries the TAI the MB-SMF kept");
         }
+
+        /* Released even though the session it hangs off is not, so that a leak check over this
+         * test reports only the session and its wrapper. Anything else it reports is then a real
+         * leak in the conversions this file covers. */
+        mb_smf_sc_mbs_service_area_delete(raw->red_mbs_service_area);
+        raw->red_mbs_service_area = nullptr;
     }
 
     std::fprintf(stderr, "%zu/%zu checks passed\n", total - failed, total);

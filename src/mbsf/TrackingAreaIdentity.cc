@@ -88,7 +88,13 @@ mb_smf_sc_tai_t *TrackingAreaIdentity::populateTai() {
 
     // Use the length-aware constructor: mcc()/mnc() alone lose the MNC's actual
     // digit count (2 vs 3), which a plain numeric value under 100 cannot distinguish.
-    return mb_smf_sc_tai_new_len(mcc, mnc, mbs_plmn_id->mncLen(), tracking_area, n_id);
+    mb_smf_sc_tai_t *result = mb_smf_sc_tai_new_len(mcc, mnc, mbs_plmn_id->mncLen(), tracking_area, n_id);
+
+    // The constructor copies the Network Id's value rather than taking the pointer
+    // (mb-smf-service-consumer's own _tai_set_network_id()), so this one stays ours to release.
+    if (n_id) ogs_free(n_id);
+
+    return result;
 }
 
 uint32_t TrackingAreaIdentity::tac() {
@@ -130,7 +136,10 @@ uint64_t* TrackingAreaIdentity::nid() {
     // parse as base 16, matching the correct sibling implementation MBSNcgi::nid().
     uint64_t value = std::stoull(nid.value(), nullptr, 16);
 
-    uint64_t *result = static_cast<uint64_t*>(std::malloc(sizeof(uint64_t)));
+    // Allocated with the library's own allocator, not std::malloc: the mb-smf-service-consumer
+    // types this value is handed to are released with ogs_free(), which is talloc_free() and
+    // cannot free a pointer it did not allocate.
+    uint64_t *result = static_cast<uint64_t*>(ogs_malloc(sizeof(uint64_t)));
     if (result != nullptr) {
         *result = value;
     }
