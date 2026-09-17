@@ -117,6 +117,14 @@ CJson UserService::json(bool as_request = false) const
     return m_MBSUserService->toJSON(as_request);
 }
 
+/* The methods TS 29.580 defines for the target resource, for the Allow header that clause 5.2.7.2 of
+   TS 29.500 requires alongside a 405. The collection accepts creation; an individual MBS User Service
+   accepts retrieval, replacement, modification and removal. OPTIONS is offered at both levels. */
+static std::string user_service_allow_methods(const Open5GSSBIMessage &message)
+{
+    return message.resourceComponent(1) ? "GET, PUT, PATCH, DELETE, OPTIONS" : "POST, OPTIONS";
+}
+
 static std::string serv_type_of(const std::shared_ptr<MBSUserService> &service)
 {
     const std::shared_ptr<MbsServiceType> mbs_service_type = service ? service->getServType() : nullptr;
@@ -320,9 +328,12 @@ bool UserService::processEvent(Open5GSEvent &event)
                             }
                             return true;
                         } catch (const std::exception &ex) {
-                            ogs_error("Malformed MBS User Service in request body: %s", ex.what());
-                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 1, message,
-                                                                    app_meta, api, "Bad MBSF User Service", ex.what()));
+                            // An exception of unknown type does not establish that the client was at fault, so it must
+                            // not be answered 400. ModelException, which does mean a malformed body, is caught above.
+                            ogs_error("Failed to create MBS User Service: %s", ex.what());
+                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_INTERNAL_SERVER_ERROR, 1,
+                                                                    message, app_meta, api,
+                                                                    "Problem creating MBS User Service", ex.what()));
                             return true;
                         }
 
@@ -529,15 +540,16 @@ bool UserService::processEvent(Open5GSEvent &event)
                             }
                             return true;
                         }
-                        // A malformed DELETE path, missing {mbsUserServId} or carrying an extra segment, is answered 400
-                        // Bad Request here, as POST, GET, PUT and PATCH each answer their own. Without this fallback such
-                        // a request falls through the whole if/else chain with no response sent at all.
+                        // A malformed DELETE path, missing {mbsUserServId} or carrying an extra segment, names no
+                        // resource. TS 29.500 V18.10.0 clause 5.2.7.2: “If the specified target resource does not exist, the NF shall reject the HTTP method with the HTTP status code "404 Not Found".”
+                        // Without this fallback such a request falls through the whole if/else chain with no response
+                        // sent at all.
                         {
                             std::ostringstream err;
                             err << "Invalid resource [" << message.uri() << "]";
                             ogs_error("%s", err.str().c_str());
-                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 1, message,
-                                                                    app_meta, api, "Bad Request", err.str()));
+                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_NOT_FOUND, 1, message,
+                                                                    app_meta, api, "Not Found", err.str()));
                         }
                         return true;
                     } else {
@@ -546,16 +558,22 @@ bool UserService::processEvent(Open5GSEvent &event)
                         err << "Invalid method [" << message.method() << "] for " << message.serviceName() << "/"
                                 << message.apiVersion() << "/" << message.resourceComponent(0);
                         ogs_error("%s", err.str().c_str());
-                        ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 1, message,
-                                                                app_meta, api, "Bad request", err.str()));
+                        // The resource exists, this method is not one it serves. TS 29.500 V18.10.0 clause 5.2.7.2:
+                        // “If the NF supports the HTTP method for several resources in the API, but not for the target resource of a given HTTP request, the NF shall reject the request with the HTTP status code "405 Method Not Allowed" and shall include in the response an Allow header field containing the supported method(s) for that resource.”
+                        ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_METHOD_NOT_ALLOWED, 1, message,
+                                                                app_meta, api, "Method Not Allowed", err.str(),
+                                                                std::nullopt, std::nullopt, std::nullopt,
+                                                                user_service_allow_methods(message)));
                         return true;
                     }
                 } else {
+                    // An unrecognised first path component names no resource in this API, which clause 5.2.7.2 of
+                    // TS 29.500 answers 404 rather than 400; see the quotation at the DELETE fallback below.
                     std::ostringstream err;
                     err << "Unknown object type \"" << message.resourceComponent(0) << "\" in MBSF Distribution Session";
                     ogs_error("%s", err.str().c_str());
-                    ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 1, message, app_meta,
-                                                            api, "Bad request", err.str()));
+                    ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_NOT_FOUND, 1, message, app_meta,
+                                                            api, "Not Found", err.str()));
                     return true;
                 }
             } else {
