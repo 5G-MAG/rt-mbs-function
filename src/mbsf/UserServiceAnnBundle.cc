@@ -307,6 +307,14 @@ bool UserServiceAnnBundle::writeServiceDescriptionProtocolDoc(const std::shared_
             dist_session_ctx->sdp->mediaDescriptionsClear();
             dist_session_ctx->sdp->mediaDescriptionAdd(media);
         }
+
+        /* Session-level attributes are rebuilt on both paths rather than left as first written.
+           TS 29.580 V18.8.0 clause 5.3.2.4.2 permits every attribute of a Distribution Session
+           other than mbsSessionId, mbsDistSessionId and locationDependent to be updated while it
+           is INACTIVE, fecConfig among them, and the FEC declaration and redundancy level below
+           are derived from it. Leaving the originals in place would keep advertising a FEC scheme
+           the session no longer uses. */
+        dist_session_ctx->sdp->sessionAttributesClear();
     } else {
         // Create new SDP
         auto origin = Originator::makeOriginator(ssm_source);
@@ -314,65 +322,66 @@ bool UserServiceAnnBundle::writeServiceDescriptionProtocolDoc(const std::shared_
         dist_session_ctx->sdp = SDP::makeSDP(origin, session_name, timings);
 
         dist_session_ctx->sdp->mediaDescriptionAdd(media);
+    }
 
-        dist_session_ctx->sdp->sessionAttributeAdd("mbs-servicetype", svc_str);
 
-        // TS 26.346 V18.2.0 clause 7.3.2.8 gives the shape of this attribute, and an example of it:
-        // “"a=FEC-declaration:" fec-ref SP fec-enc-id”, with “a=FEC-declaration:0 encoding-id=1”.
-        //
-        // The encoding ID is not free to choose. TS 29.580 V18.8.0 clause 6.2.6.2.14, table
-        // 6.2.6.2.14-1, row fecScheme: “It shall be identified using a term from the IANA: "Reliable
-        // Multicast Transport (RMT) FEC Encoding IDs and FEC Instance IDs" [20] expressed as a URN,
-        // e.g.: urn:ietf:rmt:fec:encoding:0”, so the trailing integer of that URN is the encoding ID
-        // itself and is read from the session rather than assumed. A session with no FEC
-        // configuration is Compact No-Code, encoding ID 0, which is what this announced
-        // unconditionally before: that was right only when no FEC was provisioned, and announced
-        // "no FEC" for a Raptor session, which is a statement the receiver would act on.
-        unsigned fec_encoding_id = 0;
-        if (dist_session_ctx->info) {
-            const auto &fc = dist_session_ctx->info->getFecConfig();
-            if (fc.has_value() && fc.value()) {
-                static const std::string urn_prefix{"urn:ietf:rmt:fec:encoding:"};
-                const std::string &scheme = fc.value()->getFecScheme();
-                if (scheme.compare(0, urn_prefix.size(), urn_prefix) == 0) {
-                    const std::string id_part = scheme.substr(urn_prefix.size());
-                    if (!id_part.empty() &&
-                        id_part.find_first_not_of("0123456789") == std::string::npos) {
-                        fec_encoding_id = static_cast<unsigned>(std::stoul(id_part));
-                    } else {
-                        ogs_warn("fecScheme \"%s\" is not a %s<id> URN; announcing no FEC instead of "
-                                 "guessing an encoding ID", scheme.c_str(), urn_prefix.c_str());
-                    }
+    dist_session_ctx->sdp->sessionAttributeAdd("mbs-servicetype", svc_str);
+
+    // TS 26.346 V18.2.0 clause 7.3.2.8 gives the shape of this attribute, and an example of it:
+    // “"a=FEC-declaration:" fec-ref SP fec-enc-id”, with “a=FEC-declaration:0 encoding-id=1”.
+    //
+    // The encoding ID is not free to choose. TS 29.580 V18.8.0 clause 6.2.6.2.14, table
+    // 6.2.6.2.14-1, row fecScheme: “It shall be identified using a term from the IANA: "Reliable
+    // Multicast Transport (RMT) FEC Encoding IDs and FEC Instance IDs" [20] expressed as a URN,
+    // e.g.: urn:ietf:rmt:fec:encoding:0”, so the trailing integer of that URN is the encoding ID
+    // itself and is read from the session rather than assumed. A session with no FEC
+    // configuration is Compact No-Code, encoding ID 0, which is what this announced
+    // unconditionally before: that was right only when no FEC was provisioned, and announced
+    // "no FEC" for a Raptor session, which is a statement the receiver would act on.
+    unsigned fec_encoding_id = 0;
+    if (dist_session_ctx->info) {
+        const auto &fc = dist_session_ctx->info->getFecConfig();
+        if (fc.has_value() && fc.value()) {
+            static const std::string urn_prefix{"urn:ietf:rmt:fec:encoding:"};
+            const std::string &scheme = fc.value()->getFecScheme();
+            if (scheme.compare(0, urn_prefix.size(), urn_prefix) == 0) {
+                const std::string id_part = scheme.substr(urn_prefix.size());
+                if (!id_part.empty() &&
+                    id_part.find_first_not_of("0123456789") == std::string::npos) {
+                    fec_encoding_id = static_cast<unsigned>(std::stoul(id_part));
                 } else {
                     ogs_warn("fecScheme \"%s\" is not a %s<id> URN; announcing no FEC instead of "
                              "guessing an encoding ID", scheme.c_str(), urn_prefix.c_str());
                 }
+            } else {
+                ogs_warn("fecScheme \"%s\" is not a %s<id> URN; announcing no FEC instead of "
+                         "guessing an encoding ID", scheme.c_str(), urn_prefix.c_str());
             }
         }
-        dist_session_ctx->sdp->sessionAttributeAdd(
-            "FEC-declaration", std::format("0 encoding-id={}", fec_encoding_id));
-
-        // The AL-FEC overhead the MBSTF was provisioned with is the receiver's only source for the
-        // level protecting these objects: the download profile forbids carrying it per object in the
-        // FDT (TS 26.346 V18.2.0 clause L.4.4 lists mbms2012:FEC-Redundancy-Level among the
-        // attributes that "shall not be carried in the FDT sent by the FLUTE sender:"), so the
-        // session description is the only route. TS 29.580 V18.8.0 clause 6.2.6.2.14 defines
-        // fecOverHead as a percentage of the unprotected data, which is the same quantity as the
-        // redundancy level, so it is emitted unchanged. Omitted when the session provisioned no FEC,
-        // since there is then no level to declare.
-        if (dist_session_ctx->info) {
-            const auto &fec_config = dist_session_ctx->info->getFecConfig();
-            if (fec_config.has_value() && fec_config.value()) {
-                dist_session_ctx->sdp->sessionAttributeAdd(
-                    "FEC-redundancy-level",
-                    std::format("0 redundancy-level={}", fec_config.value()->getFecOverHead()));
-            }
-        }
-        if (!ssm_source.empty()) {
-            dist_session_ctx->sdp->sessionAttributeAdd("source-filter", std::format("incl {} * {}", ssm_proto, ssm_source));
-        }
-        dist_session_ctx->sdp->sessionAttributeAdd("flute-tsi", std::format("{}", dist_session_ctx->tsi));
     }
+    dist_session_ctx->sdp->sessionAttributeAdd(
+        "FEC-declaration", std::format("0 encoding-id={}", fec_encoding_id));
+
+    // The AL-FEC overhead the MBSTF was provisioned with is the receiver's only source for the
+    // level protecting these objects: the download profile forbids carrying it per object in the
+    // FDT (TS 26.346 V18.2.0 clause L.4.4 lists mbms2012:FEC-Redundancy-Level among the
+    // attributes that "shall not be carried in the FDT sent by the FLUTE sender:"), so the
+    // session description is the only route. TS 29.580 V18.8.0 clause 6.2.6.2.14 defines
+    // fecOverHead as a percentage of the unprotected data, which is the same quantity as the
+    // redundancy level, so it is emitted unchanged. Omitted when the session provisioned no FEC,
+    // since there is then no level to declare.
+    if (dist_session_ctx->info) {
+        const auto &fec_config = dist_session_ctx->info->getFecConfig();
+        if (fec_config.has_value() && fec_config.value()) {
+            dist_session_ctx->sdp->sessionAttributeAdd(
+                "FEC-redundancy-level",
+                std::format("0 redundancy-level={}", fec_config.value()->getFecOverHead()));
+        }
+    }
+    if (!ssm_source.empty()) {
+        dist_session_ctx->sdp->sessionAttributeAdd("source-filter", std::format("incl {} * {}", ssm_proto, ssm_source));
+    }
+    dist_session_ctx->sdp->sessionAttributeAdd("flute-tsi", std::format("{}", dist_session_ctx->tsi));
 
     // SessionDescriptionProtocol::operator std::string() (rt-common-shared/lib/rtsdp) throws
     // std::out_of_range for an SDP with no valid origin and no connection information at either
