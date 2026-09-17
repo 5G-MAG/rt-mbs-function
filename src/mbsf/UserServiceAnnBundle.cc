@@ -269,7 +269,22 @@ bool UserServiceAnnBundle::writeServiceDescriptionProtocolDoc(const std::shared_
        V18.6.0 clause 6.2.2.1, Restrictions: "The Service-language(s) per media (clause 7.3.2.9 of
        [7]) shall not be used. It is assumed that the service languages are described within an
        application manifest." Clause 7.3.2.9 of TS 26.346 is the "a=lang" attribute. */
-    auto media = MediaDescription::makeMediaDescription("application", dist_session_ctx->ssm_port, "FLUTE/UDP", "0");
+    /* FLUTE/UDP is what identifies the Object Distribution Method, so it is declared only for a
+       session using it. TS 26.517 V18.6.0 clause 6.2.1: "The usage of this distribution method is
+       identified in the MBS Session Description metadata unit as defined in clause 6.2.3, in
+       particular by the indication of the protocol FLUTE/UDP in combination with the MBS service
+       type." Declaring it for a Packet Distribution Session announces a method that session does not
+       use.
+
+       For the Packet Distribution Method nothing better is derivable from what is provisioned:
+       PacketDistrMethInfo carries only the operating mode, the ingest method and the ingest
+       addresses, and no transport protocol. The examples in clause 7.2.3.2 use RTP/AVP and
+       UDP/RTP/AVP, neither of which follows from any provisioned field, so the plain transport is
+       declared rather than one of them guessed. */
+    const bool object_distribution = dist_session_ctx->info && dist_session_ctx->info->getDistrMethod() &&
+                                     dist_session_ctx->info->getDistrMethod()->getValue() == DistributionMethod::VAL_OBJECT;
+    auto media = MediaDescription::makeMediaDescription("application", dist_session_ctx->ssm_port,
+                                                        object_distribution ? "FLUTE/UDP" : "UDP", "0");
     if (!ssm_dest.empty()) {
         auto conn_info = ConnectionInformation::makeConnectionInformation(ssm_dest, family);
         media->connectionInformationAdd(conn_info);
