@@ -86,6 +86,7 @@ mb_smf_sc_ncgi_t *MBSNcgi::populateNcgi() {
     mb_smf_sc_ncgi_set_plmn_id_len(ncgi, mcc, mnc, mbs_plmn_id->mncLen());
     uint64_t cell_id = nrCellId();
     ncgi->nr_cell_id = static_cast<uint64_t>(cell_id) & ((1ULL << 36) - 1);
+    // Ownership passes to the NCGI, which frees it: see nid()'s own comment on the allocator.
     ncgi->nid = nid();
     return ncgi;
 
@@ -101,7 +102,10 @@ uint64_t *MBSNcgi::nid() {
     const std::optional<std::string > &nid = getNid();
     if (!nid.has_value()) return nullptr;
     uint64_t value = std::stoull(nid.value(), nullptr, 16);
-    uint64_t *result = static_cast<uint64_t*>(std::malloc(sizeof(uint64_t)));
+    // Allocated with the library's own allocator, not std::malloc: populateNcgi() hands this
+    // pointer to an mb_smf_sc_ncgi_t, which releases it with ogs_free(), and that is
+    // talloc_free() and cannot free a pointer it did not allocate.
+    uint64_t *result = static_cast<uint64_t*>(ogs_malloc(sizeof(uint64_t)));
     if (result != nullptr) {
         *result = value;
     }
