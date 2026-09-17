@@ -1216,10 +1216,10 @@ void UserDataIngSession::updateContexts(ogs_pool_id_t stream_id, const std::shar
                             }
                         }
                     } else {
-                        /* An absent mbsSessionId is accepted. TS 29.580 V18.8.0 clause 5.3.2.2.2: "if no MBS session
+                        /* An absent mbsSessionId is accepted. TS 29.580 V18.8.0 clause 5.3.2.2.2: “if no MBS session
                            identifier is provided, i.e. the "mbsSessionId" attribute is not present, the MBSF shall later
                            request TMGI allocation as part of the creation of the corresponding MBS session at the
-                           MB-SMF". No transport address is needed first: this branch's ssm stays null exactly as the
+                           MB-SMF”. No transport address is needed first: this branch's ssm stays null exactly as the
                            TMGI-only branch's does two cases above, routing through the same "empty MBSMFMBSSession, this
                            MBSF nominates its own Nmb9 address" path (createMbsSession(), Context::broadcastDistribution*).
                            createMbsSession()'s own request_tmgi condition below covers this case, and from here on nothing
@@ -1486,11 +1486,11 @@ void UserDataIngSession::processUserDataIngSessionUpdate(ogs_pool_id_t stream_id
                    keep, so it must not mark the stored session as present. Leaving present_in_update
                    false lets the !present_in_update branch below remove it.
 
-                   TS 29.580 V18.8.0 clause 5.3.2.4.2: "if an existing MBS Distribution Session shall
+                   TS 29.580 V18.8.0 clause 5.3.2.4.2: “if an existing MBS Distribution Session shall
                    be deleted, the AF shall include the corresponding map entry set to the value
                    "NULL" within the "mbsDisSessInfos" attribute with the map key set to its
                    string-based map key provisioned during the request that initially created the MBS
-                   Distribution Session."
+                   Distribution Session.”
 
                    The erase above still happens for a NULL entry, so the add loop that follows does
                    not resurrect it as a new session. */
@@ -2009,16 +2009,16 @@ bool UserDataIngSession::createMbsSession(const std::shared_ptr<UserDataIngSessi
 
         mb_smf_mbs_session->setTunnelRequest(true);
         /* TS 29.580 V18.8.0 clause 5.3.2.2.2 gives two triggers for TMGI allocation, evaluated per
-           map entry of "mbsDisSessInfos":
+           map entry of mbsDisSessInfos:
 
-             "if no MBS session identifier is provided, i.e. the "mbsSessionId" attribute is not
+             “if no MBS session identifier is provided, i.e. the "mbsSessionId" attribute is not
               present, the MBSF shall later request TMGI allocation as part of the creation of the
-              corresponding MBS session at the MB-SMF; and"
+              corresponding MBS session at the MB-SMF; and”
 
-             "if a source specific multicast address (SSM) is provided within the "mbsSessionId"
+             “if a source specific multicast address (SSM) is provided within the "mbsSessionId"
               attribute and the "locationDependent" attribute is present and set to "true" (i.e. to
               indicate a location dependent MBS service), the MBSF shall also request TMGI
-              allocation as part of the creation of the corresponding MBS session at the MB-SMF."
+              allocation as part of the creation of the corresponding MBS session at the MB-SMF.”
 
            The second is an additional case, not a narrowing of the first: an absent mbsSessionId
            requires a TMGI whatever locationDependent says, because there is otherwise no identifier
