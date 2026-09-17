@@ -240,6 +240,25 @@ bool UserServiceAnnBundle::writeServiceDescriptionProtocolDoc(const std::shared_
         }
     }
 
+    /* Without a source address there is no conformant session description to write, so refuse here
+       with the reason rather than a few lines further on as an out_of_range from the serialiser.
+
+       TS 26.346 V18.2.0 clause 7.3.2.1: “There shall be exactly one IP sender address per MBMS download session, and thus there shall be exactly one IP source address per complete MBMS download session SDP description.”
+
+       This is reachable for a Broadcast MBS Session, which carries no SSM and so reaches this point
+       with nothing to put in the source-filter. Which address such a session should declare is not
+       decided here: it is not the SSM source, and no clause or configuration option supplies it, so
+       inventing one would be a bound resting on nothing (RULES.md rule 12). Recorded against
+       5G-MAG/rt-mbs-function#53 and raised with the maintainers; until it is answered a Broadcast
+       session with no SSM has no announcement, and now says so. */
+    if (ssm_source.empty()) {
+        ogs_error("No source address for the session description of %s: a Broadcast MBS Session carries "
+                  "no SSM, and TS 26.346 clause 7.3.2.1 requires exactly one IP source address. No "
+                  "announcement is written for this Distribution Session.",
+                  sdp_filename.string().c_str());
+        return false;
+    }
+
     /* The attribute states which kind of MBS Session delivers this Distribution Session, not how
        its content is addressed. TS 26.517 V18.6.0 clause 6.2.2.2, table 6.2.2.2-1, row broadcast:
        "The MBS Distribution Session is delivered using a Broadcast MBS Session."
