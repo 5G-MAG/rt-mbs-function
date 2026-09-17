@@ -200,6 +200,18 @@ public:
     // rt-mbs-transport-function.md's own M8 entry for the full account of that residual gap.
     std::optional<size_t> maxRequestBodySize;
 
+    // The link MTU, in bytes, that the MBS Distribution Session's packets are sent over. Used only to
+    // work out the transport overhead the SDP bandwidth line has to account for.
+    //
+    // TS 26.346 V18.2.0 clause 7.3.2.10 makes the bandwidth value the largest one-second sum of packet
+    // sizes, and fixes what a packet size means:
+    // “The size of the packet shall be the complete packet, i.e. IP, UDP and FLUTE headers, and the data payload.”
+    // The rate the MBSF holds (maxContBitRate) does not say whether it already counts those transport
+    // headers, and neither TS 29.580 nor TS 26.502 settles it, so the adjustment cannot be derived and
+    // no default is invented for it (RULES.md rule 12). Unset means the rate is written through
+    // unadjusted, which is what happened before this option existed, and a warning names the clause.
+    std::optional<size_t> sdpBandwidthMtu;
+
     ogs_sockaddr_t *notificationBindAddress;
 
 private:

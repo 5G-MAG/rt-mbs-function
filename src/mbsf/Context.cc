@@ -267,6 +267,13 @@ bool Context::parseConfig()
                     if (idx != max_request_body_size.size()) {
                         throw std::out_of_range("Bad configuration value at mbsf.maxRequestBodySize");
                     }
+                } else if (mbsf_key == "sdpBandwidthMtu") {
+                    std::string sdp_bandwidth_mtu(mbsf_iter.value());
+                    size_t idx = 0;
+                    sdpBandwidthMtu = std::stoul(sdp_bandwidth_mtu, &idx);
+                    if (idx != sdp_bandwidth_mtu.size()) {
+                        throw std::out_of_range("Bad configuration value at mbsf.sdpBandwidthMtu");
+                    }
                 } else if (mbsf_key == "allowedMulticastRange" ) {
                     allowedMulticastRange = std::string(mbsf_iter.value());
                 } else if (mbsf_key == "broadcastDistribution") {
