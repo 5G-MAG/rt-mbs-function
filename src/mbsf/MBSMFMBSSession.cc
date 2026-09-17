@@ -137,6 +137,12 @@ bool MBSMFMBSSession::getAnyUeInd() const
     return m_session->any_ue_ind;
 }
 
+std::shared_ptr<MbsServiceArea> MBSMFMBSSession::getReducedServiceArea() const
+{
+    if (!m_session || !m_session->red_mbs_service_area) return nullptr;
+    return ServiceArea::fromServiceArea(m_session->red_mbs_service_area);
+}
+
 bool MBSMFMBSSession::getLocationDependent() const
 {
     if (!m_session) return false;

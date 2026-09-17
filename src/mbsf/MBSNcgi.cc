@@ -108,6 +108,31 @@ uint64_t *MBSNcgi::nid() {
     return result;
 }
 
+
+std::shared_ptr<Ncgi> MBSNcgi::fromNcgi(const mb_smf_sc_ncgi_t *ncgi)
+{
+    if (!ncgi) return nullptr;
+
+    // NrCellId is a 9-digit and Nid an 11-digit upper-case hex string, the encoding the library
+    // writes with _uint64_to_hex_str(); both are zero-padded to their full width.
+    char cell_str[24];
+    std::snprintf(cell_str, sizeof(cell_str), "%.9llX",
+                  static_cast<unsigned long long>(ncgi->nr_cell_id & ((1ULL << 36) - 1)));
+
+    std::shared_ptr<Ncgi> result(new Ncgi());
+    result->setPlmnId(MBSPlmnId::fromPlmnId(ncgi->plmn_id));
+    result->setNrCellId(std::string(cell_str));
+
+    if (ncgi->nid) {
+        char nid_str[24];
+        std::snprintf(nid_str, sizeof(nid_str), "%.11llX",
+                      static_cast<unsigned long long>(*ncgi->nid & 0xFFFFFFFFFFFULL));
+        result->setNid(std::string(nid_str));
+    }
+
+    return result;
+}
+
 MBSF_NAMESPACE_STOP
 
 /* vim:ts=8:sts=4:sw=4:expandtab:

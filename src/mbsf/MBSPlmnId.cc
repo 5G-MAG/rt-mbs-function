@@ -98,6 +98,23 @@ uint16_t MBSPlmnId::mnc() {
 }
 
 
+
+std::shared_ptr<PlmnId> MBSPlmnId::fromPlmnId(const ogs_plmn_id_t &plmn_id)
+{
+    // Mnc keeps its leading zeros: it is formatted to the digit count the PLMN Id records, not
+    // to the width its numeric value happens to need, so a 3-digit MNC below 100 stays 3 digits.
+    char mcc_str[8];
+    char mnc_str[8];
+    std::snprintf(mcc_str, sizeof(mcc_str), "%03u", ogs_plmn_id_mcc(&plmn_id));
+    std::snprintf(mnc_str, sizeof(mnc_str), "%0*u", static_cast<int>(ogs_plmn_id_mnc_len(&plmn_id)),
+                  ogs_plmn_id_mnc(&plmn_id));
+
+    std::shared_ptr<PlmnId> result(new PlmnId());
+    result->setMcc(std::string(mcc_str));
+    result->setMnc(std::string(mnc_str));
+    return result;
+}
+
 MBSF_NAMESPACE_STOP
 
 /* vim:ts=8:sts=4:sw=4:expandtab:

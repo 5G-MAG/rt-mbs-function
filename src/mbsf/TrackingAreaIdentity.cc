@@ -137,6 +137,31 @@ uint64_t* TrackingAreaIdentity::nid() {
     return result;
 }
 
+
+std::shared_ptr<Tai> TrackingAreaIdentity::fromTai(const mb_smf_sc_tai_t *tai)
+{
+    if (!tai) return nullptr;
+
+    // Tac and Nid are upper-case, zero-padded hex: the encoding tac() and nid() decode, and the
+    // one the library writes (_uint32_to_hex_str(tac, 4, 6), _uint64_to_hex_str(nid, 11, 11)).
+    char tac_str[16];
+    std::snprintf(tac_str, sizeof(tac_str), "%.4llX",
+                  static_cast<unsigned long long>(tai->tac & 0xFFFFFF));
+
+    std::shared_ptr<Tai> result(new Tai());
+    result->setPlmnId(MBSPlmnId::fromPlmnId(tai->plmn_id));
+    result->setTac(std::string(tac_str));
+
+    if (tai->nid) {
+        char nid_str[24];
+        std::snprintf(nid_str, sizeof(nid_str), "%.11llX",
+                      static_cast<unsigned long long>(*tai->nid & 0xFFFFFFFFFFFULL));
+        result->setNid(std::string(nid_str));
+    }
+
+    return result;
+}
+
 MBSF_NAMESPACE_STOP
 
 /* vim:ts=8:sts=4:sw=4:expandtab:
