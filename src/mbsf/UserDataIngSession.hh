@@ -38,6 +38,9 @@
 
 #include "openapi/model/DistSessionState.h"
 #include "openapi/model/MBSUserDataIngSession.h"
+#include "openapi/model/MbsDistSessFailure.h"
+#include "openapi/model/MbsDistSessFailureSets.h"
+#include "openapi/model/DistSessionFailure.h"
 #include "openapi/model/MBSDistributionSessionInfo.h"
 #include "common.hh"
 #include "AlwaysActive.hh"
@@ -299,6 +302,21 @@ public:
 
     bool checkIfAllMBSSessionResponsesReceived();
     void handleFailedMBSSession();
+
+    /** Whether the MBSErrorHandling feature was negotiated for this MBS User Data Ingest Session.
+     *
+     * TS 29.580 V18.8.0 table 6.2.8-1 gives it feature number 3, so bit 3 of the negotiated bitmask.
+     * Only the last hex character can matter: the API defines no feature above 4.
+     */
+    bool mbsErrorHandlingNegotiated() const;
+
+    /** Record a Distribution Session the MB-SMF rejected, for reporting alongside the ones that
+     *  succeeded. Keyed by the map key the consumer used in "mbsDisSessInfos". */
+    void recordDistSessionFailure(const std::string &dist_session_info_key,
+                                  const std::shared_ptr<ContextData> &context_data);
+
+    /** Attach the recorded failures to the representation about to be returned, if any. */
+    void attachFailedDistSessions();
     void setMbstfsInDesiredState();
     void checkDesiredState();
     void pendingDeleteResponse(ogs_pool_id_t stream_id);
@@ -386,6 +404,12 @@ private:
 
     //key: Dist Session Infos present in this User Data Ingest Session
     std::map<std::string, std::shared_ptr< ContextData >> m_distributionSessionInfos;
+
+    /* Distribution Sessions the MB-SMF rejected while others succeeded, held until the response that
+       reports them is built. Keyed by the map key the consumer used in "mbsDisSessInfos", which is
+       what TS 29.580 requires the failure map to be keyed by. Empty whenever the outcome was not
+       mixed, since the all-failed case is still answered as an error. */
+    std::map<std::string, std::shared_ptr< reftools::mbsf::MbsDistSessFailure > > m_failedDistSessions;
 
     std::list<ogs_pool_id_t> m_deleteRequests;
 

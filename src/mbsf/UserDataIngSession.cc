@@ -44,6 +44,7 @@
 #include <cstdint>
 #include <iostream>
 #include <list>
+#include <vector>
 
 // App header includes
 #include "common.hh"
@@ -1823,6 +1824,11 @@ bool UserDataIngSession::sendNmbsfMbsUserDataIngestResponse(const std::shared_pt
 
         }
 
+        /* Any Distribution Session the MB-SMF rejected while others succeeded is reported in this
+           representation, not as an error. attachFailedDistSessions() is a no-op when the outcome was
+           not mixed, so the wholly successful case is unchanged. */
+        ing_sess->attachFailedDistSessions();
+
         CJson user_data_ing_sess_json(ing_sess->json(false));
         std::string body(user_data_ing_sess_json.serialise());
         ogs_debug("Response Parsed JSON: %s", body.c_str());
@@ -2483,9 +2489,96 @@ void UserDataIngSession::setMBSSessionFailureFlag(const UserDataIngDistSessId &i
     }
 }
 
+bool UserDataIngSession::mbsErrorHandlingNegotiated() const
+{
+    /* TS 29.580 V18.8.0 table 6.2.8-1 numbers MBSErrorHandling 3, so bit 3 (value 4) of the negotiated
+       bitmask. The encoding is TS 29.571's SupportedFeatures: each hex character carries four features
+       and the last character carries features 1 to 4, which is the only character this API can use. */
+    const auto &supp_feat = m_MBSUserDataIngSession->getSuppFeat();
+    if (!supp_feat.has_value() || supp_feat->empty()) return false;
+    char last = supp_feat->back();
+    unsigned mask = 0;
+    if (last >= '0' && last <= '9') mask = (unsigned)(last - '0');
+    else if (last >= 'a' && last <= 'f') mask = (unsigned)(last - 'a' + 10);
+    else if (last >= 'A' && last <= 'F') mask = (unsigned)(last - 'A' + 10);
+    return (mask & 0x4) != 0;
+}
+
+void UserDataIngSession::recordDistSessionFailure(const std::string &dist_session_info_key,
+                                                  const std::shared_ptr<ContextData> &context_data)
+{
+    /* The cause is relayed from what the MB-SMF said rather than re-derived, which is what the feature
+       asks for: TS 29.580 V18.8.0 table 6.2.8-1 lists "Support of the missing MBS Session related error
+       handling procedures to enable end-to-end relaying of errors" among MBSErrorHandling's
+       functionalities. DistSessionFailure carries an OTHER value and keeps the original string, so a
+       cause this API does not name is passed through intact instead of being flattened or guessed. */
+    auto failure = std::make_shared<reftools::mbsf::MbsDistSessFailure>();
+    auto cause = std::make_shared<reftools::mbsf::DistSessionFailure>();
+
+    std::string cause_str;
+    if (context_data->mbsmfProblemDetailJson.has_value()) {
+        CJson cause_node = context_data->mbsmfProblemDetailJson->getObjectItemCaseSensitive("cause");
+        if (!cause_node.isNull() && cause_node.isString()) cause_str = std::string(cause_node);
+    }
+    if (!cause_str.empty()) {
+        cause->fromString(cause_str);
+    } else {
+        /* No cause on the wire. UNSPECIFIED would be a guess at which of the six applied, so the
+           relayed value stays empty-stringed through OTHER rather than naming a cause the MB-SMF
+           never gave. */
+        cause->fromString(std::string("OTHER"));
+    }
+    failure->setCause(cause);
+    m_failedDistSessions[dist_session_info_key] = failure;
+}
+
+void UserDataIngSession::attachFailedDistSessions()
+{
+    if (m_failedDistSessions.empty()) return;
+
+    auto sets = std::make_shared<reftools::mbsf::MbsDistSessFailureSets>();
+    reftools::mbsf::MbsDistSessFailureSets::CausesType causes;
+    for (const auto &[key, failure] : m_failedDistSessions) causes[key] = failure;
+    sets->setCauses(std::move(causes));
+    m_MBSUserDataIngSession->setFailedDistSessions(sets);
+}
+
 void UserDataIngSession::handleFailedMBSSession()
 {
     std::lock_guard<decltype(m_distSessInfosMutex)::element_type> lock(*m_distSessInfosMutex);
+
+    /* Collected before anything is removed, because the partial path mutates the map it walks. */
+    std::vector<std::string> failed_keys;
+    size_t succeeded = 0;
+    for (const auto &dist_sess_info : m_distributionSessionInfos) {
+        if (dist_sess_info.second->MBSSessionStatus == MBSSessionState::FAILED) {
+            failed_keys.push_back(dist_sess_info.first);
+        } else {
+            succeeded++;
+        }
+    }
+
+    /* A mixed outcome is reported rather than rejected, so the sessions that were created stay created.
+       TS 29.580 V18.8.0 clause 6.2.6.2.2, failedDistSessions: “This attribute may be present only in responses from the MBSF and only when the creation/update of at least one of the requested/targeted MBS Distribution Session(s) failed and the creation/update of at least one of the requested/targeted MBS Distribution Session(s) succeeded.”
+       Both halves of that condition are required here, so an all-failed outcome still goes down the
+       error path below and a wholly successful one never reaches this function.
+
+       Gated on the feature having been negotiated: a consumer that did not ask for MBSErrorHandling is
+       answered exactly as before, which is the behaviour its request was written against. */
+    if (mbsErrorHandlingNegotiated() && succeeded > 0 && !failed_keys.empty()) {
+        for (const auto &key : failed_keys) {
+            std::shared_ptr<ContextData> context_data = getDistributionSessionInfoData(key);
+            if (!context_data) continue;
+            recordDistSessionFailure(key, context_data);
+        }
+        for (const auto &key : failed_keys) {
+            removeDistributionSessionInfo(key);
+        }
+        ogs_info("%zu MBS Distribution Session(s) failed and %zu succeeded; reporting the failures in "
+                 "the response rather than rejecting the request", failed_keys.size(), succeeded);
+        return;
+    }
+
     for (const auto &dist_sess_info : m_distributionSessionInfos) {
         if (dist_sess_info.second->MBSSessionStatus == MBSSessionState::FAILED) {
             UserDataIngDistSessId *ids = new UserDataIngDistSessId(dist_sess_info.second->ingSessionId,
