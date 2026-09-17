@@ -560,7 +560,7 @@ std::optional<std::list<std::shared_ptr<ApplicationServiceDesc>>> DistributionSe
         auto &obj_dist_method_info = m_mbsDistributionSessionInfo->getObjDistrInfo();
         if (obj_dist_method_info && obj_dist_method_info.value()) {
             auto &dist_method_info = obj_dist_method_info.value();
-            // TS 26.517 clause 5.2.4 conditions the applicationServiceDescriptions array's presence only on
+            // TS 26.517 V18.6.0 clause 5.2.4 conditions the applicationServiceDescriptions array's presence only on
             // "The distributionMethod property of the DistributionSessionDescription shall be set to OBJECT",
             // which the obj_dist_method_info check above already guarantees, and not on any particular
             // ObjDistributionOperatingMode. The array is therefore populated for every operating mode:

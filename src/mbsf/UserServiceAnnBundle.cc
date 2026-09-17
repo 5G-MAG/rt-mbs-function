@@ -317,12 +317,13 @@ bool UserServiceAnnBundle::writeServiceDescriptionProtocolDoc(const std::shared_
 
         dist_session_ctx->sdp->sessionAttributeAdd("mbs-servicetype", svc_str);
 
-        // TS 26.346 V18.2.0 clause 7.3.2.8 gives the shape of this attribute as
-        // "a=FEC-declaration:" fec-ref SP fec-enc-id, and its example as "a=FEC-declaration:0
-        // encoding-id=1". The encoding ID is not free to choose: TS 29.580 V18.8.0 clause 6.2.6.2.14
-        // says fecScheme "shall be identified using a term from the IANA: "Reliable Multicast
-        // Transport (RMT) FEC Encoding IDs and FEC Instance IDs" [20] expressed as a URN, e.g.:
-        // urn:ietf:rmt:fec:encoding:0", so the trailing integer of that URN is the encoding ID
+        // TS 26.346 V18.2.0 clause 7.3.2.8 gives the shape of this attribute, and an example of it:
+        // “"a=FEC-declaration:" fec-ref SP fec-enc-id”, with “a=FEC-declaration:0 encoding-id=1”.
+        //
+        // The encoding ID is not free to choose. TS 29.580 V18.8.0 clause 6.2.6.2.14, table
+        // 6.2.6.2.14-1, row fecScheme: “It shall be identified using a term from the IANA: "Reliable
+        // Multicast Transport (RMT) FEC Encoding IDs and FEC Instance IDs" [20] expressed as a URN,
+        // e.g.: urn:ietf:rmt:fec:encoding:0”, so the trailing integer of that URN is the encoding ID
         // itself and is read from the session rather than assumed. A session with no FEC
         // configuration is Compact No-Code, encoding ID 0, which is what this announced
         // unconditionally before: that was right only when no FEC was provisioned, and announced
