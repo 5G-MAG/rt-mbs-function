@@ -291,7 +291,32 @@ bool UserServiceAnnBundle::writeServiceDescriptionProtocolDoc(const std::shared_
     }
     auto *bitrate = QoSReq::bitrate(dist_session_ctx->info->getMaxContBitRate());
     if (bitrate) {
-        media->bandwidthInformationAdd(*bitrate/1000); // SDP bit rates are in kilobits/s
+        /* The bandwidth line has to describe whole packets on the wire, not the content inside them.
+
+           TS 26.346 V18.2.0 clause 7.3.2.10: “The size of the packet shall be the complete packet, i.e. IP, UDP and FLUTE headers, and the data payload.”
+
+           maxContBitRate does not say whether it already counts the IP and UDP headers. TS 26.502
+           V18.6.0 clause 4.5.6 calls it a bit rate "for content", while clause 4.3.3.2 has the packet
+           scheduling subfunction pace the outgoing packet stream by it, and TS 29.571 gives the type a
+           format and no semantics. Nothing decides it, and neither Nmb10 nor Nmb9 carries the MTU the
+           conversion needs, so the adjustment rests on an operator-set option rather than on a number
+           invented here (RULES.md rule 12).
+
+           With the MTU known, a packet carries mtu - transport_header bytes of ALC, so the rate that
+           paces ALC bytes corresponds to a wire rate of rate * mtu / (mtu - transport_header). This
+           assumes packets are filled to the MTU, which understates the overhead for the smaller
+           packets (a short final symbol, a small FDT), so it is a floor on the adjustment rather than
+           the exact largest second. */
+        uint64_t as_bitrate = sdpBandwidthBitRate(*bitrate, App::self().context()->sdpBandwidthMtu,
+                                                  family == AF_INET6);
+        if (!App::self().context()->sdpBandwidthMtu) {
+            ogs_warn("mbsf.sdpBandwidthMtu is not configured, so the SDP bandwidth omits the IP and UDP "
+                     "headers that TS 26.346 clause 7.3.2.10 requires it to count");
+        } else if (as_bitrate == *bitrate) {
+            ogs_error("mbsf.sdpBandwidthMtu is not larger than the transport header; bandwidth written "
+                      "without the adjustment clause 7.3.2.10 requires");
+        }
+        media->bandwidthInformationAdd(as_bitrate/1000); // SDP bit rates are in kilobits/s
         delete bitrate;
     }
     media->mediaAttributeAdd("FEC", "0");

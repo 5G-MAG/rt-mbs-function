@@ -45,3 +45,11 @@ test_service_area_from_exe = executable('test_service_area_from', 'test_service_
     dependencies : [libmbsf_dep],
     install : false)
 test('test_service_area_from', test_service_area_from_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')
+
+# UserServiceAnnBundle::sdpBandwidthBitRate(), the transport-overhead adjustment the SDP bandwidth
+# line needs, see the test's own file comment.
+test_sdp_bandwidth_exe = executable('test_sdp_bandwidth', 'test_sdp_bandwidth.cc',
+    include_directories : [libmbsf_libinc, libinc],
+    dependencies : [libmbsf_dep],
+    install : false)
+test('test_sdp_bandwidth', test_sdp_bandwidth_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')

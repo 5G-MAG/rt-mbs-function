@@ -12,6 +12,7 @@
  * https://drive.google.com/file/d/1cinCiA778IErENZ3JN52VFW-1ffHpx7Z/view
  */
 
+#include <optional>
 #include <memory>
 #include <list>
 #include <condition_variable>
@@ -28,6 +29,31 @@ class UserServiceAnnBundle {
 public:
 
     UserServiceAnnBundle(const std::shared_ptr<UserDataIngSession> &user_data_ing_session);
+
+    /** The SDP bandwidth value, in bits per second, for a session paced at @p content_bit_rate.
+     *
+     * TS 26.346 V18.2.0 clause 7.3.2.10 fixes what the value counts:
+     * “The size of the packet shall be the complete packet, i.e. IP, UDP and FLUTE headers, and the data payload.”
+     * The rate the MBSF holds paces the ALC bytes, so each packet adds a transport header that the
+     * bandwidth line still has to account for. With a packet carrying (mtu - transport header) bytes of
+     * ALC, the wire rate is content_bit_rate * mtu / (mtu - transport header).
+     *
+     * A named rule rather than inline arithmetic so it can be tested without building a session
+     * description, which needs an ingest session and a live context.
+     *
+     * \param content_bit_rate The provisioned rate, in bits per second.
+     * \param mtu              The link MTU in bytes, unset when the operator has not configured one.
+     * \param ipv6             True when the session's connection address is IPv6.
+     * \return the bandwidth to write, in bits per second; unchanged when no usable MTU is given.
+     */
+    static uint64_t sdpBandwidthBitRate(uint64_t content_bit_rate, const std::optional<size_t> &mtu, bool ipv6) {
+        if (!mtu) return content_bit_rate;
+        /* RFC 768 makes the UDP header 8 octets, and RFC 8200 gives 20 octets for a minimum-length
+           IPv4 header and 20 more than that for a minimum-length IPv6 one. */
+        const uint64_t transport_header = (ipv6 ? 40 : 20) + 8;
+        if (*mtu <= transport_header) return content_bit_rate;
+        return static_cast<uint64_t>(static_cast<double>(content_bit_rate) * *mtu / (*mtu - transport_header));
+    };
     UserServiceAnnBundle() = delete;
     UserServiceAnnBundle(const UserServiceAnnBundle &) = delete;
     UserServiceAnnBundle(UserServiceAnnBundle &&) = delete;
