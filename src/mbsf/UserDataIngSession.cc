@@ -2465,6 +2465,13 @@ void UserDataIngSession::setMBSSessionFailureFlag(const UserDataIngDistSessId &i
         std::shared_ptr<ContextData> context_data = ing_sess->getDistributionSessionInfoData(ids.second);
         context_data->MBSSessionStatus = MBSSessionState::FAILED;
         //context_data->hasMBSSession = true;
+        /* Keep what the MB-SMF said about this session, not just that it failed. handleFailedMBSSession()
+           reports a failure from the stored fields rather than from this call's arguments, and they were
+           never written, so every failure it reported arrived as a bare INBOUND_SERVER_ERROR carrying
+           print_mbs_session_error()'s fixed wording, whatever the MB-SMF had actually returned. The cause
+           is in hand here; storing it is what lets the reported error match the real one. */
+        context_data->mbsmfProblemCause = cause;
+        context_data->mbsmfProblemDetailJson = problem_detail_json;
         if (ing_sess->checkIfAllMBSSessionResponsesReceived()) {
             populateAndSendError(new UserDataIngDistSessId(ids), cause, problem_detail_json);
             App::self().context()->deleteUserDataIngSession(ids_first);
