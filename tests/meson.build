@@ -53,3 +53,11 @@ test_sdp_bandwidth_exe = executable('test_sdp_bandwidth', 'test_sdp_bandwidth.cc
     dependencies : [libmbsf_dep],
     install : false)
 test('test_sdp_bandwidth', test_sdp_bandwidth_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')
+
+# NfServer::acceptsMediaType(), the Accept header matching behind the 406 answer, see the test's own
+# file comment.
+test_accepts_media_type_exe = executable('test_accepts_media_type', 'test_accepts_media_type.cc',
+    include_directories : [libmbsf_libinc, libinc],
+    dependencies : [libmbsf_dep],
+    install : false)
+test('test_accepts_media_type', test_accepts_media_type_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')
