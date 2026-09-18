@@ -1891,9 +1891,20 @@ bool UserDataIngSession::sendNmbsfMbsUserDataIngestResponse(const std::shared_pt
         CJson user_data_ing_sess_json(ing_sess->json(false));
         std::string body(user_data_ing_sess_json.serialise());
         ogs_debug("Response Parsed JSON: %s", body.c_str());
-        std::ostringstream location;
-        location << request->uri() << "/" << ing_sess->userDataIngSessionId();
-        std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(location.str(),
+        /* The absolute URI of the created resource, not a path: a consumer behind an SCP takes the
+           apiRoot from this header, and a path carries none. Same reasoning and the same helper as
+           the MBS User Service create. */
+        std::string location(NfServer::resourceUri(stream, message,
+                                {std::string(message.resourceComponent(0)),
+                                 ing_sess->userDataIngSessionId()}));
+        if (location.empty()) {
+            std::ostringstream fallback;
+            fallback << request->uri() << "/" << ing_sess->userDataIngSessionId();
+            location = fallback.str();
+            ogs_warn("Could not determine this server's own URI; the Location header carries a path "
+                     "with no apiRoot");
+        }
+        std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(location,
                             body.empty()?nullptr:"application/json",
                             ing_sess->generated(),
                             ing_sess->hash().c_str(),
