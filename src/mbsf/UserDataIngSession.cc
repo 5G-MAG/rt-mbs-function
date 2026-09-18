@@ -3615,6 +3615,29 @@ static bool validate_state_setting_options(const std::shared_ptr<UserDataIngSess
                         "restrictedFlag is only applicable to a MULTICAST MBS User Service";
                 }
 
+                /* An SSM identifies a multicast MBS Session only, so a BROADCAST MBS User Service
+                   cannot be provisioned with one. Its session is identified by a TMGI, which the
+                   MBSF requests from the MB-SMF when mbsSessionId is absent.
+
+                   TS 23.247 V18.8.0 clause 6.5.1: "MBS Session ID may have the following types:"
+                   followed by "-TMGI (for broadcast and multicast MBS sessions);" and "-source
+                   specific IP multicast address (for multicast MBS sessions)." Clause 6.5.3 says
+                   the same of the address itself, that it "is used to identify an Multicast MBS
+                   session".
+
+                   Accepting one here announced a Broadcast session under an identifier the 5G
+                   system does not define for it, and the SSM's own address pair then competed with
+                   the broadcastDistribution pair the Nmb9 flow actually sends to. */
+                if (serv_type == "BROADCAST") {
+                    const auto &bcast_mbs_session_id = info->getMbsSessionId();
+                    if (bcast_mbs_session_id.has_value() && bcast_mbs_session_id.value() &&
+                        bcast_mbs_session_id.value()->getSsm().has_value()) {
+                        invalid_params[std::format("mbsDisSessInfos.{}.mbsSessionId.ssm", dist_sess_id)] =
+                            "an SSM identifies a multicast MBS Session; a BROADCAST MBS User Service is "
+                            "identified by a TMGI, which the MBSF requests when mbsSessionId is absent";
+                    }
+                }
+
                 // TS 29.580 V18.8.0 table 5.6.2.8-1, pckIngMethod row: "When the "operatingMode"
                 // attribute is set to "PACKET_FORWARD_ONLY", only the value "UNICAST" is applicable
                 // for this attribute."
