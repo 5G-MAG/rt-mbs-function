@@ -3518,6 +3518,9 @@ static bool validate_state_setting_options(const std::shared_ptr<UserDataIngSess
 {
     std::shared_ptr<MBSUserDataIngSession> mbs_user_data_ing_session = user_data_ing_session->getMBSUserIngSession();
     std::map<std::string,std::string> invalid_params;
+    /* Set when a requested MBS Distribution Session duplicates one that already exists, which has its
+       own named error rather than being an incorrect IE. Holds the consumer's map key for the detail. */
+    std::optional<std::string> already_created_session;
     if (mbs_user_data_ing_session->getActPeriods() && mbs_user_data_ing_session->getActPeriodsRepRule()) {
         invalid_params["actPeriods"] = "actPeriods cannot be present if any mbsDistSessState or actPeriodRepRule are present";
         invalid_params["actPeriodRepRule"] = "actPeriodRepRule cannot be present if any mbsDistSessState or actPeriods are present";
@@ -3549,6 +3552,10 @@ static bool validate_state_setting_options(const std::shared_ptr<UserDataIngSess
                                     ext_mbs_service_area?ext_mbs_service_area.value():std::shared_ptr<ExternalMbsServiceArea>());
                     if (context->haveMbsSessionId(unique_mbs_session_id)) {
                         invalid_params[std::format("mbsDisSessInfos.{}.mbsSessionId", dist_sess_id)] = "mbsSessionId already used in another UserDataIngSession";
+                        /* Kept alongside the invalid_params entry rather than instead of it, so the
+                           consumer that did not negotiate MBSErrorHandling still gets what it did
+                           before. See the answer chosen below. */
+                        already_created_session = dist_sess_id;
                     }
                 }
 
@@ -3594,6 +3601,23 @@ static bool validate_state_setting_options(const std::shared_ptr<UserDataIngSess
             }
         }
     }
+    /* A duplicate MBS Distribution Session has a named error of its own, which says more than an
+       incorrect-IE answer does.
+
+       TS 29.580 V18.8.0 table 6.2.7.3-1, row MBS_DIST_SESSION_ALREADY_CREATED (403 Forbidden): “Indicates that the requested MBS Distribution Session has already been created.”
+
+       Its applicability column is MBSErrorHandling, so a consumer that did not negotiate the feature
+       is answered exactly as before: the invalid_params entry is still recorded above for that case. */
+    if (already_created_session && user_data_ing_session->mbsErrorHandlingNegotiated()) {
+        std::string detail = std::format("MBS Distribution Session [{}] has already been created",
+                                         *already_created_session);
+        ogs_assert(true == Open5GSSBIServer::sendError(stream, OGS_SBI_HTTP_STATUS_FORBIDDEN, message,
+                                                       "MBS Distribution Session already created",
+                                                       detail.c_str(),
+                                                       reftools::mbsf::DistSessionFailure::STR_MBS_DIST_SESSION_ALREADY_CREATED));
+        return false;
+    }
+
     if (!invalid_params.empty()) {
         ogs_assert(true == NfServer::sendError(stream, ProblemCause::OPTIONAL_IE_INCORRECT, 0, message,
                                                             app_meta, api, std::nullopt, std::nullopt, std::nullopt, invalid_params));
