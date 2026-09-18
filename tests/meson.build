@@ -61,3 +61,11 @@ test_accepts_media_type_exe = executable('test_accepts_media_type', 'test_accept
     dependencies : [libmbsf_dep],
     install : false)
 test('test_accepts_media_type', test_accepts_media_type_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')
+
+# UserService::route(), the path decision made before any method branch runs, see the test's own
+# file comment.
+test_user_service_route_exe = executable('test_user_service_route', 'test_user_service_route.cc',
+    include_directories : [libmbsf_libinc, libinc],
+    dependencies : [libmbsf_dep],
+    install : false)
+test('test_user_service_route', test_user_service_route_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')
