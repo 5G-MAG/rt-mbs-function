@@ -771,9 +771,20 @@ bool UserDataIngStatSubsc::processEvent(Open5GSEvent &event)
                             CJson user_data_ing_stat_subsc_json(user_data_ing_stat_subsc->json(false));
                             std::string body(user_data_ing_stat_subsc_json.serialise());
                             ogs_debug("Response Parsed JSON: %s", body.c_str());
-                            std::ostringstream location;
-                            location << request.uri() << "/" << user_data_ing_stat_subsc->subscriptionId();
-                            std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(location.str(),
+                            /* The absolute URI of the created resource, not a path: a consumer
+                               behind an SCP takes the apiRoot from this header. Same helper as the
+                               other two creates. */
+                            std::string location(NfServer::resourceUri(stream, message,
+                                                    {std::string(message.resourceComponent(0)),
+                                                     user_data_ing_stat_subsc->subscriptionId()}));
+                            if (location.empty()) {
+                                std::ostringstream fallback;
+                                fallback << request.uri() << "/" << user_data_ing_stat_subsc->subscriptionId();
+                                location = fallback.str();
+                                ogs_warn("Could not determine this server's own URI; the Location "
+                                         "header carries a path with no apiRoot");
+                            }
+                            std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(location,
                                 body.empty()?nullptr:"application/json",
                                 user_data_ing_stat_subsc->generated(),
                                 user_data_ing_stat_subsc->hash().c_str(),
