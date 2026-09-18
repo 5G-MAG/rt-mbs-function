@@ -252,11 +252,30 @@ bool UserServiceAnnBundle::writeServiceDescriptionProtocolDoc(const std::shared_
        5G-MAG/rt-mbs-function#53 and raised with the maintainers; until it is answered a Broadcast
        session with no SSM has no announcement, and now says so. */
     if (ssm_source.empty()) {
-        ogs_error("No source address for the session description of %s: a Broadcast MBS Session carries "
-                  "no SSM, and TS 26.346 clause 7.3.2.1 requires exactly one IP source address. No "
-                  "announcement is written for this Distribution Session.",
-                  sdp_filename.string().c_str());
-        return false;
+        /* A Broadcast MBS Session carries no SSM, so the addresses come from the same place the MBSF
+           already takes them when it tells the MBSTF what to send: the broadcastDistribution
+           configuration, used for the Nmb9 flow addresses at Nmb2Build.cc:347-354. Those are the
+           addresses the FLUTE packets will actually carry, so they are what the session description
+           has to describe; taking them from anywhere else would announce one thing and send another.
+
+           TS 26.346 V18.2.0, clause 7.3.2.1: “There shall be exactly one IP sender address per MBMS download session, and thus there shall be exactly one IP source address per complete MBMS download session SDP description.”
+
+           IPv4 only, matching what the configuration documents and what the Nmb9 path above builds. */
+        const auto &bcast_source = App::self().context()->broadcastDistributionSourceAddress();
+        const auto &bcast_dest = App::self().context()->broadcastDistributionDestinationAddress();
+        if (!bcast_source.empty() && !bcast_dest.empty()) {
+            ssm_source = bcast_source;
+            ssm_dest = bcast_dest;
+            ssm_proto = "IN IP4";
+            family = AF_INET;
+        } else {
+            ogs_error("No source address for the session description of %s: a Broadcast MBS Session "
+                      "carries no SSM, and TS 26.346 clause 7.3.2.1 requires exactly one IP source "
+                      "address. Set mbsf.broadcastDistribution's sourceAddress and destinationAddress, "
+                      "the same pair the Nmb9 flow uses. No announcement is written for this "
+                      "Distribution Session.", sdp_filename.string().c_str());
+            return false;
+        }
     }
 
     /* The attribute states which kind of MBS Session delivers this Distribution Session, not how
