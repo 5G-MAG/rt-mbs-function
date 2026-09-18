@@ -19,4 +19,7 @@ jobs:
           submodules: recursive
 
       - name: Build MBSF
-        run: docker build --file docker/local/Dockerfile --target building --tag mbsf-ci:${{ matrix.ubuntu }} .
+        run: >-
+          docker build --file docker/local/Dockerfile --target building
+          --build-arg UBUNTU_VERSION=${{ matrix.ubuntu }}
+          --tag mbsf-ci:${{ matrix.ubuntu }} .
