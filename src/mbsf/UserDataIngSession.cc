@@ -2563,7 +2563,7 @@ void UserDataIngSession::attachReducedServiceAreas()
     /* The MB-SMF may accept only part of a requested MBS Service Area and keep the rest. Where it does,
        the consumer is told which sessions were narrowed and to what.
 
-       TS 29.580 V18.8.0 clause 6.2.6.2.2, redMbsServAreaInfo: \u201cContains the MBS Distribution Session(s) for which the provided MBS Service Area was only partially accepted by the MB-SMF and the corresponding retained (reduced) MBS Service Area.\u201d
+       TS 29.580 V18.8.0 clause 6.2.6.2.2, redMbsServAreaInfo: “Contains the MBS Distribution Session(s) for which the provided MBS Service Area was only partially accepted by the MB-SMF and the corresponding retained (reduced) MBS Service Area.”
 
        Keyed by the consumer's own map key, as the same row requires, so a session can be identified.
        The read-back this uses was added earlier and had no consumer until now. */
