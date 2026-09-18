@@ -2725,7 +2725,36 @@ void UserDataIngSession::populateAndSendError(UserDataIngDistSessId *ids, const 
         error = print_mbs_session_error(context_data);
     }
 
-    if (cause.has_value()) {
+    /* Where the MB-SMF named a cause of its own, relay it rather than flatten it to a generic one.
+       Table 6.2.7.3-1's MBS application errors are exactly the kind this carries, and four of the six
+       are names TS 29.532 also uses, so a relay preserves them without a translation table.
+
+       TS 29.580 V18.8.0 table 6.2.8-1, MBSErrorHandling: “Support of the missing MBS Session related error handling procedures to enable end-to-end relaying of errors.”
+
+       Gated on the feature: a consumer that did not negotiate MBSErrorHandling is answered with the
+       generic causes it was written against. */
+    std::string relay_cause;
+    int relay_status = 0;
+    if (problem_detail_json.has_value()) {
+        CJson cause_node = problem_detail_json->getObjectItemCaseSensitive("cause");
+        if (!cause_node.isNull() && cause_node.isString()) relay_cause = std::string(cause_node);
+        CJson status_node = problem_detail_json->getObjectItemCaseSensitive("status");
+        if (!status_node.isNull() && status_node.isNumber()) relay_status = (int)(double)status_node;
+    }
+    bool relay = false;
+    if (!relay_cause.empty() && relay_status >= 400 && relay_status <= 599) {
+        try {
+            relay = locate(ids_ptr->first)->mbsErrorHandlingNegotiated();
+        } catch (const std::out_of_range &) {
+            relay = false;
+        }
+    }
+
+    if (relay) {
+        ogs_assert(true == Open5GSSBIServer::sendError(stream, relay_status, std::nullopt,
+                                                       "MBS Distribution Session failure", error.c_str(),
+                                                       relay_cause.c_str()));
+    } else if (cause.has_value()) {
         ogs_assert(true == Open5GSSBIServer::sendError(stream, std::nullopt, cause.value(), error.c_str()));
 
     } else {
