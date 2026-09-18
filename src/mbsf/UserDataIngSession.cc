@@ -1829,6 +1829,21 @@ bool UserDataIngSession::sendNmbsfMbsUserDataIngestResponse(const std::shared_pt
            not mixed, so the wholly successful case is unchanged. */
         ing_sess->attachFailedDistSessions();
 
+        /* A narrowed MBS Service Area belongs in an update response only.
+           TS 29.580 V18.8.0 clause 6.2.6.2.2, redMbsServAreaInfo: “This attribute may be present only in a response to an MBS User Data Ingest Session update/modification request.”
+           A create is therefore excluded even where the MB-SMF reduced the area, and so is a consumer
+           that did not negotiate MBSErrorHandling, which the row's own applicability column requires. */
+        if (ing_sess->mbsErrorHandlingNegotiated() &&
+            ogs_strcasecmp(message.method(), OGS_SBI_HTTP_METHOD_POST) != 0) {
+            ing_sess->attachReducedServiceAreas();
+        }
+
+        /* TS 29.580 V18.8.0 clause 6.2.6.2.2, redMbsServAreaInfo: “This attribute may be present only in a response to an MBS User Data Ingest Session update/modification request.”
+           So not on the create that first establishes the sessions, whatever the MB-SMF retained. */
+        if (ing_sess->mbsErrorHandlingNegotiated() && message.method() != std::string(OGS_SBI_HTTP_METHOD_POST)) {
+            ing_sess->attachReducedServiceAreas();
+        }
+
         CJson user_data_ing_sess_json(ing_sess->json(false));
         std::string body(user_data_ing_sess_json.serialise());
         ogs_debug("Response Parsed JSON: %s", body.c_str());
@@ -2541,6 +2556,30 @@ void UserDataIngSession::attachFailedDistSessions()
     for (const auto &[key, failure] : m_failedDistSessions) causes[key] = failure;
     sets->setCauses(std::move(causes));
     m_MBSUserDataIngSession->setFailedDistSessions(sets);
+}
+
+void UserDataIngSession::attachReducedServiceAreas()
+{
+    /* The MB-SMF may accept only part of a requested MBS Service Area and keep the rest. Where it does,
+       the consumer is told which sessions were narrowed and to what.
+
+       TS 29.580 V18.8.0 clause 6.2.6.2.2, redMbsServAreaInfo: \u201cContains the MBS Distribution Session(s) for which the provided MBS Service Area was only partially accepted by the MB-SMF and the corresponding retained (reduced) MBS Service Area.\u201d
+
+       Keyed by the consumer's own map key, as the same row requires, so a session can be identified.
+       The read-back this uses was added earlier and had no consumer until now. */
+    std::lock_guard<decltype(m_distSessInfosMutex)::element_type> lock(*m_distSessInfosMutex);
+
+    MBSUserDataIngSession::RedMbsServAreaInfoType::value_type areas;
+    for (const auto &[key, context_data] : m_distributionSessionInfos) {
+        if (!context_data || !context_data->MBSSession) continue;
+        std::shared_ptr<MbsServiceArea> reduced = context_data->MBSSession->getReducedServiceArea();
+        if (!reduced) continue;
+        auto entry = std::make_shared<reftools::mbsf::ReducedMbsServArea>();
+        entry->setReducedMbsServArea(reduced);
+        areas[key] = entry;
+    }
+    if (areas.empty()) return;
+    m_MBSUserDataIngSession->setRedMbsServAreaInfo(std::move(areas));
 }
 
 void UserDataIngSession::handleFailedMBSSession()
