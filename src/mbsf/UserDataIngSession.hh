@@ -41,6 +41,7 @@
 #include "openapi/model/MbsDistSessFailure.h"
 #include "openapi/model/MbsDistSessFailureSets.h"
 #include "openapi/model/DistSessionFailure.h"
+#include "openapi/model/ReducedMbsServArea.h"
 #include "openapi/model/MBSDistributionSessionInfo.h"
 #include "common.hh"
 #include "AlwaysActive.hh"
@@ -317,6 +318,12 @@ public:
 
     /** Attach the recorded failures to the representation about to be returned, if any. */
     void attachFailedDistSessions();
+
+    /** Attach the MBS Service Areas the MB-SMF reduced, for an update response.
+     *
+     * A no-op where no session had its area reduced, which is every session the MB-SMF accepted whole.
+     */
+    void attachReducedServiceAreas();
     void setMbstfsInDesiredState();
     void checkDesiredState();
     void pendingDeleteResponse(ogs_pool_id_t stream_id);
