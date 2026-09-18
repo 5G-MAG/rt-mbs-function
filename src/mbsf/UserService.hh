@@ -89,6 +89,15 @@ public:
 
     static const std::shared_ptr<UserService> &find(const std::string &id); // throws std::out_of_range if id does not exist
     void update(fiveg_mag_reftools::CJson &json, bool as_request);
+
+    /** Apply a merge patch to this MBS User Service.
+     *
+     * TS 29.580 V18.8.0 table 6.1.3.3.3.3-2 gives the PATCH request body as MBSUserServicePatch,
+     * and clause 6.1.2.2 requires it to be a JSON Merge Patch. Only the attributes that type
+     * defines can be modified; servType is not among them, and is not settable here for the same
+     * reason it cannot change on a PUT.
+     */
+    void modify(fiveg_mag_reftools::CJson &json, bool as_request);
     const std::string &userServiceId() const { return m_UserServiceId; };
     const std::shared_ptr<reftools::mbsf::MBSUserService> &getMBSUserService() const {return m_MBSUserService;};
     const reftools::mbsf::MBSUserService::ExtServiceIdsType &serviceIds() const {return m_MBSUserService->getExtServiceIds();};

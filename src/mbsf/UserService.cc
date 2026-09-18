@@ -47,6 +47,7 @@
 #include "UserServiceDesc.hh"
 #include "UserDataIngSession.hh"
 #include "openapi/model/MBSUserService.h"
+#include "openapi/model/MBSUserServicePatch.h"
 #include "openapi/model/CreateReqData.h"
 #include "openapi/model/TunnelAddress.h"
 #include "openapi/model/MbsServiceType.h"
@@ -65,6 +66,7 @@ using reftools::mbsf::ExternalMbsServiceArea;
 using reftools::mbsf::MbsServiceArea;
 using reftools::mbsf::MbsServiceType;
 using reftools::mbsf::MBSUserService;
+using reftools::mbsf::MBSUserServicePatch;
 using reftools::mbsf::TunnelAddress;
 using reftools::mbsf::ServiceNameDescription;
 
@@ -130,12 +132,12 @@ CJson UserService::json(bool as_request = false) const
    OPTIONS response have to state.
 
    TS 29.580 V18.8.0 table 6.1.3.1-1 gives the collection GET and POST, and the individual resource
-   GET, PUT, PATCH and DELETE. PATCH is absent below because this MBSF does not serve it yet: the
-   header states what is served, not what the table defines, or a consumer is told to retry a method
-   that will be refused. */
+   GET, PUT, PATCH and DELETE. The collection GET is absent below because this MBSF does not serve
+   it: the header states what is served, not what the table defines, or a consumer is told to retry
+   a method that will be refused. */
 static std::string user_service_allow_methods(const Open5GSSBIMessage &message)
 {
-    return message.resourceComponent(1) ? "GET, PUT, DELETE, OPTIONS" : "POST, OPTIONS";
+    return message.resourceComponent(1) ? "GET, PUT, PATCH, DELETE, OPTIONS" : "POST, OPTIONS";
 }
 
 static std::string serv_type_of(const std::shared_ptr<MBSUserService> &service)
@@ -180,6 +182,37 @@ void UserService::update(CJson &json, bool as_request)
     m_MBSUserService = std::move(new_service);
 }
 
+
+void UserService::modify(CJson &json, bool as_request)
+{
+    /* The patch names the attributes to change, and only those. TS 29.580 V18.8.0 clause 6.1.2.2:
+       “JSON object used in the HTTP PATCH request shall be encoded according to "JSON Merge Patch"
+       and shall be signalled by the content type "application/merge-patch+json", as defined in IETF
+       RFC 7396 [22].”
+
+       Applied through the generated MBSUserServicePatch type, which carries exactly the attributes
+       table 6.1.6.2.4-1 defines as patchable, so an attribute that may not be modified cannot be
+       reached from here. servType is deliberately absent from that table, which is the same rule
+       update() enforces for a PUT.
+
+       An attribute the patch does not mention is left alone. Explicitly removing an attribute by
+       sending null, which RFC 7396 also defines, is not reachable through this type: its accessors
+       report presence, not an explicit null, and every attribute in the table is optional with no
+       stated removal semantics. Anything beyond replacement therefore needs the model to
+       distinguish the two, and is not attempted here rather than guessed at. */
+    if (!m_MBSUserService) {
+        throw ModelException("No MBS User Service to modify", "MBSUserService", std::string(),
+                              fiveg_mag_reftools::ProblemCause::SYSTEM_FAILURE);
+    }
+
+    MBSUserServicePatch patch(json, as_request);
+
+    if (patch.getExtServiceIds().has_value()) m_MBSUserService->setExtServiceIds(patch.getExtServiceIds().value());
+    if (patch.getServClass().has_value()) m_MBSUserService->setServClass(patch.getServClass().value());
+    if (patch.getServAnnModes().has_value()) m_MBSUserService->setServAnnModes(patch.getServAnnModes().value());
+    if (patch.getServNameDescs().has_value()) m_MBSUserService->setServNameDescs(patch.getServNameDescs().value());
+    if (patch.getMainServLang().has_value()) m_MBSUserService->setMainServLang(patch.getMainServLang().value());
+}
 
 const std::shared_ptr<UserService> &UserService::find(const std::string &id)
 {
@@ -638,6 +671,78 @@ bool UserService::processEvent(Open5GSEvent &event)
                             }
                         }
 
+                        return true;
+
+                    } else if (method == OGS_SBI_HTTP_METHOD_PATCH) {
+                        /* TS 29.580 V18.8.0 table 6.1.3.1-1 gives the Individual MBS User Service a
+                           PATCH, "Request the modification of an existing MBS User Service managed by
+                           the MBSF.", and table 6.1.3.3.3.3-3 gives the response as MBSUserService
+                           with 200 OK. Review on 5G-MAG/rt-mbs-function#49 lists it among the methods
+                           that resource serves. */
+                        if (!ptr_resource1) {
+                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_METHOD_NOT_ALLOWED, 1,
+                                                                    message, app_meta, api, "Method Not Allowed",
+                                                                    "PATCH is not served on the MBS User Services collection",
+                                                                    std::nullopt, std::nullopt, std::nullopt,
+                                                                    user_service_allow_methods(message)));
+                            return true;
+                        }
+
+                        /* TS 29.580 V18.8.0 clause 6.1.2.2 requires the merge patch media type, and
+                           TS 29.500 V18.10.0 answers a content format it does not support with 415. */
+                        if (request.headerValue(OGS_SBI_CONTENT_TYPE, std::string()) != "application/merge-patch+json") {
+                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_UNSUPPORTED_MEDIA_TYPE, 1,
+                                                                    message, app_meta, api, "Unsupported Media Type",
+                                                                    "Expected content type: application/merge-patch+json"));
+                            return true;
+                        }
+
+                        std::string user_service_id(ptr_resource1);
+                        try {
+                            std::shared_ptr<UserService> user_service = UserService::find(user_service_id);
+
+                            if (evaluatePreconditions(request.headerValue("If-Match", std::string()),
+                                                      request.headerValue("If-None-Match", std::string()),
+                                                      user_service->hash(), false) != Precondition::Proceed) {
+                                ogs_assert(true == NfServer::sendError(stream,
+                                                        OGS_SBI_HTTP_STATUS_PRECONDITION_FAILED, 1, message,
+                                                        app_meta, api, "Precondition Failed",
+                                                        "The entity-tag condition on this request does not hold"));
+                                return true;
+                            }
+
+                            bool was_requiring_ann = user_service->requiresUserServiceAnnouncement();
+                            CJson patch_json(CJson::parse(request.content()));
+                            user_service->modify(patch_json, true);
+                            bool now_requiring_ann = user_service->requiresUserServiceAnnouncement();
+                            App::self().context()->updateAnnChannelCounter(now_requiring_ann, was_requiring_ann);
+
+                            CJson user_service_json(user_service->json(false));
+                            std::string body(user_service_json.serialise());
+                            std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(std::string(request.uri()),
+                                                    body.empty()?nullptr:"application/json",
+                                                    user_service->generated(), user_service->hash().c_str(),
+                                                    App::self().context()->cacheControl.MBSUserServiceMaxAge,
+                                                    std::nullopt, api, app_meta));
+                            ogs_assert(response);
+                            NfServer::populateResponse(response, body, 200);
+                            ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *response));
+                        } catch (const std::out_of_range &e) {
+                            std::ostringstream err;
+                            err << "MBS User Service [" << user_service_id << "] does not exist.";
+                            ogs_error("%s", err.str().c_str());
+                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_NOT_FOUND, 2, message,
+                                                                    app_meta, api, "MBSF User Service not found", err.str()));
+                        } catch (ModelException &ex) {
+                            if (ex.cause) {
+                                ogs_assert(true == NfServer::sendError(stream, ex.cause.value(), 2, message, app_meta,
+                                                api, "Unable to apply the MBS User Service patch", ex.what()));
+                            } else {
+                                ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 2,
+                                                message, app_meta, api,
+                                                "Unable to apply the MBS User Service patch", ex.what()));
+                            }
+                        }
                         return true;
 
                     } else if (method == OGS_SBI_HTTP_METHOD_DELETE) {
