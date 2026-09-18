@@ -117,12 +117,17 @@ CJson UserService::json(bool as_request = false) const
     return m_MBSUserService->toJSON(as_request);
 }
 
-/* The methods TS 29.580 defines for the target resource, for the Allow header that clause 5.2.7.2 of
-   TS 29.500 requires alongside a 405. The collection accepts creation; an individual MBS User Service
-   accepts retrieval, replacement, modification and removal. OPTIONS is offered at both levels. */
+/* The methods this NF serves on the target resource, for the Allow header that clause 5.2.7.2 of
+   TS 29.500 requires alongside a 405, and for the answer to OPTIONS.
+
+   What the header must contain is the supported method(s) "for that resource", so it lists what is
+   actually served rather than everything TS 29.580 defines. PATCH is deliberately absent: TS 29.580
+   defines it on an individual MBS User Service, but this NF does not implement it (see
+   5G-MAG/rt-mbs-function#45, which the maintainers are holding pending 5G-MAG/Standards#182), and
+   advertising a method that is not served would misdirect a consumer that read the header. */
 static std::string user_service_allow_methods(const Open5GSSBIMessage &message)
 {
-    return message.resourceComponent(1) ? "GET, PUT, PATCH, DELETE, OPTIONS" : "POST, OPTIONS";
+    return message.resourceComponent(1) ? "GET, PUT, DELETE, OPTIONS" : "POST, OPTIONS";
 }
 
 static std::string serv_type_of(const std::shared_ptr<MBSUserService> &service)
@@ -276,6 +281,37 @@ bool UserService::processEvent(Open5GSEvent &event)
                 if (resource0 == "mbs-user-services") {
                     std::string method(message.method());
                     const char *ptr_resource1 = message.resourceComponent(1);
+
+                    /* A method no resource of this API serves is not a wrong method for this resource,
+                       it is one the NF does not recognise at all, and has its own answer.
+
+                       TS 29.500 V18.10.0 clause 5.2.7.2: “A request using an HTTP method which is not supported by any resource of a given 5GC SBI API shall be rejected with the HTTP status code "501 Not Implemented".”
+
+                       The same clause's NOTE 1 says no cause attribute is needed, the status carrying
+                       enough on its own. Checked before the dispatch below so a HEAD or a TRACE does
+                       not fall through it to a 405, which would claim the method is merely wrong here. */
+                    if (method != OGS_SBI_HTTP_METHOD_POST && method != OGS_SBI_HTTP_METHOD_GET &&
+                        method != OGS_SBI_HTTP_METHOD_PUT && method != OGS_SBI_HTTP_METHOD_PATCH &&
+                        method != OGS_SBI_HTTP_METHOD_DELETE && method != OGS_SBI_HTTP_METHOD_OPTIONS) {
+                        ogs_error("Method [%s] is not supported by any resource of this API", method.c_str());
+                        ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_NOT_IMPLEMENTED, 0, message,
+                                                               app_meta, api, "Not Implemented",
+                                                               "Method not supported by any resource of this API"));
+                        return true;
+                    }
+
+                    /* OPTIONS is answered at whichever level was addressed, so a consumer can discover
+                       what a resource serves instead of probing it. 204 with an Allow header and no
+                       body, the shape the transport function already uses for the same purpose. */
+                    if (method == OGS_SBI_HTTP_METHOD_OPTIONS && !message.resourceComponent(2)) {
+                        std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(
+                                        std::nullopt, std::nullopt, std::nullopt, std::nullopt, 0,
+                                        user_service_allow_methods(message), api, app_meta));
+                        ogs_assert(response);
+                        NfServer::populateResponse(response, "", OGS_SBI_HTTP_STATUS_NO_CONTENT);
+                        ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *response));
+                        return true;
+                    }
                     // Matches only a POST with no resource1, mbs-user-services being a collection endpoint. Matching
                     // the prefix regardless of what follows would parse a request meant for a sub-resource, a
                     // misrouted "/mbs-user-services/{id}/ingest-sessions" say, as a new MBSUserService creation body.
