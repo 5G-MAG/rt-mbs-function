@@ -59,6 +59,7 @@
 #include "MBSFNetworkFunction.hh"
 #include "MBSMFMBSSession.hh"
 #include "MBSProblemCause.hh"
+#include "ConditionalRequest.hh"
 #include "NfServer.hh"
 #include "Nmb2Build.hh"
 #include "ObjManifest.hh"
@@ -487,6 +488,35 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
                             int response_code = 200;
 
                             std::shared_ptr<UserDataIngSession> user_data_ing_sess = find(user_data_ing_session_id);
+
+                            /* This resource emits an entity-tag, so it has to honour the conditional
+                               request headers that tag invites. RFC 9110 section 13.1.2 requires a
+                               matching If-None-Match on a safe method to be answered 304, and section
+                               13.1.1 requires a failing If-Match not to perform the method. */
+                            switch (evaluatePreconditions(request.headerValue("If-Match", std::string()),
+                                                          request.headerValue("If-None-Match", std::string()),
+                                                          user_data_ing_sess->hash(), true)) {
+                            case Precondition::NotModified: {
+                                std::shared_ptr<Open5GSSBIResponse> nm(NfServer::newResponse(std::nullopt,
+                                                        std::nullopt, user_data_ing_sess->generated(),
+                                                        user_data_ing_sess->hash().c_str(),
+                                                        App::self().context()->cacheControl.MBSUserServiceMaxAge,
+                                                        std::nullopt, api, app_meta));
+                                ogs_assert(nm);
+                                NfServer::populateResponse(nm, "", 304); // open5gs defines no constant for 304
+                                ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *nm));
+                                return true;
+                            }
+                            case Precondition::PreconditionFailed:
+                                ogs_assert(true == NfServer::sendError(stream,
+                                                        OGS_SBI_HTTP_STATUS_PRECONDITION_FAILED, 1, message,
+                                                        app_meta, api, "Precondition Failed",
+                                                        "The If-Match entity-tag does not match this resource"));
+                                return true;
+                            case Precondition::Proceed:
+                                break;
+                            }
+
                             CJson user_data_ing_session_json(user_data_ing_sess->json(false));
                             std::string body(user_data_ing_session_json.serialise());
                             ogs_debug("Parsed JSON: %s", body.c_str());

@@ -29,6 +29,7 @@
 
 #include "common.hh"
 #include "App.hh"
+#include "ConditionalRequest.hh"
 #include "hash.hh"
 #include "ObjManifest.hh"
 #include "Open5GSSBIMessage.hh"
@@ -618,9 +619,49 @@ bool UserDataIngStatSubsc::processEvent(Open5GSEvent &event)
                                                                         "This resource is only available as application/json"));
                                 return true;
                             }
+                            /* This resource emits an entity-tag, so it honours the conditional request
+                               headers that tag invites. RFC 9110 section 13.1.2 requires a matching
+                               If-None-Match on a safe method to be answered 304. */
+                            switch (evaluatePreconditions(request.headerValue("If-Match", std::string()),
+                                                          request.headerValue("If-None-Match", std::string()),
+                                                          user_data_ing_stat_subsc->hash(), true)) {
+                            case Precondition::NotModified: {
+                                std::shared_ptr<Open5GSSBIResponse> nm(NfServer::newResponse(std::nullopt,
+                                                        std::nullopt, user_data_ing_stat_subsc->generated(),
+                                                        user_data_ing_stat_subsc->hash().c_str(),
+                                                        App::self().context()->cacheControl.MBSUserServiceMaxAge,
+                                                        std::nullopt, api, app_meta));
+                                ogs_assert(nm);
+                                NfServer::populateResponse(nm, "", 304); // open5gs defines no constant for 304
+                                ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *nm));
+                                return true;
+                            }
+                            case Precondition::PreconditionFailed:
+                                ogs_assert(true == NfServer::sendError(stream,
+                                                        OGS_SBI_HTTP_STATUS_PRECONDITION_FAILED, 4, message,
+                                                        app_meta, api, "Precondition Failed",
+                                                        "The If-Match entity-tag does not match this resource"));
+                                return true;
+                            case Precondition::Proceed:
+                                break;
+                            }
+
                              user_data_ing_stat_subsc->sendResponse(stream, api, app_meta);
                             return true;
                         } else if (method == OGS_SBI_HTTP_METHOD_PUT) {
+                            /* A failing If-Match must stop the update before it happens, so the
+                               precondition is evaluated here rather than inside subscriptionUpdate().
+                               RFC 9110 section 13.1.1. */
+                            if (evaluatePreconditions(request.headerValue("If-Match", std::string()),
+                                                      request.headerValue("If-None-Match", std::string()),
+                                                      user_data_ing_stat_subsc->hash(), false)
+                                    != Precondition::Proceed) {
+                                ogs_assert(true == NfServer::sendError(stream,
+                                                        OGS_SBI_HTTP_STATUS_PRECONDITION_FAILED, 4, message,
+                                                        app_meta, api, "Precondition Failed",
+                                                        "The entity-tag condition on this request does not hold"));
+                                return true;
+                            }
                                    user_data_ing_stat_subsc->subscriptionUpdate(stream, message, request, api, app_meta);
                             return true;
 
