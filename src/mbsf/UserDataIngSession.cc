@@ -462,11 +462,24 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
                             return true;
                         }
                         if (!ptr_resource1) {
-                            std::ostringstream err;
-                            err << "Invalid resource [" << message.uri() << "]";
-                            ogs_error("%s", err.str().c_str());
-                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 1, message,
-                                                                    app_meta, api, "Bad Request", err.str()));
+                            /* The collection serves POST; a GET on it is not served by this MBSF. The
+                               resource exists, so the refusal is 405 with the methods that are served,
+                               not 400.
+
+                               TS 29.500 V18.10.0 clause 5.2.7.2: “If the NF supports the HTTP method
+                               for several resources in the API, but not for the target resource of a
+                               given HTTP request, the NF shall reject the request with the HTTP status
+                               code "405 Method Not Allowed" and shall include in the response an Allow
+                               header field containing the supported method(s) for that resource.”
+
+                               Retrieving the collection is 5G-MAG/rt-mbs-function#22, and the same
+                               treatment review asked for on the MBS User Services collection in #49
+                               applies here. */
+                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_METHOD_NOT_ALLOWED, 1,
+                                                                    message, app_meta, api, "Method Not Allowed",
+                                                                    "GET is not served on the MBS User Data Ingest Sessions collection",
+                                                                    std::nullopt, std::nullopt, std::nullopt,
+                                                                    std::string(OGS_SBI_HTTP_METHOD_POST ", " OGS_SBI_HTTP_METHOD_OPTIONS)));
                             return true;
                         }
                         std::string user_data_ing_session_id(ptr_resource1);

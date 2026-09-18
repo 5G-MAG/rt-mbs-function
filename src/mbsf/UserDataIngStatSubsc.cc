@@ -755,8 +755,18 @@ bool UserDataIngStatSubsc::processEvent(Open5GSEvent &event)
                             err << "Invalid method [" << message.method() << "] for " << message.serviceName() << "/"
                                 << message.apiVersion() << "/" << message.resourceComponent(0);
                             ogs_error("%s", err.str().c_str());
-                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 1, message,
-                                                                app_meta, api, "Bad request", err.str()));
+                            /* The collection exists and only the method is wrong, so this is 405 with
+                               what it does serve, not 400.
+
+                               TS 29.500 V18.10.0 clause 5.2.7.2: “If the NF supports the HTTP method
+                               for several resources in the API, but not for the target resource of a
+                               given HTTP request, the NF shall reject the request with the HTTP status
+                               code "405 Method Not Allowed" and shall include in the response an Allow
+                               header field containing the supported method(s) for that resource.” */
+                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_METHOD_NOT_ALLOWED, 1,
+                                                                message, app_meta, api, "Method Not Allowed", err.str(),
+                                                                std::nullopt, std::nullopt, std::nullopt,
+                                                                std::string(OGS_SBI_HTTP_METHOD_POST ", " OGS_SBI_HTTP_METHOD_OPTIONS)));
                             return true;
                         }
                     }
