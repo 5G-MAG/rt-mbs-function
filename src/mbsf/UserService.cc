@@ -125,6 +125,13 @@ CJson UserService::json(bool as_request = false) const
    defines it on an individual MBS User Service, but this NF does not implement it (see
    5G-MAG/rt-mbs-function#45, which the maintainers are holding pending 5G-MAG/Standards#182), and
    advertising a method that is not served would misdirect a consumer that read the header. */
+/* The methods each resource of this API actually serves, which is what an Allow header and an
+   OPTIONS response have to state.
+
+   TS 29.580 V18.8.0 table 6.1.3.1-1 gives the collection GET and POST, and the individual resource
+   GET, PUT, PATCH and DELETE. PATCH is absent below because this MBSF does not serve it yet: the
+   header states what is served, not what the table defines, or a consumer is told to retry a method
+   that will be refused. */
 static std::string user_service_allow_methods(const Open5GSSBIMessage &message)
 {
     return message.resourceComponent(1) ? "GET, PUT, DELETE, OPTIONS" : "POST, OPTIONS";
@@ -436,11 +443,27 @@ bool UserService::processEvent(Open5GSEvent &event)
                             return true;
                         }
                         if (!ptr_resource1) {
-                            std::ostringstream err;
-                            err << "Invalid resource [" << message.uri() << "]";
-                            ogs_error("%s", err.str().c_str());
-                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 1, message,
-                                                                    app_meta, api, "Bad Request", err.str()));
+                            /* The MBS User Services collection serves POST, and this MBSF does not
+                               serve a GET on it. The resource exists, so the refusal is 405 with the
+                               methods that are served, not 400: the request is well formed.
+
+                               TS 29.500 V18.10.0 clause 5.2.7.2: “If the NF supports the HTTP method
+                               for several resources in the API, but not for the target resource of a
+                               given HTTP request, the NF shall reject the request with the HTTP status
+                               code "405 Method Not Allowed" and shall include in the response an Allow
+                               header field containing the supported method(s) for that resource.”
+
+                               Which methods each resource serves was set by review on
+                               5G-MAG/rt-mbs-function#49: “A GET, PUT, PATCH or DELETE to
+                               "/mbs-user-services" should also result in a 405 Method Not Allowed
+                               response.” Retrieving the collection is tracked separately as #12 and
+                               #44, and is not served until those are implemented; an Allow header
+                               naming GET before then would send a consumer round a loop. */
+                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_METHOD_NOT_ALLOWED, 1,
+                                                                    message, app_meta, api, "Method Not Allowed",
+                                                                    "GET is not served on the MBS User Services collection",
+                                                                    std::nullopt, std::nullopt, std::nullopt,
+                                                                    user_service_allow_methods(message)));
                             return true;
                         }
                         std::string user_service_id(ptr_resource1);
@@ -482,11 +505,16 @@ bool UserService::processEvent(Open5GSEvent &event)
                     } else if (method == OGS_SBI_HTTP_METHOD_PUT) {
                         const char *ptr_resource2 = message.resourceComponent(2);
                         if (!ptr_resource1 && !ptr_resource2) {
-                            std::ostringstream err;
-                            err << "Invalid resource [" << message.uri() << "]";
-                            ogs_error("%s", err.str().c_str());
-                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 1, message,
-                                                                    app_meta, api, "Bad Request", err.str()));
+                            /* PUT names the collection, which does not serve it. The resource exists,
+                               so this is 405 with the methods it does serve, not 400. Review on
+                               5G-MAG/rt-mbs-function#49: “A GET, PUT, PATCH or DELETE to
+                               "/mbs-user-services" should also result in a 405 Method Not Allowed
+                               response.” */
+                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_METHOD_NOT_ALLOWED, 1,
+                                                                    message, app_meta, api, "Method Not Allowed",
+                                                                    "PUT is not served on the MBS User Services collection",
+                                                                    std::nullopt, std::nullopt, std::nullopt,
+                                                                    user_service_allow_methods(message)));
                             return true;
                         }
                          if (request.headerValue(OGS_SBI_CONTENT_TYPE, std::string()) != "application/json") {
@@ -563,6 +591,19 @@ bool UserService::processEvent(Open5GSEvent &event)
                         return true;
 
                     } else if (method == OGS_SBI_HTTP_METHOD_DELETE) {
+                        if (!message.resourceComponent(1)) {
+                            /* DELETE names the collection, which does not serve it. Answered 404
+                               before, which says the resource does not exist; it does, and only the
+                               method is wrong. Review on 5G-MAG/rt-mbs-function#49: “A GET, PUT, PATCH
+                               or DELETE to "/mbs-user-services" should also result in a 405 Method Not
+                               Allowed response.” */
+                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_METHOD_NOT_ALLOWED, 1,
+                                                                    message, app_meta, api, "Method Not Allowed",
+                                                                    "DELETE is not served on the MBS User Services collection",
+                                                                    std::nullopt, std::nullopt, std::nullopt,
+                                                                    user_service_allow_methods(message)));
+                            return true;
+                        }
                         if (message.resourceComponent(1) && !message.resourceComponent(2)) {
                             std::string user_service_id(message.resourceComponent(1));
 
