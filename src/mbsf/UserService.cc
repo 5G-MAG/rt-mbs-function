@@ -33,6 +33,7 @@
 #include "Context.hh"
 #include "hash.hh"
 #include "MBSFNetworkFunction.hh"
+#include "ConditionalRequest.hh"
 #include "NfServer.hh"
 #include "Open5GSEvent.hh"
 #include "Open5GSSBIMessage.hh"
@@ -471,6 +472,35 @@ bool UserService::processEvent(Open5GSEvent &event)
                             int response_code = 200;
 
                             std::shared_ptr<UserService> user_serv = UserService::find(user_service_id);
+
+                            /* RFC 9110 section 13.1.2 requires a matching If-None-Match on a safe
+                               method to be answered 304 rather than with the representation, and
+                               section 13.1.1 requires a failing If-Match not to perform the method
+                               at all. Both were ignored here. */
+                            switch (evaluatePreconditions(request.headerValue("If-Match", std::string()),
+                                                          request.headerValue("If-None-Match", std::string()),
+                                                          user_serv->hash(), true)) {
+                            case Precondition::NotModified: {
+                                std::shared_ptr<Open5GSSBIResponse> nm(NfServer::newResponse(std::nullopt,
+                                                        std::nullopt, user_serv->generated(),
+                                                        user_serv->hash().c_str(),
+                                                        App::self().context()->cacheControl.MBSUserServiceMaxAge,
+                                                        std::nullopt, api, app_meta));
+                                ogs_assert(nm);
+                                NfServer::populateResponse(nm, "", 304); // open5gs defines no constant for 304
+                                ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *nm));
+                                return true;
+                            }
+                            case Precondition::PreconditionFailed:
+                                ogs_assert(true == NfServer::sendError(stream,
+                                                        OGS_SBI_HTTP_STATUS_PRECONDITION_FAILED, 1, message,
+                                                        app_meta, api, "Precondition Failed",
+                                                        "The If-Match entity-tag does not match this resource"));
+                                return true;
+                            case Precondition::Proceed:
+                                break;
+                            }
+
                             CJson user_service_json(user_serv->json(false));
                             std::string body(user_service_json.serialise());
                             ogs_debug("Parsed JSON: %s", body.c_str());
@@ -546,6 +576,26 @@ bool UserService::processEvent(Open5GSEvent &event)
                             int response_code = 200;
 
                             std::shared_ptr<UserService> user_service = UserService::find(user_service_id);
+
+                            /* A failing If-Match must stop the update before it happens. This is the
+                               case that matters most: without it a consumer using the entity-tag for
+                               optimistic concurrency has its precondition ignored and overwrites a
+                               change it never saw, with a 200 saying the update succeeded.
+
+                               RFC 9110 section 13.1.1: “An origin server that evaluates an If-Match
+                               condition MUST NOT perform the requested method if the condition
+                               evaluates to false.” */
+                            if (evaluatePreconditions(request.headerValue("If-Match", std::string()),
+                                                      request.headerValue("If-None-Match", std::string()),
+                                                      user_service->hash(), false)
+                                    != Precondition::Proceed) {
+                                ogs_assert(true == NfServer::sendError(stream,
+                                                        OGS_SBI_HTTP_STATUS_PRECONDITION_FAILED, 1, message,
+                                                        app_meta, api, "Precondition Failed",
+                                                        "The entity-tag condition on this request does not hold"));
+                                return true;
+                            }
+
                             bool current_user_services_requires_ann = user_service->requiresUserServiceAnnouncement();
                             user_service->update(mbs_user_service, true);
                             bool new_user_service_requires_ann = user_service->requiresUserServiceAnnouncement();

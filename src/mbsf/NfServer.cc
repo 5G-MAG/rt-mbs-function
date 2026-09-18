@@ -334,7 +334,21 @@ static Open5GSSBIResponse new_response(const NfServer::AppMetadata &app,
     }
 
     if (etag) {
-        ogs_sbi_header_set(response->http.headers, "ETag", etag->c_str());
+        /* An entity-tag is a quoted string, and the value this is given is a bare hash.
+           RFC 9110 section 8.8.3 gives the grammar as “opaque-tag = DQUOTE *etagc DQUOTE”, so an
+           unquoted tag is not an entity-tag at all: a client comparing it against an If-Match or
+           If-None-Match value it quoted, as the same section requires, never matches, and
+           conditional requests silently do nothing.
+
+           Quoted here rather than at each caller so every response carries a well formed tag, and
+           a value that already carries its quotes, or is a weak tag, is left alone. */
+        std::string etag_value(*etag);
+        if (etag_value.size() < 2 || etag_value.front() != '"' || etag_value.back() != '"') {
+            if (!(etag_value.size() > 2 && etag_value.compare(0, 2, "W/") == 0)) {
+                etag_value = std::string("\"") + etag_value + "\"";
+            }
+        }
+        ogs_sbi_header_set(response->http.headers, "ETag", etag_value.c_str());
     }
 
     if (cache_control_max_age > 0) {
