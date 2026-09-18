@@ -77,3 +77,11 @@ test_serv_type_attribute_rules_exe = executable('test_serv_type_attribute_rules'
     dependencies : [libmbsf_dep],
     install : false)
 test('test_serv_type_attribute_rules', test_serv_type_attribute_rules_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')
+
+# UserServiceAnnBundle::announcedAttributes(), which session description attributes each
+# distribution method announces, see the test's own file comment.
+test_sdp_announced_attributes_exe = executable('test_sdp_announced_attributes', 'test_sdp_announced_attributes.cc',
+    include_directories : [libmbsf_libinc, libinc],
+    dependencies : [libmbsf_dep],
+    install : false)
+test('test_sdp_announced_attributes', test_sdp_announced_attributes_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')

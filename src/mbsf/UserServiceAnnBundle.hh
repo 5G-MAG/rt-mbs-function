@@ -46,6 +46,46 @@ public:
      * \param ipv6             True when the session's connection address is IPv6.
      * \return the bandwidth to write, in bits per second; unchanged when no usable MTU is given.
      */
+    /** Which of the FLUTE and FEC session description attributes a Distribution Session announces.
+     *
+     * Named and returned together rather than decided at four emission sites, so the mapping can be
+     * read and tested in one place. Every one of these was emitted unconditionally before, which is
+     * what review on 5G-MAG/rt-mbs-function#52 reported.
+     */
+    struct AnnouncedAttributes {
+        bool fluteTsi;             //!< a=flute-tsi
+        bool fec;                  //!< a=FEC, media level
+        bool fecDeclaration;       //!< a=FEC-declaration
+        bool fecRedundancyLevel;   //!< a=FEC-redundancy-level
+    };
+
+    /** Decide the attribute set from the distribution method and whether FEC is provisioned.
+     *
+     * \param object_distribution True for the Object Distribution Method, which runs FLUTE.
+     * \param has_fec             True when the session carries a FEC configuration.
+     *
+     * The TSI identifies a FLUTE session, so it belongs only to one. TS 26.346 V18.2.0 clause
+     * 7.3.2.4: "There shall be exactly one occurrence of this descriptor in a complete FLUTE SDP
+     * session description and it shall appear at session level."
+     *
+     * The FEC declaration is optional and its absence is meaningful. Clause 7.3.2.8: "If this
+     * attribute is not used, and no other FEC-OTI information is signalled to the UE by other
+     * means, the UE may assume that support for FEC id 0 is sufficient capability to enter the
+     * session." a=FEC only references a declaration, so it cannot stand without one: the same
+     * clause calls it "a short hand to reference one of one or more FEC-declarations".
+     *
+     * The FEC attributes do not depend on the distribution method: a Packet Distribution Session
+     * may carry FEC, and clause 7.3.2.8's attributes are not scoped to download delivery.
+     */
+    static AnnouncedAttributes announcedAttributes(bool object_distribution, bool has_fec) {
+        return AnnouncedAttributes{
+            .fluteTsi = object_distribution,
+            .fec = has_fec,
+            .fecDeclaration = has_fec,
+            .fecRedundancyLevel = has_fec
+        };
+    };
+
     static uint64_t sdpBandwidthBitRate(uint64_t content_bit_rate, const std::optional<size_t> &mtu, bool ipv6) {
         if (!mtu) return content_bit_rate;
         /* RFC 768 makes the UDP header 8 octets, and RFC 8200 gives 20 octets for a minimum-length

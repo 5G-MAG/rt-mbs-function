@@ -357,7 +357,46 @@ bool UserServiceAnnBundle::writeServiceDescriptionProtocolDoc(const std::shared_
         media->bandwidthInformationAdd(as_bitrate/1000); // SDP bit rates are in kilobits/s
         delete bitrate;
     }
-    media->mediaAttributeAdd("FEC", "0");
+    // “"a=FEC-declaration:" fec-ref SP fec-enc-id”, with “a=FEC-declaration:0 encoding-id=1”.
+    //
+    // The encoding ID is not free to choose. TS 29.580 V18.8.0 clause 6.2.6.2.14, table
+    // 6.2.6.2.14-1, row fecScheme: “It shall be identified using a term from the IANA: "Reliable
+    // Multicast Transport (RMT) FEC Encoding IDs and FEC Instance IDs" [20] expressed as a URN,
+    // e.g.: urn:ietf:rmt:fec:encoding:0”, so the trailing integer of that URN is the encoding ID
+    // itself and is read from the session rather than assumed. A session with no FEC
+    // configuration is Compact No-Code, encoding ID 0, which is what this announced
+    // unconditionally before: that was right only when no FEC was provisioned, and announced
+    // "no FEC" for a Raptor session, which is a statement the receiver would act on.
+    unsigned fec_encoding_id = 0;
+    bool has_fec = false;
+    if (dist_session_ctx->info) {
+        const auto &fc = dist_session_ctx->info->getFecConfig();
+        if (fc.has_value() && fc.value()) {
+            has_fec = true;
+            static const std::string urn_prefix{"urn:ietf:rmt:fec:encoding:"};
+            const std::string &scheme = fc.value()->getFecScheme();
+            if (scheme.compare(0, urn_prefix.size(), urn_prefix) == 0) {
+                const std::string id_part = scheme.substr(urn_prefix.size());
+                if (!id_part.empty() &&
+                    id_part.find_first_not_of("0123456789") == std::string::npos) {
+                    fec_encoding_id = static_cast<unsigned>(std::stoul(id_part));
+                } else {
+                    ogs_warn("fecScheme \"%s\" is not a %s<id> URN; announcing no FEC instead of "
+                             "guessing an encoding ID", scheme.c_str(), urn_prefix.c_str());
+                }
+            } else {
+                ogs_warn("fecScheme \"%s\" is not a %s<id> URN; announcing no FEC instead of "
+                         "guessing an encoding ID", scheme.c_str(), urn_prefix.c_str());
+            }
+        }
+    }
+
+    /* a=FEC is a reference to a FEC-declaration, so it cannot stand without one. TS 26.346 V18.2.0
+       clause 7.3.2.8: "This is a media-level only attribute, used as a short hand to reference one
+       of one or more FEC-declarations." Emitting it for a session with no declaration left a
+       dangling reference. */
+    const auto announced = announcedAttributes(object_distribution, has_fec);
+    if (announced.fec) media->mediaAttributeAdd("FEC", "0");
 
     if (dist_session_ctx->sdp) {
         // Update existing SDP
@@ -391,39 +430,19 @@ bool UserServiceAnnBundle::writeServiceDescriptionProtocolDoc(const std::shared_
     dist_session_ctx->sdp->sessionAttributeAdd("mbs-servicetype", svc_str);
 
     // TS 26.346 V18.2.0 clause 7.3.2.8 gives the shape of this attribute, and an example of it:
-    // “"a=FEC-declaration:" fec-ref SP fec-enc-id”, with “a=FEC-declaration:0 encoding-id=1”.
-    //
-    // The encoding ID is not free to choose. TS 29.580 V18.8.0 clause 6.2.6.2.14, table
-    // 6.2.6.2.14-1, row fecScheme: “It shall be identified using a term from the IANA: "Reliable
-    // Multicast Transport (RMT) FEC Encoding IDs and FEC Instance IDs" [20] expressed as a URN,
-    // e.g.: urn:ietf:rmt:fec:encoding:0”, so the trailing integer of that URN is the encoding ID
-    // itself and is read from the session rather than assumed. A session with no FEC
-    // configuration is Compact No-Code, encoding ID 0, which is what this announced
-    // unconditionally before: that was right only when no FEC was provisioned, and announced
-    // "no FEC" for a Raptor session, which is a statement the receiver would act on.
-    unsigned fec_encoding_id = 0;
-    if (dist_session_ctx->info) {
-        const auto &fc = dist_session_ctx->info->getFecConfig();
-        if (fc.has_value() && fc.value()) {
-            static const std::string urn_prefix{"urn:ietf:rmt:fec:encoding:"};
-            const std::string &scheme = fc.value()->getFecScheme();
-            if (scheme.compare(0, urn_prefix.size(), urn_prefix) == 0) {
-                const std::string id_part = scheme.substr(urn_prefix.size());
-                if (!id_part.empty() &&
-                    id_part.find_first_not_of("0123456789") == std::string::npos) {
-                    fec_encoding_id = static_cast<unsigned>(std::stoul(id_part));
-                } else {
-                    ogs_warn("fecScheme \"%s\" is not a %s<id> URN; announcing no FEC instead of "
-                             "guessing an encoding ID", scheme.c_str(), urn_prefix.c_str());
-                }
-            } else {
-                ogs_warn("fecScheme \"%s\" is not a %s<id> URN; announcing no FEC instead of "
-                         "guessing an encoding ID", scheme.c_str(), urn_prefix.c_str());
-            }
-        }
+    /* Declared only for a session that has FEC. TS 26.346 V18.2.0 clause 7.3.2.8: "This attribute
+       is optional to use for the download delivery method as the information will be available
+       elsewhere (e.g. FLUTE FDT Instances). If this attribute is not used, and no other FEC-OTI
+       information is signalled to the UE by other means, the UE may assume that support for FEC id
+       0 is sufficient capability to enter the session."
+
+       So omitting it says exactly what a session with no FEC configuration means, while emitting
+       "encoding-id=0" states a FEC declaration the session does not have. Raised by review on
+       5G-MAG/rt-mbs-function#52: the FEC attributes are only valid where FEC is implemented. */
+    if (announced.fecDeclaration) {
+        dist_session_ctx->sdp->sessionAttributeAdd(
+            "FEC-declaration", std::format("0 encoding-id={}", fec_encoding_id));
     }
-    dist_session_ctx->sdp->sessionAttributeAdd(
-        "FEC-declaration", std::format("0 encoding-id={}", fec_encoding_id));
 
     // The AL-FEC overhead the MBSTF was provisioned with is the receiver's only source for the
     // level protecting these objects: the download profile forbids carrying it per object in the
@@ -433,7 +452,7 @@ bool UserServiceAnnBundle::writeServiceDescriptionProtocolDoc(const std::shared_
     // fecOverHead as a percentage of the unprotected data, which is the same quantity as the
     // redundancy level, so it is emitted unchanged. Omitted when the session provisioned no FEC,
     // since there is then no level to declare.
-    if (dist_session_ctx->info) {
+    if (announced.fecRedundancyLevel && dist_session_ctx->info) {
         const auto &fec_config = dist_session_ctx->info->getFecConfig();
         if (fec_config.has_value() && fec_config.value()) {
             dist_session_ctx->sdp->sessionAttributeAdd(
@@ -444,7 +463,16 @@ bool UserServiceAnnBundle::writeServiceDescriptionProtocolDoc(const std::shared_
     if (!ssm_source.empty()) {
         dist_session_ctx->sdp->sessionAttributeAdd("source-filter", std::format("incl {} * {}", ssm_proto, ssm_source));
     }
-    dist_session_ctx->sdp->sessionAttributeAdd("flute-tsi", std::format("{}", dist_session_ctx->tsi));
+    /* The TSI identifies a FLUTE session, so it is declared only for one. TS 26.346 V18.2.0
+       clause 7.3.2.4: "There shall be exactly one occurrence of this descriptor in a complete FLUTE
+       SDP session description and it shall appear at session level."
+
+       A Packet Distribution Session runs no FLUTE session, so it has no TSI to declare and the
+       descriptor has no place in its description. Raised by review on
+       5G-MAG/rt-mbs-function#52. */
+    if (announced.fluteTsi) {
+        dist_session_ctx->sdp->sessionAttributeAdd("flute-tsi", std::format("{}", dist_session_ctx->tsi));
+    }
 
     // SessionDescriptionProtocol::operator std::string() (rt-common-shared/lib/rtsdp) throws
     // std::out_of_range for an SDP with no valid origin and no connection information at either
