@@ -85,3 +85,10 @@ test_sdp_announced_attributes_exe = executable('test_sdp_announced_attributes', 
     dependencies : [libmbsf_dep],
     install : false)
 test('test_sdp_announced_attributes', test_sdp_announced_attributes_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')
+
+# evaluatePreconditions(), If-Match and If-None-Match handling, see the test's own file comment.
+test_conditional_request_exe = executable('test_conditional_request', 'test_conditional_request.cc',
+    include_directories : [libmbsf_libinc, libinc],
+    dependencies : [libmbsf_dep],
+    install : false)
+test('test_conditional_request', test_conditional_request_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')

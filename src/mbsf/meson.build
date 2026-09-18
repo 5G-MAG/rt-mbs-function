@@ -69,6 +69,7 @@ libmbsf_dist_sources = files('''
     CarouselObject.cc
     CarouselObject.hh
     CaseInsensitiveTraits.hh
+    ConditionalRequest.hh
     ServTypeAttributeRules.hh
     CivicAddr.cc
     CivicAddr.hh
