@@ -44,18 +44,48 @@ static std::string body_str(const MultipartMime &m)
     return std::string(m.body().begin(), m.body().end());
 }
 
+/* Recover the boundary from a Content-Type header value.
+ *
+ * Both forms have to be handled. encode_mime_token() quotes the parameter only when the value is
+ * not an RFC 2045 token, and the boundary generator draws from RFC 2046's bcharsnospace, which
+ * includes seven characters that are legal in a boundary but not in a token: "(", ")", ",", "/",
+ * ":", "=" and "?". A 64-character boundary made only of the other, token-legal characters is
+ * therefore emitted unquoted, which happens for about one boundary in six hundred.
+ *
+ * This test used to look for the first double quote and give up when there was none, so it failed
+ * at that rate, on whichever checks happened to compare against the boundary. A parser of this
+ * header has to accept both forms, so this one does.
+ */
+static std::string boundary_from_content_type(const std::string &ct)
+{
+    static const std::string key = "boundary=";
+    auto at = ct.find(key);
+    if (at == std::string::npos) return {};
+    auto val = at + key.size();
+    if (val >= ct.size()) return {};
+
+    if (ct[val] == '"') {
+        /* quoted-string: a backslash quotes the next character, per RFC 2045. */
+        std::string out;
+        for (auto pos = val + 1; pos < ct.size(); pos++) {
+            if (ct[pos] == '\\' && pos + 1 < ct.size()) { out += ct[++pos]; continue; }
+            if (ct[pos] == '"') return out;
+            out += ct[pos];
+        }
+        return {};   /* unterminated */
+    }
+
+    /* token: runs to the next parameter separator or the end of the value. */
+    auto end = ct.find_first_of(";, \t", val);
+    return ct.substr(val, end == std::string::npos ? std::string::npos : end - val);
+}
+
 static std::string boundary_of(const MultipartMime &m)
 {
-    // Content-Type: multipart/<type>; boundary="<sep>" -- extract <sep>.
     const auto &headers = m.headers();
     auto it = headers.find("Content-Type");
     if (it == headers.end()) return {};
-    const std::string &ct = it->second;
-    auto q1 = ct.find('"');
-    if (q1 == std::string::npos) return {};
-    auto q2 = ct.find('"', q1 + 1);
-    if (q2 == std::string::npos) return {};
-    return ct.substr(q1 + 1, q2 - q1 - 1);
+    return boundary_from_content_type(it->second);
 }
 
 int main()
@@ -65,8 +95,19 @@ int main()
     // grammar requires a body to end "--boundary--", even with zero parts.
     {
         MultipartMime m(MultipartMime::RELATED);
-        CHECK(m.headers().at("Content-Type").starts_with("multipart/related; boundary=\""),
+        CHECK(m.headers().at("Content-Type").starts_with("multipart/related; boundary="),
               "constructor sets a multipart/related Content-Type header with a boundary parameter");
+
+        /* Both forms of the parameter, checked directly rather than left to whichever one the
+           random boundary happens to produce. */
+        CHECK(boundary_from_content_type("multipart/related; boundary=\"ab/cd\"") == "ab/cd",
+              "a quoted boundary parameter is recovered without its quotes");
+        CHECK(boundary_from_content_type("multipart/related; boundary=abcd") == "abcd",
+              "an unquoted boundary parameter is recovered, which is the form a token-only value takes");
+        CHECK(boundary_from_content_type("multipart/related; boundary=abcd; charset=utf-8") == "abcd",
+              "an unquoted boundary parameter stops at the next parameter");
+        CHECK(boundary_from_content_type("multipart/related; boundary=\"a\\\"b\"") == "a\"b",
+              "a backslash in a quoted boundary quotes the character after it");
         std::string boundary = boundary_of(m);
         CHECK(!boundary.empty(), "the boundary value is non-empty");
         std::string closing = "--" + boundary + "--\r\n";
