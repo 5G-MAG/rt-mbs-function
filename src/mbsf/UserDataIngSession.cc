@@ -3484,12 +3484,27 @@ static bool request_too_large(Open5GSSBIRequest &request, Open5GSSBIStream &stre
  * features by comparing the client's requested bitmask against its own supported set, and
  * returns the intersection. TS 29.580 V18.8.0 cl.6.2.8, Table 6.2.8-1 (Nmbsf_MBSUserDataIngestSession
  * API) defines exactly four features: 1 5MBS2, 2 MBSEventsExt, 3 MBSErrorHandling, 4 MBSPatchEnh.
- * Of these, only MBSEventsExt (feature 2) is genuinely implemented in this repository -- this
-  * mask reflects what's actually there, not an aspiration. TS 29.571's own
+ * Of these, MBSEventsExt (feature 2) and MBSErrorHandling (feature 3) are implemented here -- this
+ * mask reflects what's actually there, not an aspiration. TS 29.571's own
  * SupportedFeatures encoding (its own copy of TS 29.500 table 5.2.2-3): each hex character
  * represents 4 features, and the last character in the string represents features 1 to 4 -- since
- * this API defines no feature above 4, only that last character is ever relevant here. */
-static const unsigned MBSF_UD_INGEST_SUPPORTED_FEATURES = 0x2; /* bit 1 = feature 2 = MBSEventsExt */
+ * this API defines no feature above 4, only that last character is ever relevant here.
+ *
+ * What MBSErrorHandling rests on, functionality by functionality, since advertising it is a promise.
+ *
+ * TS 29.580 V18.8.0 table 6.2.8-1: "Support of the missing MBS Session related error handling procedures to enable end-to-end relaying of errors."
+ *    populateAndSendError() relays the MB-SMF's own cause and status where it gave them.
+ *
+ * TS 29.580 V18.8.0 table 6.2.8-1: "Support MBS Data Ingest Session specific error handling."
+ *    A duplicate Distribution Session is answered MBS_DIST_SESSION_ALREADY_CREATED. The other named
+ *    errors of table 6.2.7.3-1 arrive by relay: MBS_SERVICE_AREA_NOT_SUPPORTED in particular is what
+ *    the core network knows and the MBSF does not, so it is relayed rather than originated here.
+ *
+ * TS 29.580 V18.8.0 table 6.2.8-1: "Support partial MBS Distribution Session creation/update failure management."
+ *    A mixed outcome is reported in failedDistSessions, and a narrowed service area in
+ *    redMbsServAreaInfo on an update.
+ */
+static const unsigned MBSF_UD_INGEST_SUPPORTED_FEATURES = 0x6; /* bits 1,2 = features 2,3 */
 
 static std::optional<std::string> negotiate_supp_feat(const std::optional<std::string> &requested)
 {
