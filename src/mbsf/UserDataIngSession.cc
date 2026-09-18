@@ -2618,12 +2618,28 @@ void UserDataIngSession::handleFailedMBSSession()
         return;
     }
 
+    /* One error, not one per failed session. Every Distribution Session of a request shares the stream
+       the request arrived on (each context is built with the same stream_id, see updateContexts()), so
+       sending from inside the loop answered a single request once per failure.
+
+       RFC 9110 section 15: “A single request can have multiple associated responses: zero or more "interim" (non-final) responses with status codes in the "informational" (1xx) range, followed by exactly one "final" response with a status code in one of the other ranges.”
+
+       The first failure is the one answered, and it is the whole request that failed: this point is
+       only reached when no session succeeded, or when the consumer did not negotiate MBSErrorHandling
+       and so cannot be told which of them did. The rest are logged so nothing is lost silently. */
+    bool answered = false;
     for (const auto &dist_sess_info : m_distributionSessionInfos) {
-        if (dist_sess_info.second->MBSSessionStatus == MBSSessionState::FAILED) {
-            UserDataIngDistSessId *ids = new UserDataIngDistSessId(dist_sess_info.second->ingSessionId,
-                                                                   dist_sess_info.second->distSessionInfoKey);
-            populateAndSendError(ids, dist_sess_info.second->mbsmfProblemCause, dist_sess_info.second->mbsmfProblemDetailJson);
+        if (dist_sess_info.second->MBSSessionStatus != MBSSessionState::FAILED) continue;
+        if (answered) {
+            ogs_warn("MBS Distribution Session [%s] also failed; not answered separately, the request "
+                     "has already had its one response",
+                     dist_sess_info.second->distSessionInfoKey.c_str());
+            continue;
         }
+        UserDataIngDistSessId *ids = new UserDataIngDistSessId(dist_sess_info.second->ingSessionId,
+                                                               dist_sess_info.second->distSessionInfoKey);
+        populateAndSendError(ids, dist_sess_info.second->mbsmfProblemCause, dist_sess_info.second->mbsmfProblemDetailJson);
+        answered = true;
     }
 }
 
