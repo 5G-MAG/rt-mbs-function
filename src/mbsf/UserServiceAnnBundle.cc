@@ -354,7 +354,14 @@ bool UserServiceAnnBundle::writeServiceDescriptionProtocolDoc(const std::shared_
             ogs_error("mbsf.sdpBandwidthMtu is not larger than the transport header; bandwidth written "
                       "without the adjustment clause 7.3.2.10 requires");
         }
-        media->bandwidthInformationAdd(as_bitrate/1000); // SDP bit rates are in kilobits/s
+        /* "AS", not a bare figure. TS 26.346 V18.2.0 clause 7.3.2.10: “The maximum bit rate
+           required by this FLUTE session shall be specified using the "AS" bandwidth modifier [14]
+           on media level.”
+
+           Without the modifier the library emits "b=<value>", which is not a bandwidth line at all:
+           RFC 4566 section 5.8 gives the field as "b=<bwtype>:<bandwidth>", so a receiver either
+           rejects it or ignores it, and the session's rate goes undeclared. */
+        media->bandwidthInformationAdd(as_bitrate/1000, "AS"); // SDP bit rates are in kilobits/s
         delete bitrate;
     }
     // “"a=FEC-declaration:" fec-ref SP fec-enc-id”, with “a=FEC-declaration:0 encoding-id=1”.
