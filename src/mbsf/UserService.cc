@@ -300,10 +300,26 @@ bool UserService::processEvent(Open5GSEvent &event)
                         return true;
                     }
 
+                    /* The resource is decided once, here, before any method branch runs. Previously each
+                       branch tested the path components itself, so a path with a component after the
+                       identifier was answered by whichever branch it happened to land in rather than
+                       centrally. TS 29.580 defines only the collection and an individual MBS User
+                       Service, so anything deeper names no resource, which clause 5.2.7.2 of
+                       TS 29.500 answers 404 (quoted at the DELETE fallback below). */
+                    if (UserService::route(ptr_resource1, message.resourceComponent(2)) ==
+                            UserService::Route::NoSuchResource) {
+                        std::ostringstream err;
+                        err << "No such resource [" << message.uri() << "]";
+                        ogs_error("%s", err.str().c_str());
+                        ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_NOT_FOUND, 1, message,
+                                                               app_meta, api, "Not Found", err.str()));
+                        return true;
+                    }
+
                     /* OPTIONS is answered at whichever level was addressed, so a consumer can discover
                        what a resource serves instead of probing it. 204 with an Allow header and no
                        body, the shape the transport function already uses for the same purpose. */
-                    if (method == OGS_SBI_HTTP_METHOD_OPTIONS && !message.resourceComponent(2)) {
+                    if (method == OGS_SBI_HTTP_METHOD_OPTIONS) {
                         std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(
                                         std::nullopt, std::nullopt, std::nullopt, std::nullopt, 0,
                                         user_service_allow_methods(message), api, app_meta));

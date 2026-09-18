@@ -25,6 +25,8 @@
 
 #include <chrono>
 #include <memory>
+#include <mutex>
+#include <string>
 #include <vector>
 #include "openapi/model/MBSUserService.h"
 #include "common.hh"
@@ -39,6 +41,7 @@ MBSF_NAMESPACE_START
 class DistributionSessionDesc;
 class Open5GSEvent;
 class UserServiceDesc;
+class UserDataIngSession;
 
 class UserService {
 public:
@@ -46,6 +49,30 @@ public:
 
     enum {
         LOCAL_REMOVE_EVENT = OGS_MAX_NUM_OF_PROTO_EVENT + 1700
+    };
+
+    /** Which MBS User Services resource a request path names.
+     *
+     * TS 29.580 defines two: the collection and an individual MBS User Service. A path with a
+     * component after the identifier names neither.
+     */
+    enum class Route {
+        Collection,   //!< /mbs-user-services
+        Individual,   //!< /mbs-user-services/{mbsUserServId}
+        NoSuchResource //!< a component after the identifier, which no resource of this API defines
+    };
+
+    /** Decide the resource from the path components after the service and version.
+     *
+     * A named rule, taking the components rather than a message, so the decision can be tested
+     * without a live SBI stream: the dispatcher that uses it needs one and the tests do not.
+     *
+     * \param resource1 the component after "mbs-user-services", or nullptr when absent.
+     * \param resource2 the component after that, or nullptr when absent.
+     */
+    static Route route(const char *resource1, const char *resource2) {
+        if (resource2) return Route::NoSuchResource;
+        return resource1 ? Route::Individual : Route::Collection;
     };
 
     UserService(fiveg_mag_reftools::CJson &json, bool as_request);
