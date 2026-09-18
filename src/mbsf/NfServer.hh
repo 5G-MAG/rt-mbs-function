@@ -22,6 +22,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "common.hh"
 #include "openapi/model/CJson.hh"
@@ -115,6 +116,24 @@ public:
                           const std::optional<std::map<std::string,std::string> > &invalid_params = std::nullopt,
                           const std::optional<std::string> &problem_type = std::nullopt,
                           const std::optional<std::string> &allow_methods = std::nullopt);
+
+    /** The absolute URI of a resource served by the server that received this request.
+     *
+     * TS 29.580 V18.8.0 has each create respond “including an HTTP Location header field containing
+     * the URI of the created resource”, and TS 29.500 V18.10.0 has a consumer take the apiRoot from
+     * that header for later requests through an SCP. A path on its own carries no apiRoot, so it
+     * cannot serve that purpose.
+     *
+     * The authority comes from the server the request arrived on, through its advertise address,
+     * which is what that server tells the NRF it is reachable at.
+     *
+     * \param stream     The stream the request arrived on.
+     * \param message    The request, for its service name and API version.
+     * \param components The resource path components after the API version.
+     * \return the absolute URI, or an empty string if the server cannot be identified.
+     */
+    static std::string resourceUri(Open5GSSBIStream &stream, const Open5GSSBIMessage &message,
+                                   const std::vector<std::string> &components);
 
     static std::shared_ptr<Open5GSSBIResponse> newResponse(const std::optional<std::string> &location,
                                                            const std::optional<std::string> &content_type,

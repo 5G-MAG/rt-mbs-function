@@ -452,9 +452,25 @@ bool UserService::processEvent(Open5GSEvent &event)
                         CJson mbs_user_service_json(user_service->json(false));
                         std::string body(mbs_user_service_json.serialise());
                         ogs_debug("Response Parsed JSON: %s", body.c_str());
-                        std::ostringstream location;
-                        location << request.uri() << "/" << user_service->userServiceId();
-                        std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(location.str(),
+                        /* The absolute URI of the created resource, not a path. TS 29.580 V18.8.0
+                           requires the response to include “an HTTP Location header field containing
+                           the URI of the created resource”, and TS 29.500 V18.10.0 has a consumer
+                           take the apiRoot from that header for subsequent requests sent through an
+                           SCP, which a path alone cannot supply.
+
+                           Falls back to the path if the server cannot be identified, which is worse
+                           but is what was sent before, rather than sending no Location at all. */
+                        std::string location(NfServer::resourceUri(stream, message,
+                                                {std::string(message.resourceComponent(0)),
+                                                 user_service->userServiceId()}));
+                        if (location.empty()) {
+                            std::ostringstream fallback;
+                            fallback << request.uri() << "/" << user_service->userServiceId();
+                            location = fallback.str();
+                            ogs_warn("Could not determine this server's own URI; the Location header "
+                                     "carries a path with no apiRoot");
+                        }
+                        std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(location,
                                                                                     body.empty()?nullptr:"application/json",
                                                                                     user_service->generated(),
                                                                                     user_service->hash().c_str(),
