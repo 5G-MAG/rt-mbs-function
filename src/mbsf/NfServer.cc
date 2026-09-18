@@ -25,6 +25,7 @@
 #include <map>
 #include <sstream>
 #include <string>
+#include <string_view>
 
 #include "common.hh"
 #include "Open5GSSBIMessage.hh"
@@ -35,6 +36,7 @@
 #include "openapi/model/CJson.hh"
 #include "mbsf-version.h"
 
+#include "CaseInsensitiveTraits.hh"
 #include "NfServer.hh"
 
 using fiveg_mag_reftools::CJson;
@@ -247,18 +249,26 @@ std::map<std::string, std::string> NfServer::makeInvalidParams(const std::string
 
 namespace {
 
-std::string trim(const std::string &s)
+/* Media types and their subtypes compare without regard to case, so the comparison carries the rule
+   rather than each call lower-casing a copy first. CaseInsensitiveTraits is the codebase's own, used
+   here so there is one definition of what case-insensitive means. */
+using CIStringView = std::basic_string_view<char, MBSF_NAMESPACE_NAME(CaseInsensitiveTraits)<char> >;
+
+CIStringView ci_view(std::string_view sv)
 {
-    size_t start = s.find_first_not_of(" \t");
-    if (start == std::string::npos) return std::string();
-    size_t end = s.find_last_not_of(" \t");
-    return s.substr(start, end - start + 1);
+    return CIStringView(sv.data(), sv.size());
 }
 
-std::string to_lower(std::string s)
+void trim_view(CIStringView &sv)
 {
-    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return std::tolower(c); });
-    return s;
+    const auto first = sv.find_first_not_of(ci_view(" \t"));
+    if (first == CIStringView::npos) {
+        sv = CIStringView();
+        return;
+    }
+    sv.remove_prefix(first);
+    const auto last = sv.find_last_not_of(ci_view(" \t"));
+    sv.remove_suffix(sv.size() - (last + 1));
 }
 
 }  // namespace
@@ -267,16 +277,28 @@ bool NfServer::acceptsMediaType(const std::optional<std::string> &accept_header,
 {
     if (!accept_header.has_value() || accept_header->empty()) return true;
 
-    const std::string wanted = to_lower(media_type);
-    const std::string wanted_type = wanted.substr(0, wanted.find('/'));
+    const CIStringView wanted = ci_view(media_type);
+    const CIStringView wanted_type = wanted.substr(0, wanted.find('/'));
 
-    std::istringstream ranges(*accept_header);
-    std::string range;
-    while (std::getline(ranges, range, ',')) {
-        std::string media_range = trim(range.substr(0, range.find(';')));
-        media_range = to_lower(media_range);
-        if (media_range == "*/*" || media_range == wanted ||
-            media_range == wanted_type + "/*") {
+    CIStringView remaining = ci_view(*accept_header);
+    while (!remaining.empty()) {
+        const auto comma = remaining.find(',');
+        CIStringView range = remaining.substr(0, comma);
+        remaining = (comma == CIStringView::npos) ? CIStringView() : remaining.substr(comma + 1);
+
+        /* Everything from the first ';' is a parameter, q= among them. This NF has one representation
+           to offer, so a relative preference cannot change the outcome; only whether a compatible
+           range is present at all. */
+        range = range.substr(0, range.find(';'));
+        trim_view(range);
+        if (range.empty()) continue;
+
+        if (range == ci_view("*/*") || range == wanted) return true;
+
+        /* A subtype wildcard matches when the type before the '/' matches and the subtype is '*'. */
+        const auto slash = range.find('/');
+        if (slash != CIStringView::npos && range.substr(slash + 1) == ci_view("*") &&
+            range.substr(0, slash) == wanted_type) {
             return true;
         }
     }
