@@ -393,6 +393,25 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
                 if (resource0 == "sessions") {
                     std::string method(message.method());
                     const char *ptr_resource1 = message.resourceComponent(1);
+
+                    /* A method no resource of this API serves is not a wrong method for this resource,
+                       it is one the NF does not recognise at all, and has its own answer.
+
+                       TS 29.500 V18.10.0 clause 5.2.7.2: “A request using an HTTP method which is not supported by any resource of a given 5GC SBI API shall be rejected with the HTTP status code "501 Not Implemented".”
+
+                       The same clause's NOTE 1 says no cause attribute is needed, the status carrying
+                       enough on its own. Checked before the dispatch below so a HEAD or a TRACE does
+                       not fall through it to a 400, which would claim the request was malformed. */
+                    if (method != OGS_SBI_HTTP_METHOD_POST && method != OGS_SBI_HTTP_METHOD_GET &&
+                        method != OGS_SBI_HTTP_METHOD_PUT && method != OGS_SBI_HTTP_METHOD_PATCH &&
+                        method != OGS_SBI_HTTP_METHOD_DELETE && method != OGS_SBI_HTTP_METHOD_OPTIONS) {
+                        ogs_error("Method [%s] is not supported by any resource of this API", method.c_str());
+                        ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_NOT_IMPLEMENTED, 0, message,
+                                                               app_meta, api, "Not Implemented",
+                                                               "Method not supported by any resource of this API"));
+                        return true;
+                    }
+
                     if (method == OGS_SBI_HTTP_METHOD_POST) {
                         ogs_debug("POST response: status = %i", message.resStatus());
                         std::shared_ptr<UserDataIngSession> user_data_ing_session = nullptr;
