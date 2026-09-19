@@ -497,27 +497,34 @@ bool UserService::processEvent(Open5GSEvent &event)
                             return true;
                         }
                         if (!ptr_resource1) {
-                            /* The MBS User Services collection serves POST, and this MBSF does not
-                               serve a GET on it. The resource exists, so the refusal is 405 with the
-                               methods that are served, not 400: the request is well formed.
+                            /* TS 29.580 V18.8.0 clause 6.1.3.2.3.1: “The GET method allows an NF service consumer (e.g. AF, NEF) to retrieve all the active MBS User Service(s) managed by the MBSF.”
 
-                               TS 29.500 V18.10.0 clause 5.2.7.2: “If the NF supports the HTTP method
-                               for several resources in the API, but not for the target resource of a
-                               given HTTP request, the NF shall reject the request with the HTTP status
-                               code "405 Method Not Allowed" and shall include in the response an Allow
-                               header field containing the supported method(s) for that resource.”
+                               Table 6.1.3.2.3.1-3 gives the 200 response body as array(MBSUserService)
+                               with cardinality 0..N, so an empty array is the answer when none is
+                               active, not a 404.
 
-                               Which methods each resource serves was set by review on
-                               5G-MAG/rt-mbs-function#49: “A GET, PUT, PATCH or DELETE to
-                               "/mbs-user-services" should also result in a 405 Method Not Allowed
-                               response.” Retrieving the collection is tracked separately as #12 and
-                               #44, and is not served until those are implemented; an Allow header
-                               naming GET before then would send a consumer round a loop. */
-                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_METHOD_NOT_ALLOWED, 1,
-                                                                    message, app_meta, api, "Method Not Allowed",
-                                                                    "GET is not served on the MBS User Services collection",
-                                                                    std::nullopt, std::nullopt, std::nullopt,
-                                                                    user_service_allow_methods(message)));
+                               Review on 5G-MAG/rt-mbs-function#49 asked for 405 on a GET, PUT, PATCH
+                               or DELETE to this collection. The clause above defines GET on it, so GET
+                               is served here; PUT, PATCH and DELETE are defined only on the individual
+                               resource and keep their 405.
+
+                               A service being torn down is no longer active, so it is left out, which
+                               is the test find() already applies when resolving one by identifier. */
+                            CJson user_services(CJson::newArray());
+                            for (const auto &entry : App::self().context()->UserServices) {
+                                const std::shared_ptr<UserService> &user_serv = entry.second;
+                                if (!user_serv || user_serv->m_postDeleteEvent) continue;
+                                user_services.append(user_serv->json(false));
+                            }
+                            std::string body(user_services.serialise());
+                            ogs_debug("MBS User Services collection: %s", body.c_str());
+                            std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(std::nullopt,
+                                                    "application/json", std::nullopt, std::nullopt,
+                                                    App::self().context()->cacheControl.MBSUserServiceMaxAge,
+                                                    std::nullopt, api, app_meta));
+                            ogs_assert(response);
+                            NfServer::populateResponse(response, body, OGS_SBI_HTTP_STATUS_OK);
+                            ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *response));
                             return true;
                         }
                         std::string user_service_id(ptr_resource1);
