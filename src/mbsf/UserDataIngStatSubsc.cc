@@ -795,8 +795,30 @@ bool UserDataIngStatSubsc::processEvent(Open5GSEvent &event)
                                 ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *response));
 
                             return true;
+                        } else if (method == OGS_SBI_HTTP_METHOD_GET) {
+                            /* TS 29.580 V18.8.0 clause 6.2.3.4.3.1: “The GET method allows an NF service consumer (e.g. AF, NEF) to retrieve all the active MBS User Data Ingest Session Status Subscriptions managed by the MBSF.”
+
+                               Table 6.2.3.4.3.1-3 gives the 200 response body as
+                               array(MBSUserDataIngStatSubsc) with cardinality 0..N, so an empty array
+                               answers an empty collection. No headers table is defined for the 200,
+                               so no entity-tag is sent. */
+                            CJson stat_subscs(CJson::newArray());
+                            for (const auto &entry : App::self().context()->userDataIngStatSubscs()) {
+                                if (!entry.second) continue;
+                                stat_subscs.append(entry.second->json(false));
+                            }
+                            std::string body(stat_subscs.serialise());
+                            ogs_debug("MBS User Data Ingest Session Status Subscriptions collection: %s", body.c_str());
+                            std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(std::nullopt,
+                                                    "application/json", std::nullopt, std::nullopt,
+                                                    App::self().context()->cacheControl.MBSUserServiceMaxAge,
+                                                    std::nullopt, api, app_meta));
+                            ogs_assert(response);
+                            NfServer::populateResponse(response, body, OGS_SBI_HTTP_STATUS_OK);
+                            ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *response));
+                            return true;
                         } else if (method == OGS_SBI_HTTP_METHOD_OPTIONS) {
-                            std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(std::nullopt, std::nullopt, std::nullopt, std::nullopt, 0, OGS_SBI_HTTP_METHOD_POST ", " OGS_SBI_HTTP_METHOD_OPTIONS, api, app_meta));
+                            std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(std::nullopt, std::nullopt, std::nullopt, std::nullopt, 0, OGS_SBI_HTTP_METHOD_GET ", " OGS_SBI_HTTP_METHOD_POST ", " OGS_SBI_HTTP_METHOD_OPTIONS, api, app_meta));
                             NfServer::populateResponse(response, "", OGS_SBI_HTTP_STATUS_NO_CONTENT);
                             ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *response));
                             return true;
@@ -818,7 +840,7 @@ bool UserDataIngStatSubsc::processEvent(Open5GSEvent &event)
                             ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_METHOD_NOT_ALLOWED, 1,
                                                                 message, app_meta, api, "Method Not Allowed", err.str(),
                                                                 std::nullopt, std::nullopt, std::nullopt,
-                                                                std::string(OGS_SBI_HTTP_METHOD_POST ", " OGS_SBI_HTTP_METHOD_OPTIONS)));
+                                                                std::string(OGS_SBI_HTTP_METHOD_GET ", " OGS_SBI_HTTP_METHOD_POST ", " OGS_SBI_HTTP_METHOD_OPTIONS)));
                             return true;
                         }
                     }
