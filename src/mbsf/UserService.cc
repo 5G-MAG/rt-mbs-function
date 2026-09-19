@@ -86,12 +86,16 @@ static const NfServer::InterfaceMetadata g_nmbsf_userservice_api_metadata(
 );
 
 
+static void validate_serv_name_descs(const std::shared_ptr<MBSUserService> &service);
+
 UserService::UserService(CJson &json, bool as_request)
     :m_MBSUserService(std::make_shared<MBSUserService>(json, as_request))
     ,m_userDataIngSessMutex(new std::recursive_mutex)
     ,m_userDataIngSessions()
     ,m_postDeleteEvent(nullptr)
 {
+    validate_serv_name_descs(m_MBSUserService);
+
     ogs_uuid_t uuid;
 
     char id[OGS_UUID_FORMATTED_LENGTH + 1];
@@ -140,6 +144,29 @@ static std::string user_service_allow_methods(const Open5GSSBIMessage &message)
     return message.resourceComponent(1) ? "GET, PUT, PATCH, DELETE, OPTIONS" : "POST, OPTIONS";
 }
 
+/* Refuse a ServiceNameDescription that names nothing.
+ *
+ * TS 29.580 V18.8.0 clause 6.1.6.2.3, type ServiceNameDescription, NOTE: “At least one of the "servName" attribute and the "servDescrip" attribute shall be included.”
+ *
+ * Both attributes are optional on their own, so the generated model admits an entry carrying
+ * neither, which reaches the service announcement as a language with nothing to say in it.
+ */
+static void validate_serv_name_descs(const std::shared_ptr<MBSUserService> &service)
+{
+    if (!service) return;
+    const auto &descs = service->getServNameDescs();
+    size_t index = 0;
+    for (const auto &entry : descs) {
+        if (entry && (entry.value()->getServName().has_value() || entry.value()->getServDescrip().has_value())) {
+            index++;
+            continue;
+        }
+        throw ModelException("servNameDescs entry must carry at least one of servName and servDescrip",
+                             "MBSUserService", std::string("servNameDescs[") + std::to_string(index) + "]",
+                             fiveg_mag_reftools::ProblemCause::MANDATORY_IE_MISSING);
+    }
+}
+
 static std::string serv_type_of(const std::shared_ptr<MBSUserService> &service)
 {
     const std::shared_ptr<MbsServiceType> mbs_service_type = service ? service->getServType() : nullptr;
@@ -179,6 +206,7 @@ void UserService::update(CJson &json, bool as_request)
         throw ModelException("servType cannot be changed once provisioned", "MBSUserService", "servType",
                               fiveg_mag_reftools::ProblemCause::MANDATORY_IE_INCORRECT);
     }
+    validate_serv_name_descs(new_service);
     m_MBSUserService = std::move(new_service);
 }
 
@@ -205,6 +233,21 @@ void UserService::modify(CJson &json, bool as_request)
                               fiveg_mag_reftools::ProblemCause::SYSTEM_FAILURE);
     }
 
+    /* TS 29.580 V18.8.0 clause 5.2.2.4.2: “Only the "servType" attribute shall not be updated.”
+
+       MBSUserServicePatch carries no servType, so a patch naming it would otherwise be discarded
+       in silence and answered 200, telling the consumer an update it is forbidden to make had
+       succeeded. The PUT path refuses the same attempt, and this makes the two agree. */
+    if (json.isObject()) {
+        for (std::size_t i = 0; i < json.arraySize(); i++) {
+            CJson member(json.index(i));
+            if (member.key() && std::string(member.key()) == "servType") {
+                throw ModelException("servType cannot be changed once provisioned", "MBSUserService", "servType",
+                                      fiveg_mag_reftools::ProblemCause::MANDATORY_IE_INCORRECT);
+            }
+        }
+    }
+
     MBSUserServicePatch patch(json, as_request);
 
     if (patch.getExtServiceIds().has_value()) m_MBSUserService->setExtServiceIds(patch.getExtServiceIds().value());
@@ -212,6 +255,8 @@ void UserService::modify(CJson &json, bool as_request)
     if (patch.getServAnnModes().has_value()) m_MBSUserService->setServAnnModes(patch.getServAnnModes().value());
     if (patch.getServNameDescs().has_value()) m_MBSUserService->setServNameDescs(patch.getServNameDescs().value());
     if (patch.getMainServLang().has_value()) m_MBSUserService->setMainServLang(patch.getMainServLang().value());
+
+    validate_serv_name_descs(m_MBSUserService);
 }
 
 const std::shared_ptr<UserService> &UserService::find(const std::string &id)
