@@ -384,6 +384,9 @@ bool UserService::processEvent(Open5GSEvent &event)
                         std::shared_ptr<UserService> user_service;
                         ogs_debug("Request body: %s", request.content());
                         //ogs_debug("Request " OGS_SBI_CONTENT_TYPE ": %s", request.headerValue(OGS_SBI_CONTENT_TYPE, std::string()).c_str());
+                        /* A body in a coding this NF cannot decode is refused before it is read, so the
+                           encoded octets never reach the JSON parser and get blamed on the document. */
+                        if (NfServer::refuseUnsupportedContentCoding(request, stream, 3, message, app_meta, api)) return true;
                         if (request.headerValue(OGS_SBI_CONTENT_TYPE, std::string()) != "application/json") {
                             ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_UNSUPPORTED_MEDIA_TYPE,
                                                                    3, message, app_meta, api, "Unsupported Media Type",
@@ -607,6 +610,9 @@ bool UserService::processEvent(Open5GSEvent &event)
                                                                     user_service_allow_methods(message)));
                             return true;
                         }
+                         /* A body in a coding this NF cannot decode is refused before it is read, so the
+                            encoded octets never reach the JSON parser and get blamed on the document. */
+                         if (NfServer::refuseUnsupportedContentCoding(request, stream, 3, message, app_meta, api)) return true;
                          if (request.headerValue(OGS_SBI_CONTENT_TYPE, std::string()) != "application/json") {
                             ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_UNSUPPORTED_MEDIA_TYPE,
                                                                    3, message, app_meta, api, "Unsupported Media Type",
@@ -717,6 +723,9 @@ bool UserService::processEvent(Open5GSEvent &event)
 
                         /* TS 29.580 V18.8.0 clause 6.1.2.2 requires the merge patch media type, and
                            TS 29.500 V18.10.0 answers a content format it does not support with 415. */
+                        /* A body in a coding this NF cannot decode is refused before it is read, so the
+                           encoded octets never reach the JSON parser and get blamed on the document. */
+                        if (NfServer::refuseUnsupportedContentCoding(request, stream, 3, message, app_meta, api)) return true;
                         if (request.headerValue(OGS_SBI_CONTENT_TYPE, std::string()) != "application/merge-patch+json") {
                             ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_UNSUPPORTED_MEDIA_TYPE, 1,
                                                                     message, app_meta, api, "Unsupported Media Type",
