@@ -669,6 +669,31 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
                             }
                             return true;
                         }
+                        if (!message.resourceComponent(1)) {
+                            /* No session identifier names the collection, which serves POST. The
+                               resource exists, so the refusal is 405 with the methods it serves.
+
+                               TS 29.500 V18.10.0 clause 5.2.7.2: “If the NF supports the HTTP method
+                               for several resources in the API, but not for the target resource of a
+                               given HTTP request, the NF shall reject the request with the HTTP status
+                               code "405 Method Not Allowed" and shall include in the response an Allow
+                               header field containing the supported method(s) for that resource.” */
+                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_METHOD_NOT_ALLOWED, 1,
+                                                                    message, app_meta, api, "Method Not Allowed",
+                                                                    "DELETE is not served on the MBS User Data Ingest Sessions collection",
+                                                                    std::nullopt, std::nullopt, std::nullopt,
+                                                                    std::string(OGS_SBI_HTTP_METHOD_POST ", " OGS_SBI_HTTP_METHOD_OPTIONS)));
+                            return true;
+                        }
+                        /* Components beyond the session identifier name no resource in this API.
+
+                           TS 29.500 V18.10.0 clause 5.2.7.2: “If the specified target resource does not
+                           exist, the NF shall reject the HTTP method with the HTTP status code "404 Not
+                           Found".” */
+                        ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_NOT_FOUND, 2, message,
+                                                                app_meta, api, "Not Found",
+                                                                "No such resource under an MBS User Data Ingest Session"));
+                        return true;
                     }  else if (method == OGS_SBI_HTTP_METHOD_OPTIONS) {
                              // Allow lists PUT but not PATCH. PUT is implemented (see the method dispatch above); the PATCH
                              // branch above returns 404 unconditionally, and the PUT handler's own comment on the actPeriods
