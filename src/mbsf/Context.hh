@@ -81,6 +81,13 @@ public:
     void deleteUserDataIngSession(const std::string &userIngSessionId);
     const std::shared_ptr<UserDataIngSession> &findUserDataIngSession(const std::string &id) const;
 
+    /** Every MBS User Data Ingest Session this MBSF holds.
+     *
+     * The sessions are owned by their MBS User Services, so enumerating them means walking the
+     * index and resolving each owner. Done here so the index mutex is taken in one place.
+     */
+    std::vector<std::shared_ptr<UserDataIngSession> > allUserDataIngSessions() const;
+
     void addMbsSessionId(const UniqueMbsSessionId &mbs_session_id);
     void addMbsSessionId(bool request_tmgi, const std::shared_ptr<reftools::mbsf::MbsSessionId> &mbs_session_id,
                          const std::shared_ptr<reftools::mbsf::MbsServiceArea> &mbs_service_area,

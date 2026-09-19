@@ -408,6 +408,20 @@ void Context::deleteUserDataIngSession(const std::string &id)
     }
 }
 
+std::vector<std::shared_ptr<UserDataIngSession> > Context::allUserDataIngSessions() const
+{
+    std::lock_guard<std::recursive_mutex> lock(*m_userDataIngSessMutex);
+    std::vector<std::shared_ptr<UserDataIngSession> > result;
+    result.reserve(m_userDataIngSessIndex.size());
+    for (const auto &entry : m_userDataIngSessIndex) {
+        auto mbs_user_service = entry.second.lock();
+        if (!mbs_user_service) continue;
+        const auto &ing_sess = mbs_user_service->findUserDataIngSession(entry.first);
+        if (ing_sess) result.push_back(ing_sess);
+    }
+    return result;
+}
+
 const std::shared_ptr<UserDataIngSession> &Context::findUserDataIngSession(const std::string &id) const
 {
     std::lock_guard<std::recursive_mutex> lock(*m_userDataIngSessMutex);
