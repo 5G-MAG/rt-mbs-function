@@ -31,6 +31,7 @@
 MBSF_NAMESPACE_START
 
 class Open5GSSBIMessage;
+class Open5GSSBIRequest;
 class Open5GSSBIResponse;
 class Open5GSSBIStream;
 
@@ -144,6 +145,17 @@ public:
                                                            const AppMetadata &app);
 
     static std::shared_ptr<Open5GSSBIResponse> populateResponse(std::shared_ptr<Open5GSSBIResponse> &response, const std::string &content, int status);
+
+    /** Refuse a request whose Content-Encoding names a coding this NF does not decode.
+     *
+     * Answers 415 with an Accept-Encoding header naming what would have been accepted, and
+     * returns true. Returns false, having sent nothing, when the request carries no content
+     * coding or names the identity coding.
+     */
+    static bool refuseUnsupportedContentCoding(Open5GSSBIRequest &request, Open5GSSBIStream &stream,
+                                               size_t number_of_components, Open5GSSBIMessage &message,
+                                               const AppMetadata &app,
+                                               const std::optional<InterfaceMetadata> &interface);
 
     static std::map<std::string, std::string> makeInvalidParams(const std::string &param, const std::string &reason);
 

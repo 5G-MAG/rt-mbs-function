@@ -258,6 +258,49 @@ std::shared_ptr<Open5GSSBIResponse> NfServer::newResponse(const std::optional<st
                                                                                    allow_methods)));
 }
 
+bool NfServer::refuseUnsupportedContentCoding(Open5GSSBIRequest &request, Open5GSSBIStream &stream,
+                                              size_t number_of_components, Open5GSSBIMessage &message,
+                                              const AppMetadata &app,
+                                              const std::optional<InterfaceMetadata> &interface)
+{
+    /* This NF decodes no content codings, so anything other than an absent header or the identity
+       coding names one it cannot read. Without this test the encoded octets reach the JSON parser
+       and the request is refused as malformed JSON, which tells the sender to look at its document
+       rather than at its Content-Encoding.
+
+       RFC 9110 section 15.5.16: "Servers that fail a request due to an unsupported content coding
+       ought to respond with a 415 (Unsupported Media Type) status and include an Accept-Encoding
+       header field in that response, allowing clients to distinguish between issues related to
+       content codings and media types." */
+    std::string coding(request.headerValue("Content-Encoding", std::string()));
+    if (coding.empty()) return false;
+    /* A token comparison is enough: the field is a list of codings and identity is the only one
+       this NF can apply, so any other value, alone or in a list, is unsupported. */
+    std::string trimmed;
+    for (char ch : coding) if (ch != ' ' && ch != '\t') trimmed.push_back(std::tolower(static_cast<unsigned char>(ch)));
+    if (trimmed == "identity") return false;
+
+    std::ostringstream err;
+    err << "Content coding \"" << coding << "\" is not supported; send the content uncompressed";
+    ogs_error("%s", err.str().c_str());
+
+    std::shared_ptr<Open5GSSBIResponse> response(newResponse(std::nullopt, "application/problem+json",
+                                                             std::nullopt, std::nullopt, 0, std::nullopt,
+                                                             interface, app));
+    ogs_assert(response);
+    ogs_sbi_header_set(response->ogsSBIResponse()->http.headers, "Accept-Encoding", "identity");
+
+    CJson problem(CJson::newObject());
+    problem.set("title", CJson::newString("Unsupported Media Type"));
+    problem.set("status", CJson::newNumber(OGS_SBI_HTTP_STATUS_UNSUPPORTED_MEDIA_TYPE));
+    problem.set("detail", CJson::newString(err.str()));
+    problem.set("cause", CJson::newString(fiveg_mag_reftools::ProblemCause::UNSPECIFIED_MSG_FAILURE.cause()));
+    std::string body(problem.serialise());
+    populateResponse(response, body, OGS_SBI_HTTP_STATUS_UNSUPPORTED_MEDIA_TYPE);
+    ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *response));
+    return true;
+}
+
 std::shared_ptr<Open5GSSBIResponse> NfServer::populateResponse(std::shared_ptr<Open5GSSBIResponse> &response, const std::string &content, int status)
 {
     response->contentLength(content.size());
