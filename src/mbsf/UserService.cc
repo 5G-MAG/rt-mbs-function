@@ -294,8 +294,12 @@ bool UserService::processEvent(Open5GSEvent &event)
             try {
                 message.parseHeader(request);
             } catch (std::exception &ex) {
+                /* Passed on, not consumed. This handler cannot answer a request whose URI it
+                   could not parse, and claiming the event would leave the stream with no response
+                   at all. MBSFEventHandler answers it, as it does for the sibling handlers, which
+                   all return false here. */
                 ogs_error("Failed to parse request headers");
-                return true;
+                return false;
             }
 
             std::string service_name(message.serviceName());
