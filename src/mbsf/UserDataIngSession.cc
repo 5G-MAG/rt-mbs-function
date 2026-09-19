@@ -40,6 +40,7 @@
 #include <memory>
 #include <random>
 #include <stdexcept>
+#include <set>
 #include <string>
 #include <cstdint>
 #include <iostream>
@@ -340,6 +341,39 @@ int UserDataIngSession::numberOfDistributionSessions()
     return count;
 }
 
+
+/* Apply a JSON Merge Patch to the request representation of an MBS User Data Ingest Session.
+ *
+ * IETF RFC 7396 section 2: a member whose value is null removes that member from the target, and a
+ * member with any other value replaces it. Whether a member is present at all cannot be read from
+ * getObjectItemCaseSensitive(), which answers Null both for an absent member and for one explicitly
+ * set to null, so the patch's own members are walked instead.
+ *
+ * The merge is over the top-level members only. The attributes this resource accepts in a patch are
+ * replaced whole rather than merged element by element, and the caller has already refused any
+ * member outside that set.
+ */
+static CJson merge_ing_session_patch(const CJson &target, const CJson &patch)
+{
+    std::set<std::string> mentioned;
+    for (std::size_t i = 0; i < patch.arraySize(); i++) {
+        CJson member(patch.index(i));
+        if (member.key()) mentioned.insert(member.key());
+    }
+
+    CJson merged(CJson::newObject());
+    for (std::size_t i = 0; i < target.arraySize(); i++) {
+        CJson member(target.index(i));
+        if (!member.key() || mentioned.count(member.key())) continue;
+        merged.set(member.key(), member);
+    }
+    for (std::size_t i = 0; i < patch.arraySize(); i++) {
+        CJson member(patch.index(i));
+        if (!member.key() || member.isNull()) continue;   /* null removes, so it is not carried over */
+        merged.set(member.key(), member);
+    }
+    return merged;
+}
 
 bool UserDataIngSession::processEvent(Open5GSEvent &event)
 {
@@ -646,20 +680,110 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
 
                     } else if (method == OGS_SBI_HTTP_METHOD_PATCH) {
 
-                        // RFC 9110 clause 15.5.6: "The 405 (Method Not Allowed) status code indicates that the method
-                        // received in the request-line is known by the origin server but not supported by the target
-                        // resource. The origin server MUST generate an Allow header field in a 405 response containing a
-                        // list of the target resource's currently supported methods." This resource exists, being the
-                        // same one the GET, PUT, DELETE and OPTIONS handlers below operate on, and PATCH is a method this
-                        // server recognises but this resource does not support, so 405 rather than the 404 of clause
-                        // 15.5.5, which is for "the origin server did not find a current representation for the target
-                        // resource". The Allow list must stay identical to the OPTIONS handler's own below.
-                        ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_METHOD_NOT_ALLOWED, 2, message,
-                                                            app_meta, api, "Method not allowed",
-                                                            "The PATCH method is not allowed for this path",
-                                                            std::nullopt, std::nullopt, std::nullopt,
-                                                            OGS_SBI_HTTP_METHOD_POST ", " OGS_SBI_HTTP_METHOD_GET ", " OGS_SBI_HTTP_METHOD_PUT ", " OGS_SBI_HTTP_METHOD_DELETE ", " OGS_SBI_HTTP_METHOD_OPTIONS));
+                        if (!ptr_resource1) {
+                            /* Clause 6.2.3.2 defines GET and POST on the collection and no PATCH, so
+                               the method is wrong for this target rather than unknown to the API. */
+                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_METHOD_NOT_ALLOWED, 1,
+                                                                message, app_meta, api, "Method Not Allowed",
+                                                                "PATCH is not served on the MBS User Data Ingest Sessions collection",
+                                                                std::nullopt, std::nullopt, std::nullopt,
+                                                                std::string(OGS_SBI_HTTP_METHOD_GET ", " OGS_SBI_HTTP_METHOD_POST ", " OGS_SBI_HTTP_METHOD_OPTIONS)));
+                            return true;
+                        }
+                        std::string user_data_ing_session_id(ptr_resource1);
 
+                        /* TS 29.580 V18.8.0 clause 6.2.2.2.2: “JSON object used in the HTTP PATCH request shall be encoded according to "JSON Merge Patch" and shall be signalled by the content type "application/merge-patch+json", as defined in IETF RFC 7396 [22].” */
+                        if (request.headerValue(OGS_SBI_CONTENT_TYPE, std::string()) != "application/merge-patch+json") {
+                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_UNSUPPORTED_MEDIA_TYPE,
+                                                                   3, message, app_meta, api, "Unsupported Media Type",
+                                                                   "Expected content type: application/merge-patch+json"));
+                            return true;
+                        }
+                        if (request_too_large(request, stream, 3, message, app_meta, api)) return true;
+
+                        CJson patch_json(CJson::Null);
+                        try {
+                            patch_json = CJson::parse(request.content());
+                        } catch (std::exception &ex) {
+                            static const char *err = "Unable to parse MBS User Data Ingest Session patch as JSON.";
+                            ogs_error("%s", err);
+                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 3, message,
+                                                                    app_meta, api, "Bad Request", err));
+                            return true;
+                        }
+                        if (!patch_json.isObject()) {
+                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 3, message,
+                                                                    app_meta, api, "Bad Request",
+                                                                    "A JSON Merge Patch for this resource must be a JSON object"));
+                            return true;
+                        }
+
+                        /* MBSUserDataIngSessionPatch defines exactly these three attributes, so anything else names something this resource does not allow a
+                           consumer to modify and is refused rather than quietly ignored. */
+                        {
+                            static const std::set<std::string> patchable{"actPeriods", "actPeriodsRepRule", "mbsDisSessInfos"};
+                            std::map<std::string, std::string> invalid_params;
+                            for (std::size_t i = 0; i < patch_json.arraySize(); i++) {
+                                CJson member(patch_json.index(i));
+                                if (member.key() && !patchable.count(member.key())) {
+                                    invalid_params[member.key()] = "This attribute cannot be modified by a PATCH on this resource";
+                                }
+                            }
+                            if (!invalid_params.empty()) {
+                                ogs_assert(true == NfServer::sendError(stream, ProblemCause::MANDATORY_IE_INCORRECT, 3,
+                                                                        message, app_meta, api, std::nullopt, std::nullopt,
+                                                                        std::nullopt, invalid_params));
+                                return true;
+                            }
+                        }
+
+                        try {
+                            std::shared_ptr<UserDataIngSession> user_data_ing_sess = find(user_data_ing_session_id);
+
+                            CJson merged(merge_ing_session_patch(user_data_ing_sess->json(true), patch_json));
+
+                            /* The same mutual exclusion the POST and PUT paths enforce. A patch that sets
+                               one of the pair without removing the other with an explicit null, which
+                               RFC 7396 provides for, leaves both present, and is told so rather than
+                               having one of them silently dropped here. */
+                            MBSUserDataIngSession merged_model(merged, true);
+                            if (merged_model.getActPeriods() && merged_model.getActPeriodsRepRule()) {
+                                std::map<std::string,std::string> invalid_params;
+                                invalid_params["actPeriods"] = "actPeriods cannot be present if actPeriodsRepRule is present";
+                                invalid_params["actPeriodsRepRule"] = "actPeriodsRepRule cannot be present if actPeriods is present";
+                                ogs_assert(true == NfServer::sendError(stream, ProblemCause::OPTIONAL_IE_INCORRECT, 3, message,
+                                                                        app_meta, api, std::nullopt, std::nullopt, std::nullopt, invalid_params));
+                                return true;
+                            }
+
+                            user_data_ing_sess->processUserDataIngSessionUpdate(stream_id, request_ctx, merged);
+                            user_data_ing_sess->configureUserServiceAnnouncementBundler();
+
+                            /* Table 6.2.3.3.3.3-3 offers 200 with a representation of the updated
+                               resource or 204 with none; the representation is returned so a consumer
+                               sees what its patch produced without a further GET. */
+                            CJson user_data_ing_session_json(user_data_ing_sess->json(false));
+                            std::string body(user_data_ing_session_json.serialise());
+                            std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(std::string(request.uri()),
+                                                    body.empty()?nullptr:"application/json",
+                                                    user_data_ing_sess->generated(),
+                                                    user_data_ing_sess->hash().c_str(),
+                                                    App::self().context()->cacheControl.MBSUserServiceMaxAge,
+                                                    std::nullopt, api, app_meta));
+                            ogs_assert(response);
+                            NfServer::populateResponse(response, body, OGS_SBI_HTTP_STATUS_OK);
+                            ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *response));
+                        } catch (const std::out_of_range &e) {
+                            std::ostringstream err;
+                            err << "MBS User Data Ingest Session [" << user_data_ing_session_id << "] does not exist.";
+                            ogs_error("%s", err.str().c_str());
+                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_NOT_FOUND, 2, message,
+                                                                    app_meta, api, "MBS Session not found", err.str()));
+                        } catch (ModelException &ex) {
+                            send_model_error(ex, stream, 3, message, app_meta, api,
+                                             "Problem with MBS User Data Ingest Session patch",
+                                             "Applying MBS User Data Ingest Session patch");
+                        }
                         return true;
 
                     } else if (method == OGS_SBI_HTTP_METHOD_DELETE) {
