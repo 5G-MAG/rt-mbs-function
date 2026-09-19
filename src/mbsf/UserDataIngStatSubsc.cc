@@ -796,6 +796,17 @@ bool UserDataIngStatSubsc::processEvent(Open5GSEvent &event)
 
                             return true;
                         } else if (method == OGS_SBI_HTTP_METHOD_GET) {
+                            /* TS 29.500 V18.10.0 table 5.2.7.1-1 marks 406 mandatory for GET. This response is always
+                               application/json, so a client whose Accept header cannot take that is answered 406 rather
+                               than sent a body it did not ask for, as the individual resource's GET above already does. */
+                            std::optional<std::string> accept_hdr;
+                            if (message.accept()) accept_hdr = message.accept();
+                            if (!NfServer::acceptsMediaType(accept_hdr, "application/json")) {
+                                ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_NOT_ACCEPTABLE, 1, message,
+                                                                        app_meta, api, "Not Acceptable",
+                                                                        "This resource is only available as application/json"));
+                                return true;
+                            }
                             /* TS 29.580 V18.8.0 clause 6.2.3.4.3.1: “The GET method allows an NF service consumer (e.g. AF, NEF) to retrieve all the active MBS User Data Ingest Session Status Subscriptions managed by the MBSF.”
 
                                Table 6.2.3.4.3.1-3 gives the 200 response body as
