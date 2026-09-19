@@ -482,24 +482,26 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
                             return true;
                         }
                         if (!ptr_resource1) {
-                            /* The collection serves POST; a GET on it is not served by this MBSF. The
-                               resource exists, so the refusal is 405 with the methods that are served,
-                               not 400.
+                            /* TS 29.580 V18.8.0 clause 6.2.3.2.3.1: “The GET method allows an NF service consumer (e.g. AF, NEF) to retrieve all the active MBS User Data Ingest Sessions managed by the MBSF.”
 
-                               TS 29.500 V18.10.0 clause 5.2.7.2: “If the NF supports the HTTP method
-                               for several resources in the API, but not for the target resource of a
-                               given HTTP request, the NF shall reject the request with the HTTP status
-                               code "405 Method Not Allowed" and shall include in the response an Allow
-                               header field containing the supported method(s) for that resource.”
-
-                               Retrieving the collection is 5G-MAG/rt-mbs-function#22, and the same
-                               treatment review asked for on the MBS User Services collection in #49
-                               applies here. */
-                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_METHOD_NOT_ALLOWED, 1,
-                                                                    message, app_meta, api, "Method Not Allowed",
-                                                                    "GET is not served on the MBS User Data Ingest Sessions collection",
-                                                                    std::nullopt, std::nullopt, std::nullopt,
-                                                                    std::string(OGS_SBI_HTTP_METHOD_POST ", " OGS_SBI_HTTP_METHOD_OPTIONS)));
+                               Table 6.2.3.2.3.1-3 gives the 200 response body as
+                               array(MBSUserDataIngSession) with cardinality 0..N, so an empty array
+                               answers an empty collection rather than a 404. The clause defines no
+                               headers table for the 200, so no entity-tag is sent: the collection has
+                               no single version for one to describe. */
+                            CJson ing_sessions(CJson::newArray());
+                            for (const auto &ing_sess : App::self().context()->allUserDataIngSessions()) {
+                                ing_sessions.append(ing_sess->json(false));
+                            }
+                            std::string body(ing_sessions.serialise());
+                            ogs_debug("MBS User Data Ingest Sessions collection: %s", body.c_str());
+                            std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(std::nullopt,
+                                                    "application/json", std::nullopt, std::nullopt,
+                                                    App::self().context()->cacheControl.MBSUserServiceMaxAge,
+                                                    std::nullopt, api, app_meta));
+                            ogs_assert(response);
+                            NfServer::populateResponse(response, body, OGS_SBI_HTTP_STATUS_OK);
+                            ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *response));
                             return true;
                         }
                         std::string user_data_ing_session_id(ptr_resource1);
