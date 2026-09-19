@@ -95,10 +95,30 @@ void MBSFEventHandler::dispatch(Open5GSFSM &fsm, Open5GSEvent &event)
                     break;
                 }
                 std::string resource(message.resourceComponent(0));
-                message.parseRequest(request);
                 if (resource == OGS_SBI_RESOURCE_NAME_NF_STATUS_NOTIFY) {
                     std::string method(message.method());
                     if (method == OGS_SBI_HTTP_METHOD_POST) {
+                        /* Parsed here rather than before the resource and method are known, so a
+                           request this callback does not serve is answered on its own terms instead
+                           of on whatever its body happens to contain.
+
+                           parseRequest() throws when the body does not satisfy the schema, and an
+                           NRF is free to send one that does not. TS 29.500 V18.10.0 clause 5.2.7.2:
+                           “If a received HTTP request contains IEs or query parameters not compliant
+                           with the schema defined in the corresponding OpenAPI specification, the NF
+                           should reject the request with the appropriate error code, e.g. "400 Bad
+                           Request (INVALID_MSG_FORMAT)", even when the failed IEs are defined as
+                           optional by the schema.” */
+                        try {
+                            message.parseRequest(request);
+                        } catch (std::exception &ex) {
+                            ogs_error("ogs_sbi_parse_request() failed on NRF status notification");
+                            ogs_assert(true == Open5GSSBIServer::sendError(
+                                            stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, message,
+                                            "Bad Request", "Cannot parse NF status notification body",
+                                            ProblemCause::INVALID_MSG_FORMAT.cause().c_str()));
+                            break;
+                        }
                         ogs_nnrf_nfm_handle_nf_status_notify(stream.ogsSBIStream(), message.ogsSBIMessage());
                     } else {
                         ogs_error("Invalid HTTP method [%s]", method.c_str());
