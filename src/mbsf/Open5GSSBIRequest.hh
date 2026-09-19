@@ -66,6 +66,7 @@ public:
     const char *resourceComponent(size_t idx) const;
     const char *method() const { return m_request?(m_request->h.method):nullptr; };
     const char *content() const { return m_request?m_request->http.content:nullptr; };
+    size_t contentLength() const { return m_request?m_request->http.content_length:0; };
     const char *uri() const { return m_request?m_request->h.uri:nullptr; };
     void setOwner(bool owner) { m_owner = owner; };
     bool getOwner() const { return m_owner; };

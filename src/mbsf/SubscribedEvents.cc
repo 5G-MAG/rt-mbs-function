@@ -194,6 +194,10 @@ bool SubscribedEvents::isSubscribedEventNotificationStimulatedByMbsf(std::shared
         return true;
     case Event::VAL_USER_DATA_ING_SESS_STARTED:
         return true;
+    // SESSION_TERMINATED belongs in this allow-list: anything absent falls to `default: return false`
+    // and is never delivered to a subscriber even when the underlying event fires.
+    case Event::VAL_SESSION_TERMINATED:
+        return true;
     case Event::VAL_USER_SER_AD:
         return true;
     default:
@@ -455,8 +459,15 @@ SubscribedEvents::EventTypeBitMask SubscribedEvents::getEventTypeBitMask(DistSes
         return DATA_INGEST_FAILURE;
     case DistSessionEventType::VAL_SESSION_DEACTIVATED:
         return DIST_SESS_TERMINATED;
-    //case DistSessionEventType::VAL_SESSION_ESTABLISHED:
-    //    return DIST_SESS_STARTED;
+    // DIST_SESS_STARTED has no producer: nothing in the DistSessionEventType enum (see the full case
+    // list above) currently maps to it.
+    //
+    // UNRESOLVED, flagged rather than guessed: VAL_DATA_INGEST_SESSION_ESTABLISHED below may belong
+    // here instead of, or as well as, DIST_SESS_STARTING; the correct target may equally be
+    // USER_DATA_ING_SESS_STARTED, which by name is a closer match to DATA_INGEST_SESSION_ESTABLISHED
+    // than the Distribution-Session-level STARTING/STARTED pair. Settling it needs the primary
+    // TS 29.580 event-type table, since a wrong assignment trades one wrong notification type for
+    // another rather than closing the gap.
     case DistSessionEventType::VAL_SESSION_ACTIVATED:
         return DIST_SESS_ACTIVATED;
     case DistSessionEventType::VAL_SERVICE_MANAGEMENT_FAILURE:

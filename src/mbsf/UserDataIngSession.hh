@@ -38,6 +38,10 @@
 
 #include "openapi/model/DistSessionState.h"
 #include "openapi/model/MBSUserDataIngSession.h"
+#include "openapi/model/MbsDistSessFailure.h"
+#include "openapi/model/MbsDistSessFailureSets.h"
+#include "openapi/model/DistSessionFailure.h"
+#include "openapi/model/ReducedMbsServArea.h"
 #include "openapi/model/MBSDistributionSessionInfo.h"
 #include "common.hh"
 #include "AlwaysActive.hh"
@@ -54,6 +58,7 @@ namespace reftools::mbsf {
     class DistSession;
     class PacketDistrMethInfo;
     class Ssm;
+    class Tmgi;
 }
 
 MBSF_NAMESPACE_START
@@ -118,12 +123,31 @@ public:
         std::string mbstfDistSessionId = std::string{};
         bool distSessionState = false;
         mb_smf_sc_tmgi_t *tmgi = nullptr;
+        // AF-supplied TMGI for a Broadcast Distribution Session identified by an
+        // mbsSessionId.tmgi, as distinct from the field above (the TMGI *returned* by MB-SMF
+        // after a TMGI-allocation request). TS 23.247 V18.8.0 cl.7.1.1.2 step 8 lists
+        // "[MBS Session ID]" and "[TMGI allocation request]" as separate, coexisting Create
+        // parameters; TS 29.580 V18.8.0 cl.5.3.2.2.2 confirms the same at this northbound API.
+        // Carried from parse time (UserDataIngSession.cc's mbsSessionId branch) to
+        // createMbsSession(), which calls MBSMFMBSSession::setTmgi() with it instead of
+        // setTmgiRequest(true) -- the two are mutually exclusive by the vendored
+        // mb-smf-service-consumer library's own contract (mbs-session.h's own documented
+        // contract for mb_smf_sc_mbs_session_set_tmgi()).
+        std::shared_ptr<reftools::mbsf::Tmgi> afSuppliedTmgi = nullptr;
         std::string mbstfNotificationUrl = std::string{};
         uint64_t tsi;
         reftools::mbsf::DistSessionState last_requested_state;
         reftools::mbsf::DistSessionState last_reported_state;
         std::shared_ptr<reftools::mbsf::DistSession> distSession = nullptr;
         std::shared_ptr<LIBRTSDP_NAMESPACE_NAME(SDP)> sdp = nullptr;
+        // Captured here, at construction time, rather than looked up later inside the static
+        // createMbsSession() through locate(ingSessionId). This is an instance method of the owning
+        // UserDataIngSession, so it can call mbsUserService() directly; the later lookup would race
+        // against this object's own registration into the id->instance map and lose, since the
+        // ContextData is built and createMbsSession() invoked on it before the constructing
+        // UserDataIngSession finishes registering itself, leaving the value silently defaulted to
+        // MULTICAST. See createMbsSession().
+        std::string userServType = std::string{};
     };
 
     UserDataIngSession(fiveg_mag_reftools::CJson &json, bool as_request);
@@ -279,6 +303,27 @@ public:
 
     bool checkIfAllMBSSessionResponsesReceived();
     void handleFailedMBSSession();
+
+    /** Whether the MBSErrorHandling feature was negotiated for this MBS User Data Ingest Session.
+     *
+     * TS 29.580 V18.8.0 table 6.2.8-1 gives it feature number 3, so bit 3 of the negotiated bitmask.
+     * Only the last hex character can matter: the API defines no feature above 4.
+     */
+    bool mbsErrorHandlingNegotiated() const;
+
+    /** Record a Distribution Session the MB-SMF rejected, for reporting alongside the ones that
+     *  succeeded. Keyed by the map key the consumer used in "mbsDisSessInfos". */
+    void recordDistSessionFailure(const std::string &dist_session_info_key,
+                                  const std::shared_ptr<ContextData> &context_data);
+
+    /** Attach the recorded failures to the representation about to be returned, if any. */
+    void attachFailedDistSessions();
+
+    /** Attach the MBS Service Areas the MB-SMF reduced, for an update response.
+     *
+     * A no-op where no session had its area reduced, which is every session the MB-SMF accepted whole.
+     */
+    void attachReducedServiceAreas();
     void setMbstfsInDesiredState();
     void checkDesiredState();
     void pendingDeleteResponse(ogs_pool_id_t stream_id);
@@ -366,6 +411,12 @@ private:
 
     //key: Dist Session Infos present in this User Data Ingest Session
     std::map<std::string, std::shared_ptr< ContextData >> m_distributionSessionInfos;
+
+    /* Distribution Sessions the MB-SMF rejected while others succeeded, held until the response that
+       reports them is built. Keyed by the map key the consumer used in "mbsDisSessInfos", which is
+       what TS 29.580 requires the failure map to be keyed by. Empty whenever the outcome was not
+       mixed, since the all-failed case is still answered as an error. */
+    std::map<std::string, std::shared_ptr< reftools::mbsf::MbsDistSessFailure > > m_failedDistSessions;
 
     std::list<ogs_pool_id_t> m_deleteRequests;
 

@@ -40,10 +40,12 @@
 #include <memory>
 #include <random>
 #include <stdexcept>
+#include <set>
 #include <string>
 #include <cstdint>
 #include <iostream>
 #include <list>
+#include <vector>
 
 // App header includes
 #include "common.hh"
@@ -58,6 +60,7 @@
 #include "MBSFNetworkFunction.hh"
 #include "MBSMFMBSSession.hh"
 #include "MBSProblemCause.hh"
+#include "ConditionalRequest.hh"
 #include "NfServer.hh"
 #include "Nmb2Build.hh"
 #include "ObjManifest.hh"
@@ -79,6 +82,7 @@
 #include "utilities.hh"
 #include "UserDataIngStatSubsc.hh"
 #include "UserService.hh"
+#include "ServTypeAttributeRules.hh"
 #include "UserServiceAnnBundle.hh"
 #include "UserServiceAnnChannel.hh"
 #include "UniqueMBSSessionId.hh"
@@ -166,6 +170,15 @@ static void process_mbs_distribution_session_info(const std::shared_ptr<UserData
                                                   const std::shared_ptr<DistSession> &dist_session);
 static std::string print_mbs_session_error(const std::shared_ptr<UserDataIngSession::ContextData> &context_data);
 static void handle_failed_mbstf_nf_instance_discover(ogs_sbi_xact_t *xact);
+/* TS 29.500 V18.10.0 cl.5.2.7.2/table 5.2.7.1-1: 413 (Payload Too Large), mandatory for PATCH and
+ * POST; see UserService.cc's own copy of this helper for the full citation and the residual
+ * shared-framework gap it does not close. */
+static bool request_too_large(Open5GSSBIRequest &request, Open5GSSBIStream &stream, int path_segments,
+                              Open5GSSBIMessage &message, const NfServer::AppMetadata &app_meta,
+                              const std::optional<NfServer::InterfaceMetadata> &api);
+/* TS 29.500 V18.10.0 cl.6.6.2 (feature negotiation); see this file's own copy of this helper,
+ * further down, for the full citation and this API's own feature table. */
+static std::optional<std::string> negotiate_supp_feat(const std::optional<std::string> &requested);
 static bool validate_state_setting_options(const std::shared_ptr<UserDataIngSession> &user_data_ing_session,
                                            Open5GSSBIStream &stream, Open5GSSBIMessage &message,
                                            const NfServer::AppMetadata &app_meta,
@@ -381,16 +394,39 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
                 if (resource0 == "sessions") {
                     std::string method(message.method());
                     const char *ptr_resource1 = message.resourceComponent(1);
+
+                    /* A method no resource of this API serves is not a wrong method for this resource,
+                       it is one the NF does not recognise at all, and has its own answer.
+
+                       TS 29.500 V18.10.0 clause 5.2.7.2: “A request using an HTTP method which is not supported by any resource of a given 5GC SBI API shall be rejected with the HTTP status code "501 Not Implemented".”
+
+                       The same clause's NOTE 1 says no cause attribute is needed, the status carrying
+                       enough on its own. Checked before the dispatch below so a HEAD or a TRACE does
+                       not fall through it to a 400, which would claim the request was malformed. */
+                    if (method != OGS_SBI_HTTP_METHOD_POST && method != OGS_SBI_HTTP_METHOD_GET &&
+                        method != OGS_SBI_HTTP_METHOD_PUT && method != OGS_SBI_HTTP_METHOD_PATCH &&
+                        method != OGS_SBI_HTTP_METHOD_DELETE && method != OGS_SBI_HTTP_METHOD_OPTIONS) {
+                        ogs_error("Method [%s] is not supported by any resource of this API", method.c_str());
+                        ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_NOT_IMPLEMENTED, 0, message,
+                                                               app_meta, api, "Not Implemented",
+                                                               "Method not supported by any resource of this API"));
+                        return true;
+                    }
+
                     if (method == OGS_SBI_HTTP_METHOD_POST) {
                         ogs_debug("POST response: status = %i", message.resStatus());
                         std::shared_ptr<UserDataIngSession> user_data_ing_session = nullptr;
                         ogs_debug("Request body: %s", request.content());
+                        /* A body in a coding this NF cannot decode is refused before it is read, so the
+                           encoded octets never reach the JSON parser and get blamed on the document. */
+                        if (NfServer::refuseUnsupportedContentCoding(request, stream, 3, message, app_meta, api)) return true;
                         if (request.headerValue(OGS_SBI_CONTENT_TYPE, std::string()) != "application/json") {
                             ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_UNSUPPORTED_MEDIA_TYPE,
                                                                    3, message, app_meta, api, "Unsupported Media Type",
                                                                    "Expected content type: application/json"));
                             return true;
                         }
+                        if (request_too_large(request, stream, 3, message, app_meta, api)) return true;
                         CJson user_data_ing_sess(CJson::Null);
                         try {
                             user_data_ing_sess = CJson::parse(request.content());
@@ -414,6 +450,16 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
                             return true;
                         }
 
+                        // The client's requested suppFeat is stored here so that it reaches whichever path later
+                        // serialises the response: this resource completes its Create asynchronously (see
+                        // processDistributionSessionInfo() below), so the negotiated value cannot be echoed from here.
+                        // Feature negotiation is required by TS 29.500 cl.6.6.2.
+                        {
+                            const auto &mbs_user_data_ing_session = user_data_ing_session->getMBSUserIngSession();
+                            mbs_user_data_ing_session->setSuppFeat(
+                                    negotiate_supp_feat(mbs_user_data_ing_session->getSuppFeat()));
+                        }
+
                         if (!validate_state_setting_options(user_data_ing_session, stream, message, app_meta, api)) return true;
 
                         try {
@@ -428,12 +474,38 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
 
                         return true;
                     } else if (method == OGS_SBI_HTTP_METHOD_GET) {
+                        /* TS 29.500 V18.10.0 table 5.2.7.1-1 marks 406 mandatory for GET. This response is always
+                           application/json, so a client whose Accept header cannot take that is answered 406 rather than
+                           sent a body it did not ask for. */
+                        std::optional<std::string> accept_hdr;
+                        if (message.accept()) accept_hdr = message.accept();
+                        if (!NfServer::acceptsMediaType(accept_hdr, "application/json")) {
+                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_NOT_ACCEPTABLE, 1, message,
+                                                                    app_meta, api, "Not Acceptable",
+                                                                    "This resource is only available as application/json"));
+                            return true;
+                        }
                         if (!ptr_resource1) {
-                            std::ostringstream err;
-                            err << "Invalid resource [" << message.uri() << "]";
-                            ogs_error("%s", err.str().c_str());
-                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 1, message,
-                                                                    app_meta, api, "Bad Request", err.str()));
+                            /* TS 29.580 V18.8.0 clause 6.2.3.2.3.1: “The GET method allows an NF service consumer (e.g. AF, NEF) to retrieve all the active MBS User Data Ingest Sessions managed by the MBSF.”
+
+                               Table 6.2.3.2.3.1-3 gives the 200 response body as
+                               array(MBSUserDataIngSession) with cardinality 0..N, so an empty array
+                               answers an empty collection rather than a 404. The clause defines no
+                               headers table for the 200, so no entity-tag is sent: the collection has
+                               no single version for one to describe. */
+                            CJson ing_sessions(CJson::newArray());
+                            for (const auto &ing_sess : App::self().context()->allUserDataIngSessions()) {
+                                ing_sessions.append(ing_sess->json(false));
+                            }
+                            std::string body(ing_sessions.serialise());
+                            ogs_debug("MBS User Data Ingest Sessions collection: %s", body.c_str());
+                            std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(std::nullopt,
+                                                    "application/json", std::nullopt, std::nullopt,
+                                                    App::self().context()->cacheControl.MBSUserServiceMaxAge,
+                                                    std::nullopt, api, app_meta));
+                            ogs_assert(response);
+                            NfServer::populateResponse(response, body, OGS_SBI_HTTP_STATUS_OK);
+                            ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *response));
                             return true;
                         }
                         std::string user_data_ing_session_id(ptr_resource1);
@@ -441,6 +513,35 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
                             int response_code = 200;
 
                             std::shared_ptr<UserDataIngSession> user_data_ing_sess = find(user_data_ing_session_id);
+
+                            /* This resource emits an entity-tag, so it has to honour the conditional
+                               request headers that tag invites. RFC 9110 section 13.1.2 requires a
+                               matching If-None-Match on a safe method to be answered 304, and section
+                               13.1.1 requires a failing If-Match not to perform the method. */
+                            switch (evaluatePreconditions(request.headerValue("If-Match", std::string()),
+                                                          request.headerValue("If-None-Match", std::string()),
+                                                          user_data_ing_sess->hash(), true)) {
+                            case Precondition::NotModified: {
+                                std::shared_ptr<Open5GSSBIResponse> nm(NfServer::newResponse(std::nullopt,
+                                                        std::nullopt, user_data_ing_sess->generated(),
+                                                        user_data_ing_sess->hash().c_str(),
+                                                        App::self().context()->cacheControl.MBSUserServiceMaxAge,
+                                                        std::nullopt, api, app_meta));
+                                ogs_assert(nm);
+                                NfServer::populateResponse(nm, "", 304); // open5gs defines no constant for 304
+                                ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *nm));
+                                return true;
+                            }
+                            case Precondition::PreconditionFailed:
+                                ogs_assert(true == NfServer::sendError(stream,
+                                                        OGS_SBI_HTTP_STATUS_PRECONDITION_FAILED, 1, message,
+                                                        app_meta, api, "Precondition Failed",
+                                                        "The If-Match entity-tag does not match this resource"));
+                                return true;
+                            case Precondition::Proceed:
+                                break;
+                            }
+
                             CJson user_data_ing_session_json(user_data_ing_sess->json(false));
                             std::string body(user_data_ing_session_json.serialise());
                             ogs_debug("Parsed JSON: %s", body.c_str());
@@ -472,12 +573,16 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
                         }
                         std::string user_data_ing_session_id(ptr_resource1);
 
+                        /* A body in a coding this NF cannot decode is refused before it is read, so the
+                           encoded octets never reach the JSON parser and get blamed on the document. */
+                        if (NfServer::refuseUnsupportedContentCoding(request, stream, 3, message, app_meta, api)) return true;
                         if (request.headerValue(OGS_SBI_CONTENT_TYPE, std::string()) != "application/json") {
                             ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_UNSUPPORTED_MEDIA_TYPE,
                                                                    3, message, app_meta, api, "Unsupported Media Type",
                                                                    "Expected content type: application/json"));
                             return true;
                         }
+                        if (request_too_large(request, stream, 3, message, app_meta, api)) return true;
 
                         CJson user_data_ing_sess_update(CJson::Null);
                         try {
@@ -493,6 +598,26 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
                         {
                             std::string txt(user_data_ing_sess_update.serialise());
                             ogs_debug("Patch Request Parsed JSON: %s", txt.c_str());
+                        }
+
+                        // Reject actPeriods/actPeriodsRepRule given together, mirroring the
+                        // mutual-exclusion check validate_state_setting_options() already
+                        // enforces on POST (TS 29.580 clause 6: the two are mutually exclusive).
+                        // This is a PUT-only fix: PATCH on this resource is intentionally not
+                        // implemented yet (returns 404 above), so it is not affected.
+                        try {
+                            MBSUserDataIngSession update_model(user_data_ing_sess_update, true);
+                            if (update_model.getActPeriods() && update_model.getActPeriodsRepRule()) {
+                                std::map<std::string,std::string> invalid_params;
+                                invalid_params["actPeriods"] = "actPeriods cannot be present if actPeriodsRepRule is present";
+                                invalid_params["actPeriodsRepRule"] = "actPeriodsRepRule cannot be present if actPeriods is present";
+                                ogs_assert(true == NfServer::sendError(stream, ProblemCause::OPTIONAL_IE_INCORRECT, 3, message,
+                                                                        app_meta, api, std::nullopt, std::nullopt, std::nullopt, invalid_params));
+                                return true;
+                            }
+                        } catch (ModelException &ex) {
+                            send_model_error(ex, stream, 3, message, app_meta, api, "Problem with UserDataIngSession update", "Validating UserDataIngSession update");
+                            return true;
                         }
 
                         try {
@@ -514,15 +639,38 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
                             ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *response));
                         } catch (const std::out_of_range &e) {
                             send_invalid_user_data_ing_session_err(e, stream, 3, message, app_meta, api, user_data_ing_session_id);
+                        } catch (ModelException &ex) {
+                            // processUserDataIngSessionUpdate(), through updateMBSDistributionSessionInfo(), throws a
+                            // ModelException for an invalid update: PATCHing objDistrInfo or pckDistrInfo while the
+                            // Distribution Session is not INACTIVE is correctly rejected that way. Uncaught, the exception
+                            // leaves the SBI request handler and ends the process through std::terminate(), losing every
+                            // other active session over one bad client request. It is converted to an error response here,
+                            // the same way the actPeriods and actPeriodsRepRule validation above is.
+                            send_model_error(ex, stream, 3, message, app_meta, api, "Problem with UserDataIngSession update", "Applying UserDataIngSession update");
                         }
 
                         return true;
 
                     } else if (method == OGS_SBI_HTTP_METHOD_PATCH) {
 
-                        ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_NOT_FOUND, 2, message,
+                        /* NOT IMPLEMENTED, and answered as a refusal rather than left to look like
+                           a design decision. TS 29.580 V18.8.0 clause 6.2.3.3.3.3 defines PATCH on
+                           this resource, so this 405 is unfinished work.
+
+                           An implementation was written and withdrawn: it rebuilt the whole session
+                           from toJSON(true) and handed that to processUserDataIngSessionUpdate(),
+                           and the request form renders mbsDisSessInfos as an empty object, its
+                           entries being carried in the response form only. The update reads an empty
+                           map as "this session now has no distribution sessions" and tears every one
+                           of them down, so a patch of actPeriods alone, or an empty patch, ended a
+                           live broadcast. Applying a patch here needs a path that can change one
+                           attribute without restating the session, which the update path does not
+                           currently offer. */
+                        ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_METHOD_NOT_ALLOWED, 2, message,
                                                             app_meta, api, "Method not allowed",
-                                                            "The PATCH method is not allowed for this path"));
+                                                            "The PATCH method is not allowed for this path",
+                                                            std::nullopt, std::nullopt, std::nullopt,
+                                                            OGS_SBI_HTTP_METHOD_POST ", " OGS_SBI_HTTP_METHOD_GET ", " OGS_SBI_HTTP_METHOD_PUT ", " OGS_SBI_HTTP_METHOD_DELETE ", " OGS_SBI_HTTP_METHOD_OPTIONS));
 
                         return true;
 
@@ -554,8 +702,38 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
                             }
                             return true;
                         }
+                        if (!message.resourceComponent(1)) {
+                            /* No session identifier names the collection, which serves POST. The
+                               resource exists, so the refusal is 405 with the methods it serves.
+
+                               TS 29.500 V18.10.0 clause 5.2.7.2: “If the NF supports the HTTP method
+                               for several resources in the API, but not for the target resource of a
+                               given HTTP request, the NF shall reject the request with the HTTP status
+                               code "405 Method Not Allowed" and shall include in the response an Allow
+                               header field containing the supported method(s) for that resource.” */
+                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_METHOD_NOT_ALLOWED, 1,
+                                                                    message, app_meta, api, "Method Not Allowed",
+                                                                    "DELETE is not served on the MBS User Data Ingest Sessions collection",
+                                                                    std::nullopt, std::nullopt, std::nullopt,
+                                                                    std::string(OGS_SBI_HTTP_METHOD_POST ", " OGS_SBI_HTTP_METHOD_OPTIONS)));
+                            return true;
+                        }
+                        /* Components beyond the session identifier name no resource in this API.
+
+                           TS 29.500 V18.10.0 clause 5.2.7.2: “If the specified target resource does not
+                           exist, the NF shall reject the HTTP method with the HTTP status code "404 Not
+                           Found".” */
+                        ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_NOT_FOUND, 2, message,
+                                                                app_meta, api, "Not Found",
+                                                                "No such resource under an MBS User Data Ingest Session"));
+                        return true;
                     }  else if (method == OGS_SBI_HTTP_METHOD_OPTIONS) {
-                             std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(std::nullopt, std::nullopt, std::nullopt, std::nullopt, 0, OGS_SBI_HTTP_METHOD_POST ", " OGS_SBI_HTTP_METHOD_GET ", " OGS_SBI_HTTP_METHOD_DELETE ", " OGS_SBI_HTTP_METHOD_OPTIONS, api, app_meta));
+                             // Allow lists PUT but not PATCH. PUT is implemented (see the method dispatch above); the PATCH
+                             // branch above returns 404 unconditionally, and the PUT handler's own comment on the actPeriods
+                             // and actPeriodsRepRule check records that PATCH is deliberately not implemented on this resource
+                             // yet. Advertising a method in Allow that every request 404s would invite a client to retry
+                             // something that cannot succeed. Add PATCH here when it is wired up.
+                             std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(std::nullopt, std::nullopt, std::nullopt, std::nullopt, 0, OGS_SBI_HTTP_METHOD_POST ", " OGS_SBI_HTTP_METHOD_GET ", " OGS_SBI_HTTP_METHOD_PUT ", " OGS_SBI_HTTP_METHOD_DELETE ", " OGS_SBI_HTTP_METHOD_OPTIONS, api, app_meta));
                             NfServer::populateResponse(response, "", OGS_SBI_HTTP_STATUS_NO_CONTENT);
                             ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *response));
                             return true;
@@ -1074,7 +1252,10 @@ void UserDataIngSession::updateContexts(ogs_pool_id_t stream_id, const std::shar
                                         .ssm_port = port,
                                         .request = request,
                                         .streamId = stream_id,
-                                        .tsi = tsi
+                                        .tsi = tsi,
+                                        // See createMbsSession()'s comment: captured here (an
+                                        // instance method, has "this") rather than looked up later.
+                                        .userServType = mbsUserService() ? mbsUserService()->getMBSUserServiceType() : std::string{}
                                 });
                                 addToDistributionSessionInfos(key, ctx_data);
                                 createMbsSession(ctx_data);
@@ -1083,7 +1264,94 @@ void UserDataIngSession::updateContexts(ogs_pool_id_t stream_id, const std::shar
                                 ogs_error("Unable to resolve SSM addresses");
                                 continue;
                             }
+                        } else {
+                            /* A TMGI-only mbsSessionId, carrying no ssm, is accepted. TS29571_CommonData.yaml V18.12.0's
+                               MbsSessionId is anyOf[required: [tmgi], required: [ssm]], permitting either alone, and
+                               TS 29.580 V18.8.0 cl.5.3.2.2.2 requires no ssm for a session identified by tmgi. That is the
+                               shape a genuine Broadcast session carries, SSM being a Multicast-only concept (TS 23.247).
+                               There is then no AF-nominated transport address to build the Distribution Session from, so ssm
+                               is left null in ContextData; createMbsSession() and populate_mbstf_up_traffic_flow_info()
+                               (Nmb2Build.cc) both handle a null ssm by having this MBSF nominate its own addressing
+                               (Context::broadcastDistribution*, TS 26.502 V18.6.0 cl.4.5.6 and Annex B.3.1) rather than
+                               deriving one from an ssm a Broadcast session does not carry. */
+                            std::optional<std::shared_ptr<Tmgi> > tmgi = mbs_sess_id->getTmgi();
+                            if (tmgi.has_value()) {
+                                static std::random_device rd;
+                                static std::uniform_int_distribution<in_port_t> ud(32768, 65535);
+                                in_port_t port = ud(rd);
+                                uint64_t tsi = 0;
+                                if (info->getDistrMethod()->getValue() == DistributionMethod::VAL_OBJECT) {
+                                    tsi = get_next_tsi();
+                                }
+
+                                distribution_session_info.reset(new DistributionSessionInfo(info));
+                                ctx_data.reset(new ContextData{
+                                        .ingSessionId = m_UserDataIngSessionId,
+                                        .distSessionInfoKey = key,
+                                        .distributionSessionInfo = distribution_session_info,
+                                        .info = info,
+                                        .ssm = nullptr,
+                                        .ssm_port = port,
+                                        .request = request,
+                                        .streamId = stream_id,
+                                        .afSuppliedTmgi = tmgi.value(),
+                                        .tsi = tsi,
+                                        .userServType = mbsUserService() ? mbsUserService()->getMBSUserServiceType() : std::string{}
+                                });
+                                addToDistributionSessionInfos(key, ctx_data);
+                                createMbsSession(ctx_data);
+                            } else {
+                                /* Neither tmgi nor ssm present: not permitted by
+                                   TS29571_CommonData.yaml's MbsSessionId anyOf. Answer rather than
+                                   fall through in silence: the POST handler delegates its response
+                                   to this processing and returns, so falling through leaves the
+                                   request with no response at all. */
+                                ogs_error("MBS Distribution Session [%s] has an mbsSessionId with neither tmgi nor ssm", key.c_str());
+                                Open5GSSBIStream stream(stream_id);
+                                Open5GSSBIMessage message;
+                                message.parseHeader(*request);
+                                NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 3, message,
+                                                    App::self().mbsfAppMetadata(),
+                                                    g_nmbsf_userdataingsession_api_metadata,
+                                                    "mbsSessionId must contain a tmgi or an ssm",
+                                                    "TS29571_CommonData.yaml's MbsSessionId requires one of tmgi or ssm.");
+                                return;
+                            }
                         }
+                    } else {
+                        /* An absent mbsSessionId is accepted. TS 29.580 V18.8.0 clause 5.3.2.2.2: “if no MBS session
+                           identifier is provided, i.e. the "mbsSessionId" attribute is not present, the MBSF shall later
+                           request TMGI allocation as part of the creation of the corresponding MBS session at the
+                           MB-SMF”. No transport address is needed first: this branch's ssm stays null exactly as the
+                           TMGI-only branch's does two cases above, routing through the same "empty MBSMFMBSSession, this
+                           MBSF nominates its own Nmb9 address" path (createMbsSession(), Context::broadcastDistribution*).
+                           createMbsSession()'s own request_tmgi condition below covers this case, and from here on nothing
+                           distinguishes it from the TMGI-only one: MB-SMF allocates the TMGI, and UserDataIngSession::tmgi(),
+                           the MB-SMF create-result callback, writes it into the response's mbsSessionId.tmgi as it already
+                           does for that path. */
+                        static std::random_device rd;
+                        static std::uniform_int_distribution<in_port_t> ud(32768, 65535);
+                        in_port_t port = ud(rd);
+                        uint64_t tsi = 0;
+                        if (info->getDistrMethod()->getValue() == DistributionMethod::VAL_OBJECT) {
+                            tsi = get_next_tsi();
+                        }
+
+                        distribution_session_info.reset(new DistributionSessionInfo(info));
+                        ctx_data.reset(new ContextData{
+                                .ingSessionId = m_UserDataIngSessionId,
+                                .distSessionInfoKey = key,
+                                .distributionSessionInfo = distribution_session_info,
+                                .info = info,
+                                .ssm = nullptr,
+                                .ssm_port = port,
+                                .request = request,
+                                .streamId = stream_id,
+                                .tsi = tsi,
+                                .userServType = mbsUserService() ? mbsUserService()->getMBSUserServiceType() : std::string{}
+                        });
+                        addToDistributionSessionInfos(key, ctx_data);
+                        createMbsSession(ctx_data);
                     }
                 }
             }
@@ -1132,9 +1400,15 @@ void UserDataIngSession::userServiceAnnChannelDistributionSessionInfo()
                             const std::optional<std::string> &dest_ipv4_addr = dest_ip_addr->getIpv4Addr();
                             const std::optional<std::shared_ptr<Ipv6Addr>> &dest_ipv6_addr = dest_ip_addr->getIpv6Addr();
                             std::shared_ptr<Ssm> ssm_data(new Ssm(*ssm_val));
-                            static std::random_device rd;
-                            static std::uniform_int_distribution<in_port_t> ud(32768, 65535);
-                            in_port_t port = ud(rd);
+                            // The Service Announcement channel uses the configured ssmPort, not a freshly drawn random port.
+                            // A new random port per session is correct for the regular per-content-session branch above, but
+                            // the announcement channel has to be a single well-known channel a client can bootstrap from
+                            // static configuration: mbsf.yaml's userServiceAnnouncement.ssmPort and the matching
+                            // mbsf_client.announcement_channel in rt-mbs-client.conf. A random port here would leave MBSTF
+                            // transmitting the FLUTE carousel on an unpredictable port while a client listening on the
+                            // configured one silently discarded every packet. Context::userServiceAnnSsmPort() carries the
+                            // configured value.
+                            in_port_t port = static_cast<in_port_t>(App::self().context()->userServiceAnnSsmPort());
                             uint64_t tsi = 0;
                             if (info->getDistrMethod()->getValue() == DistributionMethod::VAL_OBJECT) {
                                 tsi = 1;
@@ -1151,7 +1425,11 @@ void UserDataIngSession::userServiceAnnChannelDistributionSessionInfo()
                                         .ssm_port = port,
                                         .request = nullptr,
                                         .streamId = 0,
-                                        .tsi = tsi
+                                        .tsi = tsi,
+                                        // This is the built-in Service Announcement carousel
+                                        // channel (see this method's name) -- MBS-4-MC Service
+                                        // Announcement is inherently a broadcast delivery, always.
+                                        .userServType = std::string("BROADCAST")
                                 });
                                 addToDistributionSessionInfos(key, ctx_data);
                                 nmbstfDiscoverOnly(ctx_data);
@@ -1227,16 +1505,101 @@ void UserDataIngSession::processUserDataIngSessionUpdate(ogs_pool_id_t stream_id
                     // update
                     std::shared_ptr<MBSDistributionSessionInfo> update_info = sess_info_update.value();
 
-                    // Copy old MBS Dist Session Id
-                    update_info->setMbsDistSessionId(info->getMbsDistSessionId());
+                    // TS 29.580 V18.8.0 clause 5.3.2.4.2 names mbsSessionId, mbsDistSessionId and
+                    // locationDependent as "attributes, which shall never be updated after being
+                    // provisioned" (the attribute names are omitted from the quotation: the
+                    // specification writes each inside its own quotation marks, which cannot be
+                    // nested in a quoted sentence).
+                    //
+                    // An update touching any of those three is rejected rather than silently restored from the stored
+                    // value: restoring honours the clause in substance, but answers 200 or 204, leaving a client no
+                    // way to learn its change was discarded. This matches how the structurally identical obligation on
+                    // the sibling MBSUserService resource is enforced, TS 29.580 clause 5.2.2.4.2, "Only the 'servType'
+                    // attribute shall not be updated", which UserService::update() rejects outright.
+                    {
+                        const auto &new_dist_sess_id = update_info->getMbsDistSessionId();
+                        const auto &old_dist_sess_id = info->getMbsDistSessionId();
+                        if (new_dist_sess_id != old_dist_sess_id) {
+                            throw ModelException("mbsDistSessionId cannot be changed once provisioned",
+                                    "MBSDistributionSessionInfo", "mbsDistSessionId",
+                                    fiveg_mag_reftools::ProblemCause::MANDATORY_IE_INCORRECT);
+                        }
+                    }
+                    {
+                        const auto &new_mbs_sess_id = update_info->getMbsSessionId();
+                        const auto &old_mbs_sess_id = info->getMbsSessionId();
+                        bool mbs_sess_id_differs = new_mbs_sess_id.has_value() != old_mbs_sess_id.has_value() ||
+                                (new_mbs_sess_id.has_value() && new_mbs_sess_id.value() != old_mbs_sess_id.value() &&
+                                 *(new_mbs_sess_id.value()) != *(old_mbs_sess_id.value()));
+                        if (mbs_sess_id_differs) {
+                            throw ModelException("mbsSessionId cannot be changed once provisioned",
+                                    "MBSDistributionSessionInfo", "mbsSessionId",
+                                    fiveg_mag_reftools::ProblemCause::MANDATORY_IE_INCORRECT);
+                        }
+                    }
+                    {
+                        const auto &new_location_dependent = update_info->getLocationDependent();
+                        const auto &old_location_dependent = info->getLocationDependent();
+                        if (new_location_dependent != old_location_dependent) {
+                            throw ModelException("locationDependent cannot be changed once provisioned",
+                                    "MBSDistributionSessionInfo", "locationDependent",
+                                    fiveg_mag_reftools::ProblemCause::MANDATORY_IE_INCORRECT);
+                        }
+                    }
 
-                    if (*update_info != *info) {
+                    // The three are now confirmed unchanged; restore them from the stored value
+                    // regardless (defends against e.g. an mbsSessionId whose has_value() and
+                    // operator== both agree but some other field the model doesn't compare
+                    // differs) before the content_changed comparison below.
+                    update_info->setMbsDistSessionId(info->getMbsDistSessionId());
+                    update_info->setMbsSessionId(info->getMbsSessionId());
+                    update_info->setLocationDependent(info->getLocationDependent());
+
+                    // The comparison normalises mbsDistSessState out first, so a PUT that changes only the state is
+                    // classified as a stateUpdate rather than a needsUpdate. mbsDistSessState is part of
+                    // MBSDistributionSessionInfo::operator!=, and activate/deactivate is the common case since this
+                    // API has no separate state-only endpoint, so comparing unnormalised would send every one of them
+                    // down the needsUpdate branch, rebuilding and PATCHing the entire MBSTF distribution session
+                    // instead of using the lightweight state-only path built for it (setDistSessionState() and
+                    // buildNmb2DistSessionPatch()'s distSessionState branch). A change to anything else still counts
+                    // as needsUpdate whether or not the state changed too: that path's rebuilt DistSession carries
+                    // the new state with it.
+                    const auto orig_update_state = update_info->getMbsDistSessState();
+                    update_info->setMbsDistSessState(info->getMbsDistSessState());
+                    bool content_changed = (*update_info != *info);
+                    update_info->setMbsDistSessState(orig_update_state);
+
+                    if (content_changed) {
                         context_data->needsUpdate = true;
                         context_data->distributionSessionInfo->updateMBSDistributionSessionInfo(update_info);
+                    } else if (orig_update_state != info->getMbsDistSessState()) {
+                        context_data->stateUpdate = true;
+                        info->setMbsDistSessState(orig_update_state);
+                        // buildNmb2DistSessionPatch()'s stateUpdate branch reads the wanted
+                        // state off context_data->info, which is normally the same object as
+                        // this loop's info -- set both explicitly rather than relying on that
+                        // aliasing.
+                        if (context_data->info && context_data->info != info) {
+                            context_data->info->setMbsDistSessState(orig_update_state);
+                        }
                     }
                 }
                 update_dist_sess_infos.erase(key_in_update);
-                present_in_update = true;
+                /* A map entry carrying NULL is a deletion request, not a description of a session to
+                   keep, so it must not mark the stored session as present. Leaving present_in_update
+                   false lets the !present_in_update branch below remove it.
+
+                   TS 29.580 V18.8.0 clause 5.3.2.4.2: “if an existing MBS Distribution Session shall
+                   be deleted, the AF shall include the corresponding map entry set to the value
+                   "NULL" within the "mbsDisSessInfos" attribute with the map key set to its
+                   string-based map key provisioned during the request that initially created the MBS
+                   Distribution Session.”
+
+                   The erase above still happens for a NULL entry, so the add loop that follows does
+                   not resurrect it as a new session. */
+                if (sess_info_update.has_value() && sess_info_update.value()) {
+                    present_in_update = true;
+                }
                 break;
             }
         }
@@ -1552,19 +1915,54 @@ bool UserDataIngSession::sendNmbsfMbsUserDataIngestResponse(const std::shared_pt
             ing_sess->userServiceAnnouncement(nullptr);
         }
 
-        if (ing_sess->mbsUserService() && ing_sess->mbsUserService()->requiresUserServiceAnnouncement() &&
+        // This gate must admit a VIA_MBS_5-only service as well, not only VIA_MBS_DISTRIBUTION_SESSION;
+        // see UserDataIngSession::requiresUserServiceAnnouncement() for the reasoning. Gating on that
+        // function alone would stop configureUserServiceAnnouncementBundler() being reached at all for
+        // such a service.
+        if (ing_sess->mbsUserService() && ing_sess->mbsUserService()->requiresUserServiceAnnouncementBundle() &&
                         ing_sess->checkIfAllMBSDistributionSessionsEstablishedOrActive() )
         {
             ing_sess->configureUserServiceAnnouncementBundler();
 
         }
 
+        /* Any Distribution Session the MB-SMF rejected while others succeeded is reported in this
+           representation, not as an error. attachFailedDistSessions() is a no-op when the outcome was
+           not mixed, so the wholly successful case is unchanged. */
+        ing_sess->attachFailedDistSessions();
+
+        /* A narrowed MBS Service Area belongs in an update response only.
+           TS 29.580 V18.8.0 clause 6.2.6.2.2, redMbsServAreaInfo: “This attribute may be present only in a response to an MBS User Data Ingest Session update/modification request.”
+           A create is therefore excluded even where the MB-SMF reduced the area, and so is a consumer
+           that did not negotiate MBSErrorHandling, which the row's own applicability column requires. */
+        if (ing_sess->mbsErrorHandlingNegotiated() &&
+            ogs_strcasecmp(message.method(), OGS_SBI_HTTP_METHOD_POST) != 0) {
+            ing_sess->attachReducedServiceAreas();
+        }
+
+        /* TS 29.580 V18.8.0 clause 6.2.6.2.2, redMbsServAreaInfo: “This attribute may be present only in a response to an MBS User Data Ingest Session update/modification request.”
+           So not on the create that first establishes the sessions, whatever the MB-SMF retained. */
+        if (ing_sess->mbsErrorHandlingNegotiated() && message.method() != std::string(OGS_SBI_HTTP_METHOD_POST)) {
+            ing_sess->attachReducedServiceAreas();
+        }
+
         CJson user_data_ing_sess_json(ing_sess->json(false));
         std::string body(user_data_ing_sess_json.serialise());
         ogs_debug("Response Parsed JSON: %s", body.c_str());
-        std::ostringstream location;
-        location << request->uri() << "/" << ing_sess->userDataIngSessionId();
-        std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(location.str(),
+        /* The absolute URI of the created resource, not a path: a consumer behind an SCP takes the
+           apiRoot from this header, and a path carries none. Same reasoning and the same helper as
+           the MBS User Service create. */
+        std::string location(NfServer::resourceUri(stream, message,
+                                {std::string(message.resourceComponent(0)),
+                                 ing_sess->userDataIngSessionId()}));
+        if (location.empty()) {
+            std::ostringstream fallback;
+            fallback << request->uri() << "/" << ing_sess->userDataIngSessionId();
+            location = fallback.str();
+            ogs_warn("Could not determine this server's own URI; the Location header carries a path "
+                     "with no apiRoot");
+        }
+        std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(location,
                             body.empty()?nullptr:"application/json",
                             ing_sess->generated(),
                             ing_sess->hash().c_str(),
@@ -1631,15 +2029,37 @@ bool UserDataIngSession::handleMbstfDiscover(ogs_sbi_nf_instance_t *nf_instance,
 
 bool UserDataIngSession::createMbsSession(const std::shared_ptr<UserDataIngSession::ContextData> &context_data)
 {
-    const auto &ssm_ptr = context_data->ssm;
-    if (!ssm_ptr) ogs_error("Unable to get SSM from Context Data");
+    // Returns early when a session object already exists for this context, rather than building a new
+    // MBSMFMBSSession and its underlying mb_smf_sc_mbs_session_new_ipv4()/_ipv6() C object and then
+    // discarding it. isMBSSessionCreated() turns true only once the MB-SMF session reaches CREATED
+    // state, which never happens if MBSTF rejects the distribution session, and
+    // userServiceAnnChannelDistributionSessionInfo()'s periodic "if (!isMBSSessionCreated(key))
+    // createMbsSession(...)" check calls this on every workerLoop iteration. Rebuilding the C session
+    // object and re-notifying MB-SMF each time would be an unbounded loop at the loop's own tick rate.
+    // The caller's retry-driving state (MBSSessionStatus, receivedMBSTFResponse) is what progresses
+    // this, not another rebuild.
+    if (context_data->MBSSession) {
+        ogs_debug("createMbsSession: MBS Session already exists for this context, not recreating");
+        return true;
+    }
 
-    const auto &dest_ip_addr = ssm_ptr->getDestIpAddr();
-    const auto &dest_ipv4_addr = dest_ip_addr?dest_ip_addr->getIpv4Addr():std::nullopt;
-    const auto &dest_ipv6_addr = dest_ip_addr?dest_ip_addr->getIpv6Addr():std::nullopt;
-    const auto &src_ip_addr = ssm_ptr->getSourceIpAddr();
-    const auto &src_ipv4_addr = src_ip_addr?src_ip_addr->getIpv4Addr():std::nullopt;
-    const auto &src_ipv6_addr = src_ip_addr?src_ip_addr->getIpv6Addr():std::nullopt;
+    const auto &ssm_ptr = context_data->ssm;
+    // ssm_ptr is null for a genuine Broadcast Distribution Session, which carries a TMGI-only
+    // mbsSessionId and no AF-supplied SSM: TS29571_CommonData.yaml's MbsSessionId permits tmgi alone
+    // and TS 29.580 cl.5.3.2.2.2 does not require ssm. Leaving all four *_addr optionals unset routes
+    // a null ssm_ptr into the "!src_ipv4_addr && !src_ipv6_addr" empty-MBSMFMBSSession branch below,
+    // which builds the no-SSM session correctly (mb_smf_sc_mbs_session_new(), setTunnelRequest(true)).
+    // Reading ssm_ptr->getDestIpAddr() here instead would dereference null.
+    std::optional<std::string> dest_ipv4_addr, src_ipv4_addr;
+    std::optional<std::shared_ptr<Ipv6Addr>> dest_ipv6_addr, src_ipv6_addr;
+    if (ssm_ptr) {
+        const auto &dest_ip_addr = ssm_ptr->getDestIpAddr();
+        dest_ipv4_addr = dest_ip_addr?dest_ip_addr->getIpv4Addr():std::nullopt;
+        dest_ipv6_addr = dest_ip_addr?dest_ip_addr->getIpv6Addr():std::nullopt;
+        const auto &src_ip_addr = ssm_ptr->getSourceIpAddr();
+        src_ipv4_addr = src_ip_addr?src_ip_addr->getIpv4Addr():std::nullopt;
+        src_ipv6_addr = src_ip_addr?src_ip_addr->getIpv6Addr():std::nullopt;
+    }
 
     std::shared_ptr<MBSMFMBSSession> mb_smf_mbs_session = nullptr;
     if (!src_ipv4_addr && !src_ipv6_addr) {
@@ -1713,17 +2133,77 @@ bool UserDataIngSession::createMbsSession(const std::shared_ptr<UserDataIngSessi
        return false;
     }
 
-    if (mb_smf_mbs_session->ssm()) {
+    // This block runs whether or not the MBSMFMBSSession carries an SSM. None of it is SSM-specific:
+    // populate_mb_smf_mbs_session() reads only context_data->info fields, and setServiceType() and
+    // setCallback() are the only way the MB-SMF session just created is told its service type or
+    // reports back. Gating it on ssm() would leave a genuine Broadcast (TMGI-only) Distribution
+    // Session created locally but never announced to MB-SMF, with no caller notified of completion.
+    // code-derived, no spec claim.
+    {
 
         mb_smf_mbs_session->setTunnelRequest(true);
-        mb_smf_mbs_session->setTmgiRequest(true);
+        /* TS 29.580 V18.8.0 clause 5.3.2.2.2 gives two triggers for TMGI allocation, evaluated per
+           map entry of mbsDisSessInfos:
 
-        mb_smf_mbs_session->setServiceType(MBS_SERVICE_TYPE_MULTICAST);
+             “if no MBS session identifier is provided, i.e. the "mbsSessionId" attribute is not
+              present, the MBSF shall later request TMGI allocation as part of the creation of the
+              corresponding MBS session at the MB-SMF; and”
+
+             “if a source specific multicast address (SSM) is provided within the "mbsSessionId"
+              attribute and the "locationDependent" attribute is present and set to "true" (i.e. to
+              indicate a location dependent MBS service), the MBSF shall also request TMGI
+              allocation as part of the creation of the corresponding MBS session at the MB-SMF.”
+
+           The second is an additional case, not a narrowing of the first: an absent mbsSessionId
+           requires a TMGI whatever locationDependent says, because there is otherwise no identifier
+           for the session at all.
+
+           The test is on the provisioned mbsSessionId, not on the SSM resolved above, which is
+           present here either way. */
+        bool request_tmgi = false;
+        if (context_data->info) {
+            const std::optional<std::shared_ptr<MbsSessionId> > &mbs_session_id =
+                    context_data->info->getMbsSessionId();
+            if (!mbs_session_id.has_value() || !mbs_session_id.value()) {
+                request_tmgi = true;
+            } else {
+                const std::optional<bool> &location_dependent = context_data->info->getLocationDependent();
+                if (mbs_session_id.value()->getSsm().has_value() &&
+                    location_dependent.has_value() && location_dependent.value()) {
+                    request_tmgi = true;
+                }
+            }
+        }
+        // Three mutually-exclusive states, per the vendored mb-smf-service-consumer library's
+        // own contract (mbs-session.h's own documented contract for
+        // mb_smf_sc_mbs_session_set_tmgi(): setting a TMGI and the TMGI-request flag are
+        // mutually exclusive): an AF-supplied TMGI (context_data->afSuppliedTmgi, parsed from
+        // mbsSessionId.tmgi), a request for MB-SMF to allocate one (request_tmgi, computed
+        // above), or neither. request_tmgi as computed above can never be true at the same
+        // time as afSuppliedTmgi is set (it is only set when mbsSessionId is absent, or when
+        // an SSM -- not a tmgi -- was supplied with locationDependent=true), so the two
+        // branches are not a priority order in practice, but afSuppliedTmgi is checked first
+        // to honour the library's own mutual-exclusivity rule regardless.
+        if (context_data->afSuppliedTmgi) {
+            mb_smf_mbs_session->setTmgi(context_data->afSuppliedTmgi);
+        } else if (request_tmgi) {
+            mb_smf_mbs_session->setTmgiRequest(true);
+        }
+
+        // The service type sent to the SMF and MB-SMF comes from the parent MBS User Service's own
+        // servType, read through UserService::getMBSUserServiceType(), not a fixed value. SMF's Nmbsmf
+        // handler (n4mb-handler.c) makes the Namf_MBSBroadcast context-create call, the step that drives
+        // NGAP Broadcast Session Setup to the gNB, only "if the service type is broadcast service"
+        // (TS 23.247 cl.7.3.1 step 2); for MULTICAST it correctly does nothing here, multicast UE-join
+        // being a separate Namf_MBSCommunication procedure. Sending MULTICAST for a BROADCAST service
+        // would therefore let PFCP/N4mb and MBSTF FLUTE transmission complete while NGAP never reached
+        // the gNB, leaving no MRB for the session and content with no bearer, and no error anywhere.
+        mb_smf_mbs_session->setServiceType(
+            ogs_strcasecmp(context_data->userServType.c_str(), "BROADCAST") == 0
+                ? MBS_SERVICE_TYPE_BROADCAST : MBS_SERVICE_TYPE_MULTICAST);
         if (!context_data->MBSSession) context_data->MBSSession = mb_smf_mbs_session;
         mb_smf_mbs_session->setCallback(UserDataIngDistSessId(context_data->ingSessionId, context_data->distSessionInfoKey));
         populate_mb_smf_mbs_session(context_data, mb_smf_mbs_session);
-    } else {
-        ogs_info("MB-SMF SSM is not present");
     }
 
     return true;
@@ -2069,7 +2549,12 @@ void UserDataIngSession::setMBSSessionFlag(const UserDataIngDistSessId &ids)
 void UserDataIngSession::setMBSSessionDeleted(const UserDataIngDistSessId &ids)
 {
     try {
-        std::shared_ptr<UserDataIngSession> ing_sess = find(ids.first);
+        // locate(), not find(): the announcement channel's own MBS User Data Ingest Session is
+        // constructed directly by UserServiceAnnChannel rather than through
+        // Context::addUserDataIngSession(), so find()'s lookup can never succeed for it and MB-SMF
+        // deletion handling for that session would always throw "does not exist" below and do nothing.
+        // setMBSSessionFlag() above uses locate() for the same reason.
+        std::shared_ptr<UserDataIngSession> ing_sess = locate(ids.first);
         std::shared_ptr<ContextData> context_data = ing_sess->getDistributionSessionInfoData(ids.second);
         context_data->MBSSessionStatus = MBSSessionState::DELETED;
         if (ing_sess->checkIfAllMBSSessionDeletionsReceived()) {
@@ -2083,8 +2568,16 @@ void UserDataIngSession::setMBSSessionDeleted(const UserDataIngDistSessId &ids)
             }
             ing_sess->m_deleteRequests.clear();
             if (context_data->markForDeletion) {
-                removeFromRegistry(ids.second);
-                ing_sess->removeDistributionSessionInfo(ids.first);
+                // The keys come from context_data's own fields, not from the ids pair: removeFromRegistry() is
+                // keyed by the MBSTF-assigned distribution session ID while removeDistributionSessionInfo() is
+                // keyed by distSessionInfoKey, and the ids pair holds them the other way round. erase() by a
+                // wrong key no-ops with no exception and no log, so s_distSessionIdRegistry and
+                // m_distributionSessionInfos would never be cleared, leaving the deleted session's MbsSessionId
+                // and its SSM address registered in Context::m_mbsSessionIds for the life of the process; the
+                // next create reusing that SSM then trips Context::addMbsSessionId's "Attempt to insert
+                // duplicate" warning.
+                removeFromRegistry(context_data->mbstfDistSessionId);
+                ing_sess->removeDistributionSessionInfo(context_data->distSessionInfoKey);
             }
             App::self().context()->deleteUserDataIngSession(ing_sess->m_UserDataIngSessionId);
         }
@@ -2099,10 +2592,20 @@ void UserDataIngSession::setMBSSessionFailureFlag(const UserDataIngDistSessId &i
 {
     std::string ids_first(ids.first);
     try {
-        std::shared_ptr<UserDataIngSession> ing_sess = find(ids.first);
+        // locate() rather than find(), for the reason given in setMBSSessionDeleted() above: find()
+        // always throws for the announcement channel's own MBS Session, so a failed MB-SMF Create for it
+        // could never be recorded and would fall through to the catch below.
+        std::shared_ptr<UserDataIngSession> ing_sess = locate(ids.first);
         std::shared_ptr<ContextData> context_data = ing_sess->getDistributionSessionInfoData(ids.second);
         context_data->MBSSessionStatus = MBSSessionState::FAILED;
         //context_data->hasMBSSession = true;
+        /* Keep what the MB-SMF said about this session, not just that it failed. handleFailedMBSSession()
+           reports a failure from the stored fields rather than from this call's arguments, and they were
+           never written, so every failure it reported arrived as a bare INBOUND_SERVER_ERROR carrying
+           print_mbs_session_error()'s fixed wording, whatever the MB-SMF had actually returned. The cause
+           is in hand here; storing it is what lets the reported error match the real one. */
+        context_data->mbsmfProblemCause = cause;
+        context_data->mbsmfProblemDetailJson = problem_detail_json;
         if (ing_sess->checkIfAllMBSSessionResponsesReceived()) {
             populateAndSendError(new UserDataIngDistSessId(ids), cause, problem_detail_json);
             App::self().context()->deleteUserDataIngSession(ids_first);
@@ -2114,15 +2617,142 @@ void UserDataIngSession::setMBSSessionFailureFlag(const UserDataIngDistSessId &i
     }
 }
 
+bool UserDataIngSession::mbsErrorHandlingNegotiated() const
+{
+    /* TS 29.580 V18.8.0 table 6.2.8-1 numbers MBSErrorHandling 3, so bit 3 (value 4) of the negotiated
+       bitmask. The encoding is TS 29.571's SupportedFeatures: each hex character carries four features
+       and the last character carries features 1 to 4, which is the only character this API can use. */
+    const auto &supp_feat = m_MBSUserDataIngSession->getSuppFeat();
+    if (!supp_feat.has_value() || supp_feat->empty()) return false;
+    char last = supp_feat->back();
+    unsigned mask = 0;
+    if (last >= '0' && last <= '9') mask = (unsigned)(last - '0');
+    else if (last >= 'a' && last <= 'f') mask = (unsigned)(last - 'a' + 10);
+    else if (last >= 'A' && last <= 'F') mask = (unsigned)(last - 'A' + 10);
+    return (mask & 0x4) != 0;
+}
+
+void UserDataIngSession::recordDistSessionFailure(const std::string &dist_session_info_key,
+                                                  const std::shared_ptr<ContextData> &context_data)
+{
+    /* The cause is relayed from what the MB-SMF said rather than re-derived, which is what the feature
+       asks for: TS 29.580 V18.8.0 table 6.2.8-1 lists "Support of the missing MBS Session related error
+       handling procedures to enable end-to-end relaying of errors" among MBSErrorHandling's
+       functionalities. DistSessionFailure carries an OTHER value and keeps the original string, so a
+       cause this API does not name is passed through intact instead of being flattened or guessed. */
+    auto failure = std::make_shared<reftools::mbsf::MbsDistSessFailure>();
+    auto cause = std::make_shared<reftools::mbsf::DistSessionFailure>();
+
+    std::string cause_str;
+    if (context_data->mbsmfProblemDetailJson.has_value()) {
+        CJson cause_node = context_data->mbsmfProblemDetailJson->getObjectItemCaseSensitive("cause");
+        if (!cause_node.isNull() && cause_node.isString()) cause_str = std::string(cause_node);
+    }
+    if (!cause_str.empty()) {
+        cause->fromString(cause_str);
+    } else {
+        /* No cause on the wire. UNSPECIFIED would be a guess at which of the six applied, so the
+           relayed value stays empty-stringed through OTHER rather than naming a cause the MB-SMF
+           never gave. */
+        cause->fromString(std::string("OTHER"));
+    }
+    failure->setCause(cause);
+    m_failedDistSessions[dist_session_info_key] = failure;
+}
+
+void UserDataIngSession::attachFailedDistSessions()
+{
+    if (m_failedDistSessions.empty()) return;
+
+    auto sets = std::make_shared<reftools::mbsf::MbsDistSessFailureSets>();
+    reftools::mbsf::MbsDistSessFailureSets::CausesType causes;
+    for (const auto &[key, failure] : m_failedDistSessions) causes[key] = failure;
+    sets->setCauses(std::move(causes));
+    m_MBSUserDataIngSession->setFailedDistSessions(sets);
+}
+
+void UserDataIngSession::attachReducedServiceAreas()
+{
+    /* The MB-SMF may accept only part of a requested MBS Service Area and keep the rest. Where it does,
+       the consumer is told which sessions were narrowed and to what.
+
+       TS 29.580 V18.8.0 clause 6.2.6.2.2, redMbsServAreaInfo: “Contains the MBS Distribution Session(s) for which the provided MBS Service Area was only partially accepted by the MB-SMF and the corresponding retained (reduced) MBS Service Area.”
+
+       Keyed by the consumer's own map key, as the same row requires, so a session can be identified.
+       The read-back this uses was added earlier and had no consumer until now. */
+    std::lock_guard<decltype(m_distSessInfosMutex)::element_type> lock(*m_distSessInfosMutex);
+
+    MBSUserDataIngSession::RedMbsServAreaInfoType::value_type areas;
+    for (const auto &[key, context_data] : m_distributionSessionInfos) {
+        if (!context_data || !context_data->MBSSession) continue;
+        std::shared_ptr<MbsServiceArea> reduced = context_data->MBSSession->getReducedServiceArea();
+        if (!reduced) continue;
+        auto entry = std::make_shared<reftools::mbsf::ReducedMbsServArea>();
+        entry->setReducedMbsServArea(reduced);
+        areas[key] = entry;
+    }
+    if (areas.empty()) return;
+    m_MBSUserDataIngSession->setRedMbsServAreaInfo(std::move(areas));
+}
+
 void UserDataIngSession::handleFailedMBSSession()
 {
     std::lock_guard<decltype(m_distSessInfosMutex)::element_type> lock(*m_distSessInfosMutex);
+
+    /* Collected before anything is removed, because the partial path mutates the map it walks. */
+    std::vector<std::string> failed_keys;
+    size_t succeeded = 0;
     for (const auto &dist_sess_info : m_distributionSessionInfos) {
         if (dist_sess_info.second->MBSSessionStatus == MBSSessionState::FAILED) {
-            UserDataIngDistSessId *ids = new UserDataIngDistSessId(dist_sess_info.second->ingSessionId,
-                                                                   dist_sess_info.second->distSessionInfoKey);
-            populateAndSendError(ids, dist_sess_info.second->mbsmfProblemCause, dist_sess_info.second->mbsmfProblemDetailJson);
+            failed_keys.push_back(dist_sess_info.first);
+        } else {
+            succeeded++;
         }
+    }
+
+    /* A mixed outcome is reported rather than rejected, so the sessions that were created stay created.
+       TS 29.580 V18.8.0 clause 6.2.6.2.2, failedDistSessions: “This attribute may be present only in responses from the MBSF and only when the creation/update of at least one of the requested/targeted MBS Distribution Session(s) failed and the creation/update of at least one of the requested/targeted MBS Distribution Session(s) succeeded.”
+       Both halves of that condition are required here, so an all-failed outcome still goes down the
+       error path below and a wholly successful one never reaches this function.
+
+       Gated on the feature having been negotiated: a consumer that did not ask for MBSErrorHandling is
+       answered exactly as before, which is the behaviour its request was written against. */
+    if (mbsErrorHandlingNegotiated() && succeeded > 0 && !failed_keys.empty()) {
+        for (const auto &key : failed_keys) {
+            std::shared_ptr<ContextData> context_data = getDistributionSessionInfoData(key);
+            if (!context_data) continue;
+            recordDistSessionFailure(key, context_data);
+        }
+        for (const auto &key : failed_keys) {
+            removeDistributionSessionInfo(key);
+        }
+        ogs_info("%zu MBS Distribution Session(s) failed and %zu succeeded; reporting the failures in "
+                 "the response rather than rejecting the request", failed_keys.size(), succeeded);
+        return;
+    }
+
+    /* One error, not one per failed session. Every Distribution Session of a request shares the stream
+       the request arrived on (each context is built with the same stream_id, see updateContexts()), so
+       sending from inside the loop answered a single request once per failure.
+
+       RFC 9110 section 15: “A single request can have multiple associated responses: zero or more "interim" (non-final) responses with status codes in the "informational" (1xx) range, followed by exactly one "final" response with a status code in one of the other ranges.”
+
+       The first failure is the one answered, and it is the whole request that failed: this point is
+       only reached when no session succeeded, or when the consumer did not negotiate MBSErrorHandling
+       and so cannot be told which of them did. The rest are logged so nothing is lost silently. */
+    bool answered = false;
+    for (const auto &dist_sess_info : m_distributionSessionInfos) {
+        if (dist_sess_info.second->MBSSessionStatus != MBSSessionState::FAILED) continue;
+        if (answered) {
+            ogs_warn("MBS Distribution Session [%s] also failed; not answered separately, the request "
+                     "has already had its one response",
+                     dist_sess_info.second->distSessionInfoKey.c_str());
+            continue;
+        }
+        UserDataIngDistSessId *ids = new UserDataIngDistSessId(dist_sess_info.second->ingSessionId,
+                                                               dist_sess_info.second->distSessionInfoKey);
+        populateAndSendError(ids, dist_sess_info.second->mbsmfProblemCause, dist_sess_info.second->mbsmfProblemDetailJson);
+        answered = true;
     }
 }
 
@@ -2152,15 +2782,29 @@ void UserDataIngSession::setMBSTFDistSessionDeletedFlag(const std::string &dist_
             ogs_debug("Deleting MBS Session for Dist Session %s", dist_session_id.c_str());
             context_data->MBSSession->deleteSession();
         }
-        //if (context_data->markForDeletion) {
-            //removeFromRegistry(dist_session_id);
-            //ing_sess->removeDistributionSessionInfo(ids->first);
-            //return;
-        //}
+        // dist_session_id, this function's own parameter, is already the registry key; no field lookup is
+        // needed. removeDistributionSessionInfo() is keyed by distSessionInfoKey rather than by the
+        // ingSessionId UUID, and erase() by the wrong key no-ops silently, so passing the wrong one here
+        // would leave the session in s_distSessionIdRegistry and m_distributionSessionInfos and never drop
+        // the UserDataIngSession's last shared_ptr. Its MbsSessionId and SSM address would then stay in
+        // Context::m_mbsSessionIds for the life of the process, and the next create reusing that SSM would
+        // trip Context::addMbsSessionId's "Attempt to insert duplicate" warning.
+        if (context_data->markForDeletion) {
+            removeFromRegistry(dist_session_id);
+            ing_sess->removeDistributionSessionInfo(context_data->distSessionInfoKey);
+            return;
+        }
     }
-    //if (ing_sess->checkIfAllMBSTFDistSessionDeleted()) {
-    //    App::self().context()->deleteUserDataIngSession(ing_sess->m_UserDataIngSessionId);
-    //}
+    // deleteUserDataIngSession() is deliberately not called here. setMBSSessionDeleted() is the
+    // authoritative "whole ingest session torn down" trigger: it sends the deferred DELETE responses
+    // queued in m_deleteRequests before destroying the session, gated on
+    // checkIfAllMBSSessionDeletionsReceived(). A normal delete fires both this function, for the MBSTF
+    // distribution session, and setMBSSessionDeleted(), for the MB-SMF MBS Session, against the same
+    // logical session; destroying the UserDataIngSession from here would race the two and can win,
+    // leaving setMBSSessionDeleted() unable to send its queued response and the client's DELETE
+    // waiting for one that can no longer come. checkIfAllMBSTFDistSessionDeleted() still runs for its
+    // s_distSessionIdRegistry cleanup, and omits the same call for the same reason.
+    ing_sess->checkIfAllMBSTFDistSessionDeleted();
 }
 
 void UserDataIngSession::populateAndSendError(UserDataIngDistSessId *ids, const std::optional<fiveg_mag_reftools::ProblemCause> &cause, const std::optional<CJson> &problem_detail_json)
@@ -2193,9 +2837,53 @@ void UserDataIngSession::populateAndSendError(UserDataIngDistSessId *ids, const 
 
     std::ostringstream err;
 
-    std::string error = print_mbs_session_error(context_data);
+    // An upstream problem detail is preferred over print_mbs_session_error(), whose message is
+    // hardcoded to "already exists in the MBS System". That wording fits a client's Create clashing
+    // with an existing session or TMGI, but not the other failures reaching this function: an MB-SMF
+    // Create timeout, or a 403 or other rejection whose detail arrived on the wire in
+    // problem_detail_json. The fallback is kept for a bare timeout carrying no problem_details, the
+    // one remaining case the hardcoded wording still describes.
+    std::string error;
+    if (problem_detail_json.has_value()) {
+        CJson detail_node = problem_detail_json->getObjectItemCaseSensitive("detail");
+        if (!detail_node.isNull() && detail_node.isString()) {
+            error = std::string(detail_node);
+        }
+    }
+    if (error.empty()) {
+        error = print_mbs_session_error(context_data);
+    }
 
-    if (cause.has_value()) {
+    /* Where the MB-SMF named a cause of its own, relay it rather than flatten it to a generic one.
+       Table 6.2.7.3-1's MBS application errors are exactly the kind this carries, and four of the six
+       are names TS 29.532 also uses, so a relay preserves them without a translation table.
+
+       TS 29.580 V18.8.0 table 6.2.8-1, MBSErrorHandling: “Support of the missing MBS Session related error handling procedures to enable end-to-end relaying of errors.”
+
+       Gated on the feature: a consumer that did not negotiate MBSErrorHandling is answered with the
+       generic causes it was written against. */
+    std::string relay_cause;
+    int relay_status = 0;
+    if (problem_detail_json.has_value()) {
+        CJson cause_node = problem_detail_json->getObjectItemCaseSensitive("cause");
+        if (!cause_node.isNull() && cause_node.isString()) relay_cause = std::string(cause_node);
+        CJson status_node = problem_detail_json->getObjectItemCaseSensitive("status");
+        if (!status_node.isNull() && status_node.isNumber()) relay_status = (int)(double)status_node;
+    }
+    bool relay = false;
+    if (!relay_cause.empty() && relay_status >= 400 && relay_status <= 599) {
+        try {
+            relay = locate(ids_ptr->first)->mbsErrorHandlingNegotiated();
+        } catch (const std::out_of_range &) {
+            relay = false;
+        }
+    }
+
+    if (relay) {
+        ogs_assert(true == Open5GSSBIServer::sendError(stream, relay_status, std::nullopt,
+                                                       "MBS Distribution Session failure", error.c_str(),
+                                                       relay_cause.c_str()));
+    } else if (cause.has_value()) {
         ogs_assert(true == Open5GSSBIServer::sendError(stream, std::nullopt, cause.value(), error.c_str()));
 
     } else {
@@ -2254,6 +2942,18 @@ void UserDataIngSession::requiresUserServiceAnnouncement()
     const std::string &user_service_id = mbs_user_data_ing_session->getMbsUserServId();
     try {
         const std::shared_ptr<UserService> user_service = UserService::find(user_service_id);
+        // The bundle write is gated on the broader predicate, not on requiresUserServiceAnnouncement()
+        // and an existing carousel channel. TS 26.517 cl.5.2.6 and TS 29.580 cl.6.1.6.2.2 define
+        // VIA_MBS_5, VIA_MBS_DISTRIBUTION_SESSION and PASSED_BACK as three independent announcement
+        // distribution modes over identical bundle content, and UserServiceAnnBundle and
+        // setUserServiceAnnBundler() depend on no carousel channel. Gating on the narrower pair would
+        // leave a service declaring VIA_MBS_5 or PASSED_BACK alone with no bundle written at all, and
+        // MBS-5 discovery and retrieval for it answering 204 permanently. The carousel-specific
+        // bookkeeping below stays on the narrower predicate, which is correctly scoped for it.
+        // code-derived: no clause requires this particular gating, only that all three modes are served.
+        if(user_service->requiresUserServiceAnnouncementBundle()) {
+            setUserServiceAnnBundler();
+        }
         if(user_service->requiresUserServiceAnnouncement()) {
             const std::shared_ptr<UserServiceAnnChannel> &ann_channel = App::self().context()->userServiceAnnouncementChannel();
             if(ann_channel) {
@@ -2261,7 +2961,6 @@ void UserDataIngSession::requiresUserServiceAnnouncement()
                 resetCarouselObject();
                 includedInCarouselObjectManifest(false);
                 userSerAdNotificationSent(false);
-                setUserServiceAnnBundler();
             }
         }
     } catch (std::exception &ex) {
@@ -2276,15 +2975,19 @@ void UserDataIngSession::configureUserServiceAnnouncementBundler()
     const std::string &user_service_id = mbs_user_data_ing_session->getMbsUserServId();
     try {
         const std::shared_ptr<UserService> user_service = UserService::find(user_service_id);
+        if (!user_service || !checkIfAllMBSDistributionSessionsEstablishedOrActive()) return;
 
-        if(user_service && user_service->requiresUserServiceAnnouncement() && checkIfAllMBSDistributionSessionsEstablishedOrActive()) {
-
+        // Uses the broader announcement predicate for the same reason as
+        // requiresUserServiceAnnouncement() above; see its comment.
+        if(user_service->requiresUserServiceAnnouncementBundle()) {
+            setUserServiceAnnBundler();
+        }
+        if(user_service->requiresUserServiceAnnouncement()) {
             const std::shared_ptr<UserServiceAnnChannel> &ann_channel = App::self().context()->userServiceAnnouncementChannel();
             if(ann_channel /*&& !user_data_ing_session->getUserServiceAnnBundler()*/) {
                 resetCarouselObject();
                 includedInCarouselObjectManifest(false);
                 userSerAdNotificationSent(false);
-                setUserServiceAnnBundler();
             }
         }
     } catch (std::exception &ex) {
@@ -2424,6 +3127,12 @@ void UserDataIngSession::serviceScheduleDescsUpdate(const std::shared_ptr<MBSUse
         reftools::mbsf::UserServiceDescription::ServiceScheduleDescriptionsType  service_schedule_descriptions = user_service_desc->getServiceScheduleDescriptions();
         if (service_schedule_descriptions.has_value()) {
             for(const auto &service_schedule_description : service_schedule_descriptions.value()) {
+                 // ServiceScheduleDescriptionsType is std::optional<std::list<std::optional<...>>>: the
+                 // outer has_value() above only clears the list itself, not each element's own optional
+                 // (same generated-model shape as UserService.cc's fixed bug) -- guard it here too,
+                 // matching the per-element check every other consumer of this shape already does
+                 // (e.g. ExternalServiceArea.cc's "if (geo_area.has_value())").
+                 if (!service_schedule_description.has_value()) continue;
                  const std::string &id = service_schedule_description.value()->getId();
                  {
                      std::lock_guard<decltype(m_serviceScheduleDescMutex)::element_type> lock(*m_serviceScheduleDescMutex);
@@ -2595,6 +3304,16 @@ void UserDataIngSession::populateObjectCarousel(const std::string &user_serv_ann
 
 void UserDataIngSession::userServiceAnnBundled()
 {
+    // userServiceAnnBundleAvailable(true) is set here, before the carousel-specific early return
+    // below. This runs immediately after UserServiceAnnBundle::worker() has written announcement.json
+    // and every dependent SDP file (writeAnnouncement() and writeServiceDescriptionProtocolDoc() have
+    // both returned by now), so the bundle's content is on disk whether or not an MBS-4-MC carousel
+    // channel exists. The rest of this function is carousel-specific and correctly returns early
+    // without one; setting the flag from inside that path instead would leave a VIA_MBS_5-only or
+    // PASSED_BACK-only service's written bundle never reported available, and
+    // UserServiceDiscoveryHandler's isUserServiceAnnBundleAvailable() check false, so MBS-5 discovery
+    // and retrieval would answer 204 with the files already present. code-derived, no spec claim.
+    userServiceAnnBundleAvailable(true);
 
     std::shared_ptr<Open5GSSBINFInstance> nf_instance = nullptr;
 
@@ -2611,7 +3330,16 @@ void UserDataIngSession::userServiceAnnBundled()
         return;
     }
 
-    nf_instance.reset(new Open5GSSBINFInstance(context_data->mbstfNFInstanceId, false));
+    try {
+        nf_instance.reset(new Open5GSSBINFInstance(context_data->mbstfNFInstanceId, false));
+    } catch (const std::runtime_error &ex) {
+        // Open5GSSBINFInstance's by-id constructor throws, rather than leaving the pointer null, when
+        // MBSTF's NF instance is not yet in MBSF's local SBI NF instance cache, which is a normal timing
+        // gap rather than an error. The "if(!nf_instance)" fallback below is written for exactly this
+        // case, so the exception is caught and takes that same path; uncaught it would end the process
+        // through std::terminate().
+        nf_instance = nullptr;
+    }
     if(!nf_instance)
     {
         ann_channel_user_data_ing_session->nmbstfDiscoverOnly(context_data);
@@ -2792,23 +3520,35 @@ static bool get_src_dest_of_same_addr_family(int family, struct addrinfo *src_ad
 }
 
 static std::string print_mbs_session_error(const std::shared_ptr<UserDataIngSession::ContextData> &context_data) {
-    auto ssm_val      = context_data->ssm;
-    auto src_ip_addr  = ssm_val->getSourceIpAddr();
-    auto dest_ip_addr = ssm_val->getDestIpAddr();
+    // ssm and MBSSession are both checked rather than dereferenced. ssm is null whenever the
+    // Distribution Session carries no AF-supplied SSM, the normal case in which this MBSF nominates
+    // its own broadcastDistribution address instead (see the .ssm = nullptr construction sites
+    // above), and MBSSession is null whenever the MB-SMF Create that would have populated it did not
+    // succeed. Both hold on the failure path that reaches this function,
+    // setMBSSessionFailureFlag() -> populateAndSendError(), so either is treated as absent, the same
+    // way the loop below treats an empty optional.
+    auto ssm_val = context_data->ssm;
+    std::optional<std::string> src_ipv4_addr, dest_ipv4_addr, src_ipv6_addr, dest_ipv6_addr;
+    if (ssm_val) {
+        auto src_ip_addr  = ssm_val->getSourceIpAddr();
+        auto dest_ip_addr = ssm_val->getDestIpAddr();
 
-    std::optional<std::string> src_ipv4_addr  = src_ip_addr->getIpv4Addr();
-    std::optional<std::string> dest_ipv4_addr = dest_ip_addr->getIpv4Addr();
+        src_ipv4_addr  = src_ip_addr->getIpv4Addr();
+        dest_ipv4_addr = dest_ip_addr->getIpv4Addr();
 
-    const std::optional<std::shared_ptr<Ipv6Addr>> &src_ipv6_addr_obj  = src_ip_addr->getIpv6Addr();
-    const std::optional<std::shared_ptr<Ipv6Addr>> &dest_ipv6_addr_obj = dest_ip_addr->getIpv6Addr();
-    std::optional<std::string> src_ipv6_addr  = src_ipv6_addr_obj?std::make_optional<std::string>(*src_ipv6_addr_obj.value()):std::nullopt;
-    std::optional<std::string> dest_ipv6_addr = dest_ipv6_addr_obj?std::make_optional<std::string>(*dest_ipv6_addr_obj.value()):std::nullopt;
+        const std::optional<std::shared_ptr<Ipv6Addr>> &src_ipv6_addr_obj  = src_ip_addr->getIpv6Addr();
+        const std::optional<std::shared_ptr<Ipv6Addr>> &dest_ipv6_addr_obj = dest_ip_addr->getIpv6Addr();
+        src_ipv6_addr  = src_ipv6_addr_obj?std::make_optional<std::string>(*src_ipv6_addr_obj.value()):std::nullopt;
+        dest_ipv6_addr = dest_ipv6_addr_obj?std::make_optional<std::string>(*dest_ipv6_addr_obj.value()):std::nullopt;
+    }
 
-    const char* tmgi_cstr = context_data->MBSSession->tmgi();
-    ogs_debug("TMGI Error: %s", tmgi_cstr);
     std::optional<std::string> tmgi_opt;
-    if (tmgi_cstr && *tmgi_cstr) {
-        tmgi_opt = tmgi_cstr;
+    if (context_data->MBSSession) {
+        const char* tmgi_cstr = context_data->MBSSession->tmgi();
+        ogs_debug("TMGI Error: %s", tmgi_cstr);
+        if (tmgi_cstr && *tmgi_cstr) {
+            tmgi_opt = tmgi_cstr;
+        }
     }
 
     std::vector<std::pair<const char*, const std::optional<std::string>*>> fields = {
@@ -2853,6 +3593,68 @@ static int64_t duration_timer(const std::chrono::system_clock::time_point &tp) {
     return static_cast<int64_t>(diff);
 }
 
+static bool request_too_large(Open5GSSBIRequest &request, Open5GSSBIStream &stream, int path_segments,
+                              Open5GSSBIMessage &message, const NfServer::AppMetadata &app_meta,
+                              const std::optional<NfServer::InterfaceMetadata> &api)
+{
+    const auto &max_size = App::self().context()->maxRequestBodySize;
+    if (!max_size || request.contentLength() <= *max_size) return false;
+
+    std::ostringstream err;
+    err << "Request body of " << request.contentLength() << " bytes exceeds the configured maximum of "
+        << *max_size << " bytes";
+    ogs_error("%s", err.str().c_str());
+    ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_PAYLOAD_TOO_LARGE, path_segments, message,
+                                            app_meta, api, "Payload Too Large", err.str()));
+    return true;
+}
+
+/* TS 29.500 V18.10.0 cl.6.6.2 (feature negotiation): the server determines the negotiated
+ * features by comparing the client's requested bitmask against its own supported set, and
+ * returns the intersection. TS 29.580 V18.8.0 cl.6.2.8, Table 6.2.8-1 (Nmbsf_MBSUserDataIngestSession
+ * API) defines exactly four features: 1 5MBS2, 2 MBSEventsExt, 3 MBSErrorHandling, 4 MBSPatchEnh.
+ * Of these, MBSEventsExt (feature 2) and MBSErrorHandling (feature 3) are implemented here -- this
+ * mask reflects what's actually there, not an aspiration. TS 29.571's own
+ * SupportedFeatures encoding (its own copy of TS 29.500 table 5.2.2-3): each hex character
+ * represents 4 features, and the last character in the string represents features 1 to 4 -- since
+ * this API defines no feature above 4, only that last character is ever relevant here.
+ *
+ * What MBSErrorHandling rests on, functionality by functionality, since advertising it is a promise.
+ *
+ * TS 29.580 V18.8.0 table 6.2.8-1: "Support of the missing MBS Session related error handling procedures to enable end-to-end relaying of errors."
+ *    populateAndSendError() relays the MB-SMF's own cause and status where it gave them.
+ *
+ * TS 29.580 V18.8.0 table 6.2.8-1: "Support MBS Data Ingest Session specific error handling."
+ *    A duplicate Distribution Session is answered MBS_DIST_SESSION_ALREADY_CREATED. The other named
+ *    errors of table 6.2.7.3-1 arrive by relay: MBS_SERVICE_AREA_NOT_SUPPORTED in particular is what
+ *    the core network knows and the MBSF does not, so it is relayed rather than originated here.
+ *
+ * TS 29.580 V18.8.0 table 6.2.8-1: "Support partial MBS Distribution Session creation/update failure management."
+ *    A mixed outcome is reported in failedDistSessions, and a narrowed service area in
+ *    redMbsServAreaInfo on an update.
+ */
+static const unsigned MBSF_UD_INGEST_SUPPORTED_FEATURES = 0x6; /* bits 1,2 = features 2,3 */
+
+static std::optional<std::string> negotiate_supp_feat(const std::optional<std::string> &requested)
+{
+    /* TS 29.580 V18.8.0 cl.6.2.6.2.2 (suppFeat): "This attribute shall be present in an HTTP
+     * POST/PUT request and response, if feature negotiation needs to take place." -- absent
+     * request means no negotiation takes place, not "negotiate to nothing". */
+    if (!requested) return std::nullopt;
+
+    unsigned requested_mask = 0;
+    if (!requested->empty()) {
+        char last = requested->back();
+        if (last >= '0' && last <= '9') requested_mask = (unsigned)(last - '0');
+        else if (last >= 'a' && last <= 'f') requested_mask = (unsigned)(last - 'a' + 10);
+        else if (last >= 'A' && last <= 'F') requested_mask = (unsigned)(last - 'A' + 10);
+    }
+
+    unsigned negotiated = requested_mask & MBSF_UD_INGEST_SUPPORTED_FEATURES;
+    static const char hex_digits[] = "0123456789abcdef";
+    return std::string(1, hex_digits[negotiated & 0xf]);
+}
+
 static bool validate_state_setting_options(const std::shared_ptr<UserDataIngSession> &user_data_ing_session,
                                            Open5GSSBIStream &stream, Open5GSSBIMessage &message,
                                            const NfServer::AppMetadata &app_meta,
@@ -2860,6 +3662,9 @@ static bool validate_state_setting_options(const std::shared_ptr<UserDataIngSess
 {
     std::shared_ptr<MBSUserDataIngSession> mbs_user_data_ing_session = user_data_ing_session->getMBSUserIngSession();
     std::map<std::string,std::string> invalid_params;
+    /* Set when a requested MBS Distribution Session duplicates one that already exists, which has its
+       own named error rather than being an incorrect IE. Holds the consumer's map key for the detail. */
+    std::optional<std::string> already_created_session;
     if (mbs_user_data_ing_session->getActPeriods() && mbs_user_data_ing_session->getActPeriodsRepRule()) {
         invalid_params["actPeriods"] = "actPeriods cannot be present if any mbsDistSessState or actPeriodRepRule are present";
         invalid_params["actPeriodRepRule"] = "actPeriodRepRule cannot be present if any mbsDistSessState or actPeriods are present";
@@ -2883,19 +3688,78 @@ static bool validate_state_setting_options(const std::shared_ptr<UserDataIngSess
                 }
 
                 const auto &mbs_session_id = info->getMbsSessionId();
+                const auto &mbs_service_area = info->getTgtServAreas();
+                const auto &ext_mbs_service_area = info->getExtTgtServAreas();
                 if (mbs_session_id) {
-                    const auto &mbs_service_area = info->getTgtServAreas();
-                    const auto &ext_mbs_service_area = info->getExtTgtServAreas();
                     UniqueMbsSessionId unique_mbs_session_id(!!mbs_session_id.value()->getSsm(), mbs_session_id.value(),
                                     mbs_service_area?mbs_service_area.value():std::shared_ptr<MbsServiceArea>(),
                                     ext_mbs_service_area?ext_mbs_service_area.value():std::shared_ptr<ExternalMbsServiceArea>());
                     if (context->haveMbsSessionId(unique_mbs_session_id)) {
                         invalid_params[std::format("mbsDisSessInfos.{}.mbsSessionId", dist_sess_id)] = "mbsSessionId already used in another UserDataIngSession";
+                        /* Kept alongside the invalid_params entry rather than instead of it, so the
+                           consumer that did not negotiate MBSErrorHandling still gets what it did
+                           before. See the answer chosen below. */
+                        already_created_session = dist_sess_id;
+                    }
+                }
+
+                // tgtServAreas and extTgtServAreas are mutually exclusive (TS 29.580).
+                if (mbs_service_area.has_value() && ext_mbs_service_area.has_value()) {
+                    invalid_params[std::format("mbsDisSessInfos.{}.tgtServAreas", dist_sess_id)] =
+                        "tgtServAreas and extTgtServAreas are mutually exclusive";
+                }
+
+                /* Which attributes and which identifier type the parent MBS User Service's own
+                   servType permits. The rule is named in ServTypeAttributeRules.hh, with the
+                   citations and with why its two directions are not symmetric; keeping it there
+                   lets it be tested without building a provisioning request. */
+                const std::shared_ptr<UserService> &parent_user_service = user_data_ing_session->mbsUserService();
+                const std::string serv_type = parent_user_service ? parent_user_service->getMBSUserServiceType() : std::string();
+                ServTypeAttributes serv_type_attrs;
+                serv_type_attrs.nrRedCapUeInfo = info->getNrRedCapUeInfo().has_value();
+                serv_type_attrs.mbsFSAId = info->getMbsFSAId().has_value();
+                serv_type_attrs.restrictedFlag = info->getRestrictedFlag().has_value();
+                const auto &serv_type_session_id = info->getMbsSessionId();
+                serv_type_attrs.ssmMbsSessionId = serv_type_session_id.has_value() && serv_type_session_id.value() &&
+                                                  serv_type_session_id.value()->getSsm().has_value();
+                for (const auto &[attr_name, reason] : servTypeViolations(serv_type, serv_type_attrs)) {
+                    invalid_params[std::format("mbsDisSessInfos.{}.{}", dist_sess_id, attr_name)] = reason;
+                }
+
+                // TS 29.580 V18.8.0 table 5.6.2.8-1, pckIngMethod row: "When the "operatingMode"
+                // attribute is set to "PACKET_FORWARD_ONLY", only the value "UNICAST" is applicable
+                // for this attribute."
+                const auto &pkt_distr_info = info->getPckDistrInfo();
+                if (pkt_distr_info) {
+                    const auto &oper_mode = pkt_distr_info.value()->getOperatingMode();
+                    const auto &ing_method = pkt_distr_info.value()->getPckIngMethod();
+                    if (oper_mode && ing_method &&
+                        oper_mode->getValue() == PktDistributionOperatingMode::VAL_PACKET_FORWARD_ONLY &&
+                        ing_method->getValue() != PktIngestMethod::VAL_UNICAST) {
+                        invalid_params[std::format("mbsDisSessInfos.{}.pckDistrInfo.pckIngMethod", dist_sess_id)] =
+                            "only UNICAST is applicable when operatingMode is PACKET_FORWARD_ONLY";
                     }
                 }
             }
         }
     }
+    /* A duplicate MBS Distribution Session has a named error of its own, which says more than an
+       incorrect-IE answer does.
+
+       TS 29.580 V18.8.0 table 6.2.7.3-1, row MBS_DIST_SESSION_ALREADY_CREATED (403 Forbidden): “Indicates that the requested MBS Distribution Session has already been created.”
+
+       Its applicability column is MBSErrorHandling, so a consumer that did not negotiate the feature
+       is answered exactly as before: the invalid_params entry is still recorded above for that case. */
+    if (already_created_session && user_data_ing_session->mbsErrorHandlingNegotiated()) {
+        std::string detail = std::format("MBS Distribution Session [{}] has already been created",
+                                         *already_created_session);
+        ogs_assert(true == Open5GSSBIServer::sendError(stream, OGS_SBI_HTTP_STATUS_FORBIDDEN, message,
+                                                       "MBS Distribution Session already created",
+                                                       detail.c_str(),
+                                                       reftools::mbsf::DistSessionFailure::STR_MBS_DIST_SESSION_ALREADY_CREATED));
+        return false;
+    }
+
     if (!invalid_params.empty()) {
         ogs_assert(true == NfServer::sendError(stream, ProblemCause::OPTIONAL_IE_INCORRECT, 0, message,
                                                             app_meta, api, std::nullopt, std::nullopt, std::nullopt, invalid_params));

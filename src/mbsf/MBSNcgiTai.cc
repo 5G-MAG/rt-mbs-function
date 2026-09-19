@@ -79,7 +79,13 @@ mb_smf_sc_ncgi_tai_t *MBSNcgiTai::populateNcgiTai() {
     tracking_area_id.reset(new TrackingAreaIdentity(tai));
     mb_smf_sc_tai_t *mb_smf_tai = tracking_area_id->populateTai();
     mb_smf_sc_ncgi_tai_t *mb_smf_ncgi_tai = mb_smf_sc_ncgi_tai_new();
-    mb_smf_ncgi_tai->tai = *mb_smf_tai;
+
+    // Copy the value, do not assign the struct. An assignment would alias mb_smf_tai's own
+    // Network Id allocation into the NCGI TAI, leaving two owners for one pointer, and would
+    // leak the struct around it because nothing else refers to mb_smf_tai afterwards.
+    mb_smf_sc_tai_copy(&mb_smf_ncgi_tai->tai, mb_smf_tai);
+    mb_smf_sc_tai_free(mb_smf_tai);
+
     ncgis(mb_smf_ncgi_tai);
     return mb_smf_ncgi_tai;
 
@@ -102,6 +108,26 @@ void MBSNcgiTai::ncgis(mb_smf_sc_ncgi_tai_t *ncgi_tai) {
         }
 
     }
+}
+
+
+std::shared_ptr<NcgiTai> MBSNcgiTai::fromNcgiTai(const mb_smf_sc_ncgi_tai_t *ncgi_tai)
+{
+    if (!ncgi_tai) return nullptr;
+
+    std::shared_ptr<Tai> tai = TrackingAreaIdentity::fromTai(&ncgi_tai->tai);
+    if (!tai) return nullptr;
+
+    std::shared_ptr<NcgiTai> result(new NcgiTai());
+    result->setTai(tai);
+
+    mb_smf_sc_ncgi_t *ncgi;
+    ogs_list_for_each(&ncgi_tai->ncgis, ncgi) {
+        std::shared_ptr<Ncgi> cell = MBSNcgi::fromNcgi(ncgi);
+        if (cell) result->addCellList(cell);
+    }
+
+    return result;
 }
 
 MBSF_NAMESPACE_STOP

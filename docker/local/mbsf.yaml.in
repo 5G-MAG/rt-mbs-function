@@ -39,6 +39,12 @@ mbsf:
     mbr: 10 Mbps
     docRoot: @localstatedir@/cache/mbsf/user-service-announcements
 
+  # See mbsf.yaml.in's own comment (TS 26.502 cl.4.5.6/Annex B.3.1): nominated by this MBSF for a
+  # Broadcast Distribution Session's own Nmb9 label when no AF-supplied SSM exists to derive one from.
+  broadcastDistribution:
+    sourceAddress: 127.0.0.68
+    destinationAddress: 232.0.0.2
+
   activeDistributionSessionsSoftLimit: 1000
   activeUserServicesSoftLimit: 50
   actPeriodGoToEstablishedState: 60

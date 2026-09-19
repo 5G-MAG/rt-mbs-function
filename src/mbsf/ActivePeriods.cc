@@ -17,6 +17,7 @@
  * under the License.
  */
 
+#include <algorithm>
 #include "ogs-proto.h"
 #include "ogs-sbi.h"
 
@@ -167,8 +168,21 @@ std::optional<std::list<std::shared_ptr<ServiceScheduleDesc> > > ActivePeriods::
 
 ActivePeriods::TimeRange ActivePeriods::activeTimeRange() const
 {
+    /* The range returned here becomes the SDP t-line, which has to cover every active period.
+
+       TS 26.517 V18.6.0 clause 6.2.2.1: “The Start time and End time of the session (SDP t-line) shall indicate a superset of the active times specified in the MBS Schedule Description metadata unit in the service schedule descriptions of the MBS Distribution Session (see clause 5.2.7), if present.”
+
+       m_actPeriodsTP is sorted by start, so front().start is the earliest start. The latest end is not
+       the last element's: a period nested inside an earlier, longer one sorts last on start while
+       ending sooner, and taking back().end would cut the t-line short of the enclosing period and stop
+       it being a superset. Nothing rejects or merges overlapping periods on the way in, so the maximum
+       has to be taken across all of them. */
     if (m_actPeriodsTP.empty()) return TimeRange(std::nullopt, std::nullopt);
-    return TimeRange(m_actPeriodsTP.front().start, m_actPeriodsTP.back().end);
+    auto latest_end = std::max_element(m_actPeriodsTP.begin(), m_actPeriodsTP.end(),
+                                       [](const VersionedTimeWindowTP &a, const VersionedTimeWindowTP &b) {
+                                           return a.end < b.end;
+                                       });
+    return TimeRange(m_actPeriodsTP.front().start, latest_end->end);
 }
 
 // private:

@@ -19,6 +19,7 @@
  * under the License.
  */
 
+#include <filesystem>
 #include <optional>
 #include <string>
 #include <vector>
@@ -47,6 +48,17 @@ public:
     MultipartMime &operator=(MultipartMime &&other) = delete;
 
     void addFile(const std::filesystem::path &rootdir, const std::filesystem::path &filename, const std::optional<std::string> &disposition_type = std::nullopt);
+
+    // Lower-level primitive addFile() itself now delegates to: adds one part built entirely
+    // in memory (e.g. a freshly-serialised JSON document, RFC 2387's own root body part, which
+    // has no file on disk to read via addFile()/DocrootFile). content_location, if given, is a
+    // bare URI value per RFC 2557 clause 4.1 (never a quoted string) -- see addFile()'s own
+    // comment on this for why; pass std::nullopt for a part that needs no Content-Location
+    // (the root part, per RFC 2387, does not need one -- it is the default "start" part in the
+    // absence of the Content-Type "start" parameter this class does not set).
+    void addPart(const std::vector<char> &body, const std::map<std::string, std::string> &headers,
+                 const std::optional<std::string> &disposition_type = std::nullopt,
+                 const std::optional<std::string> &content_location = std::nullopt);
 
     const std::vector<char> &body() const { return m_body; };
     const std::map<std::string, std::string> &headers() const { return m_headers; };
