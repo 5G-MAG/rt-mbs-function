@@ -1166,11 +1166,9 @@ void UserDataIngStatSubsc::subscriptionPatch(Open5GSSBIStream &stream, Open5GSSB
     /* A body in a coding this NF cannot decode is refused before it is read, so the
        encoded octets never reach the JSON parser and get blamed on the document. */
     if (NfServer::refuseUnsupportedContentCoding(request, stream, 3, message, app_meta, api)) return;
-    if (request.headerValue(OGS_SBI_CONTENT_TYPE, std::string()) != "application/merge-patch+json") {
-        ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_UNSUPPORTED_MEDIA_TYPE,
-                                1, message, app_meta, api, "Unsupported Media Type", "Expected content type: application/merge-patch+json"));
-        return;
-    }
+    /* Answers 415 naming the patch document this NF applies, which TS 29.500 V18.10.0
+       clause 5.2.7.2 requires on this refusal. */
+    if (NfServer::refuseUnsupportedPatchDocument(request, stream, 4, message, app_meta, api)) return;
     if (request_too_large(request, stream, 1, message, app_meta, api)) return;
 
     CJson req_json(CJson::Null);
