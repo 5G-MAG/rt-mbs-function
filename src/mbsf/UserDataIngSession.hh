@@ -215,7 +215,12 @@ public:
     void removeContextData(const std::shared_ptr<ContextData> &context_data);
 
     void sendMbstfRequests();
-    void sendMbstfDelRequests(const std::optional<std::string>& key = std::nullopt);
+    /** Ask the MBSTF to delete this session's Distribution Sessions.
+     *
+     * \return how many delete requests were issued. Zero means there was nothing left registered
+     *         to tear down, so a caller waiting for completion would wait for ever.
+     */
+    std::size_t sendMbstfDelRequests(const std::optional<std::string>& key = std::nullopt);
 
     void sendMbstfPatchRollbackRequests();
 
@@ -327,6 +332,18 @@ public:
     void setMbstfsInDesiredState();
     void checkDesiredState();
     void pendingDeleteResponse(ogs_pool_id_t stream_id);
+
+    /** Answer, with an error, every consumer DELETE parked on a failed transaction.
+     *
+     * The stream a DELETE is waiting on is not the transaction's assoc_stream_id. That field
+     * carries the stream the Distribution Session was created on, which has been closed since,
+     * so a generic failure path looking there finds nothing and answers nobody. The streams
+     * actually waiting are the ones pendingDeleteResponse() parked.
+     *
+     * @return true if any consumer was answered.
+     */
+    static bool failPendingDeleteRequests(ogs_sbi_xact_t *xact, const fiveg_mag_reftools::ProblemCause &cause,
+                                          const char *reason);
     void pushNotificationsEvent() const;
 
     bool checkIfAllMBSDistributionSessionsEstablishedOrActive();

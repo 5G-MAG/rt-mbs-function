@@ -325,6 +325,19 @@ void MBSFEventHandler::dispatch(Open5GSFSM &fsm, Open5GSEvent &event)
                           break;
                     }
 
+                    /* A consumer DELETE waits on a stream this transaction does not name:
+                       assoc_stream_id still carries the stream the Distribution Session was
+                       created on, closed long before any delete, so the assoc_stream path below
+                       finds nothing and, until this call, returned having answered nobody. The
+                       consumer was then left holding a DELETE that no later event could complete,
+                       because the transaction it depended on had just been destroyed. */
+                    if (UserDataIngSession::failPendingDeleteRequests(sbi_xact, ProblemCause::UNSPECIFIED_NF_FAILURE,
+                                                                      "No response from the downstream NF")) {
+                        ogs_error("Cannot receive SBI message");
+                        UserDataIngSession::removeXact(sbi_xact);
+                        return;
+                    }
+
                     ogs_sbi_stream_t *ogs_stream = reinterpret_cast<ogs_sbi_stream_t*>(ogs_sbi_stream_find_by_id(sbi_xact->assoc_stream_id));
                     if (!ogs_stream) {
                         if (sbi_xact) UserDataIngSession::removeXact(sbi_xact);
@@ -335,8 +348,18 @@ void MBSFEventHandler::dispatch(Open5GSFSM &fsm, Open5GSEvent &event)
                     if (sbi_xact) UserDataIngSession::removeXact(sbi_xact);
                     ogs_error("Cannot receive SBI message");
                     if (stream) {
-                        ogs_assert(true == Open5GSSBIServer::sendError(stream, std::nullopt, ProblemCause::TIMED_OUT_REQUEST,
-                                                                      "Downstream response timed out"));
+                        /* This timer is the MBSF's own client wait timer, so what expired is the
+                           request the MBSF sent downstream, not the request it is answering.
+                           TIMED_OUT_REQUEST names the other situation: TS 29.500 V18.10.0
+                           table 5.2.7.2-1 defines it as "The request is rejected due a request that
+                           has timed out at the HTTP client (see clause 6.11.2)", clause 6.11.2 being
+                           the 3gpp-Sbi-Max-Rsp-Time mechanism by which a server learns that its own
+                           consumer has already given up. Nothing in that table covers a downstream
+                           peer that never answered -- INBOUND_SERVER_ERROR is scoped by clause
+                           6.4.2.1 to a 503 or 429 actually received -- which is the case its NOTE 3
+                           reserves UNSPECIFIED_NF_FAILURE for. */
+                        ogs_assert(true == Open5GSSBIServer::sendError(stream, std::nullopt, ProblemCause::UNSPECIFIED_NF_FAILURE,
+                                                                      "No response from the downstream NF"));
                     }
 
                 }
