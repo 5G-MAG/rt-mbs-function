@@ -731,7 +731,21 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
                             std::string user_data_ing_session_id(message.resourceComponent(1));
                             try {
                                 std::shared_ptr<UserDataIngSession> user_data_ing_sess = find(user_data_ing_session_id);
-                                user_data_ing_sess->sendMbstfDelRequests();
+                                /* Nothing registered to tear down means nothing will ever report a
+                                   completion, and the consumer's stream would be held open for the
+                                   life of the process. That is the state a session is left in once
+                                   an update has rebuilt its Distribution Session, the old registry
+                                   entry having gone with the teardown. Answer now instead. */
+                                if (user_data_ing_sess->sendMbstfDelRequests() == 0) {
+                                    App::self().context()->deleteUserDataIngSession(user_data_ing_session_id);
+                                    std::shared_ptr<Open5GSSBIResponse> nothing_to_delete(
+                                            NfServer::newResponse(std::nullopt, std::nullopt, std::nullopt,
+                                                                  std::nullopt, 0, std::nullopt, api, app_meta));
+                                    ogs_assert(nothing_to_delete);
+                                    NfServer::populateResponse(nothing_to_delete, "", OGS_SBI_HTTP_STATUS_NO_CONTENT);
+                                    ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *nothing_to_delete));
+                                    return true;
+                                }
                                 //user_data_ing_sess->clearDistributionSessionInfos();
                                 //std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(std::nullopt, std::nullopt, std::nullopt, std::nullopt, 0, std::nullopt, api, app_meta));
                                 //NfServer::populateResponse(response, "", OGS_SBI_HTTP_STATUS_NO_CONTENT);
@@ -1553,7 +1567,14 @@ void UserDataIngSession::processUserDataIngSessionUpdate(ogs_pool_id_t stream_id
         bool present_in_update = false;
         for (const auto &[key_in_update, sess_info_update]: update_dist_sess_infos) {
             if (key == key_in_update) {
-                if (sess_info_update.has_value() && sess_info_update.value()) {
+                /* Decided before the erase below, not after it. erase() destroys the node, and both
+                   key_in_update and sess_info_update are references into that node, so reading them
+                   afterwards is reading freed memory: has_value() then answered false whatever the
+                   request contained, present_in_update stayed false, and every stored distribution
+                   session was removed. A PUT of a session's own representation, unchanged, emptied
+                   mbsDisSessInfos and took the broadcast down with it. */
+                const bool describes_a_session = sess_info_update.has_value() && !!sess_info_update.value();
+                if (describes_a_session) {
                     // update
                     std::shared_ptr<MBSDistributionSessionInfo> update_info = sess_info_update.value();
 
@@ -1636,7 +1657,10 @@ void UserDataIngSession::processUserDataIngSessionUpdate(ogs_pool_id_t stream_id
                         }
                     }
                 }
-                update_dist_sess_infos.erase(key_in_update);
+                /* The key is copied for the same reason: erase() is handed a reference to the key
+                   stored inside the node it is destroying. */
+                const std::string erased_key(key_in_update);
+                update_dist_sess_infos.erase(erased_key);
                 /* A map entry carrying NULL is a deletion request, not a description of a session to
                    keep, so it must not mark the stored session as present. Leaving present_in_update
                    false lets the !present_in_update branch below remove it.
@@ -1649,9 +1673,7 @@ void UserDataIngSession::processUserDataIngSessionUpdate(ogs_pool_id_t stream_id
 
                    The erase above still happens for a NULL entry, so the add loop that follows does
                    not resurrect it as a new session. */
-                if (sess_info_update.has_value() && sess_info_update.value()) {
-                    present_in_update = true;
-                }
+                present_in_update = describes_a_session;
                 break;
             }
         }
@@ -2471,9 +2493,10 @@ bool UserDataIngSession::checkIfAllMBSTFDistSessionDeleted()
     return true;
 }
 
-void UserDataIngSession::sendMbstfDelRequests(const std::optional<std::string>& key)
+std::size_t UserDataIngSession::sendMbstfDelRequests(const std::optional<std::string>& key)
 {
     std::lock_guard<decltype(s_registry_mutex)> lock(s_registry_mutex);
+    std::size_t issued = 0;
 
     for (auto &[dist_sess_id, user_ing_sess_id_ptr] : s_distSessionIdRegistry) {
         // match session id and, if key provided, match the key
@@ -2482,11 +2505,13 @@ void UserDataIngSession::sendMbstfDelRequests(const std::optional<std::string>& 
         {
             SessionIdContainer* session_id = new SessionIdContainer(dist_sess_id, user_ing_sess_id_ptr);
             sendLocalEvent(MBSF_LOCAL_SEND_MBSTF_DELETE_SESSION, session_id);
+            issued++;
 
             // if a key was provided, only process the first match
             if (key.has_value()) break;
         }
     }
+    return issued;
 }
 
 void UserDataIngSession::sendLocalEventPatch(const std::optional<std::string>& key)
@@ -2612,6 +2637,11 @@ void UserDataIngSession::setMBSSessionDeleted(const UserDataIngDistSessId &ids)
         if (ing_sess->checkIfAllMBSSessionDeletionsReceived()) {
             const NfServer::AppMetadata &app_meta = App::self().mbsfAppMetadata();
             std::lock_guard<decltype(ing_sess->m_deleteRequestsMutex)::element_type> lock(*ing_sess->m_deleteRequestsMutex);
+            /* Whether a consumer asked for this Ingest Session to go away, as opposed to one of its
+               MBS Distribution Sessions being torn down and rebuilt while the Ingest Session stays.
+               m_deleteRequests holds the streams waiting for the 204 of a DELETE, so it is empty
+               for an update-driven teardown. Captured before the loop below clears it. */
+            const bool ingest_session_deletion_requested = !ing_sess->m_deleteRequests.empty();
             for (auto id : ing_sess->m_deleteRequests) {
                 Open5GSSBIStream stream(id);
                 std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(std::nullopt, std::nullopt, std::nullopt, std::nullopt, 0, std::nullopt, g_nmbsf_userdataingsession_api_metadata, app_meta));
@@ -2631,7 +2661,15 @@ void UserDataIngSession::setMBSSessionDeleted(const UserDataIngDistSessId &ids)
                 removeFromRegistry(context_data->mbstfDistSessionId);
                 ing_sess->removeDistributionSessionInfo(context_data->distSessionInfoKey);
             }
-            App::self().context()->deleteUserDataIngSession(ing_sess->m_UserDataIngSessionId);
+            /* checkIfAllMBSSessionDeletionsReceived() is satisfied as soon as every Distribution
+               Session currently held is DELETED, which a session with one Distribution Session
+               reaches the moment that one is torn down. Removing the Ingest Session here
+               unconditionally therefore deleted it during an update as well: a PUT changing any
+               attribute tore down the MBS session, this ran, and the Ingest Session went with it,
+               leaving mbsDisSessInfos empty and the next request answered 404. */
+            if (ingest_session_deletion_requested) {
+                App::self().context()->deleteUserDataIngSession(ing_sess->m_UserDataIngSessionId);
+            }
         }
     } catch (const std::out_of_range &e) {
         std::ostringstream err;
@@ -3151,6 +3189,40 @@ void UserDataIngSession::pendingDeleteResponse(ogs_pool_id_t stream_id)
     m_deleteRequests.push_back(stream_id);
 }
 
+bool UserDataIngSession::failPendingDeleteRequests(ogs_sbi_xact_t *xact, const ProblemCause &cause, const char *reason)
+{
+    if (!xact) return false;
+
+    std::shared_ptr<UserDataIngDistSessId> ids(getFromRegistry(xact));
+    if (!ids) return false;
+
+    std::shared_ptr<UserDataIngSession> ing_sess;
+    try {
+        // locate(), not find(): the announcement channel's own Ingest Session is not in the
+        // Context, for the reason given in setMBSSessionDeleted().
+        ing_sess = locate(ids->first);
+    } catch (const std::out_of_range &e) {
+        return false;
+    }
+    if (!ing_sess) return false;
+
+    std::lock_guard<decltype(ing_sess->m_deleteRequestsMutex)::element_type> lock(*ing_sess->m_deleteRequestsMutex);
+    if (ing_sess->m_deleteRequests.empty()) return false;
+
+    for (auto id : ing_sess->m_deleteRequests) {
+        Open5GSSBIStream stream(id);
+        if (!stream) continue;
+        ogs_assert(true == Open5GSSBIServer::sendError(stream, std::nullopt, cause, reason));
+    }
+    ing_sess->m_deleteRequests.clear();
+
+    /* The Ingest Session stays. Whether the MBSTF deleted its Distribution Session is exactly
+       what is not known here, and removing this side would leave a Distribution Session nothing
+       refers to. s_distSessionIdRegistry keeps its entry, so a repeated DELETE issues the Nmb2
+       delete again, which DELETE being idempotent is safe whether or not the first one arrived. */
+    return true;
+}
+
 std::list<std::shared_ptr<DistributionSessionDesc>> UserDataIngSession::distributionSessionDescs()
 {
     std::list<std::shared_ptr<DistributionSessionDesc>> distribution_session_descs = std::list<std::shared_ptr<DistributionSessionDesc>>();
@@ -3629,12 +3701,27 @@ static std::string print_mbs_session_error(const std::shared_ptr<UserDataIngSess
 
 static void handle_failed_mbstf_nf_instance_discover(ogs_sbi_xact_t *xact)
 {
+    /* A consumer DELETE waits on a stream this transaction does not name: assoc_stream_id still
+       carries the stream the Distribution Session was created on, closed long before any delete,
+       so the lookup below finds nothing and, until this call, returned having answered nobody.
+       The consumer was then left holding a DELETE that no later event could complete, discovery
+       having already failed. */
+    if (UserDataIngSession::failPendingDeleteRequests(xact, ProblemCause::UNSPECIFIED_NF_FAILURE,
+                                                     "No MBSTF was found in the network")) return;
+
     ogs_sbi_stream_t *ogs_stream = reinterpret_cast<ogs_sbi_stream_t*>(ogs_sbi_stream_find_by_id(xact->assoc_stream_id));
     if (!ogs_stream) return;
     Open5GSSBIStream stream(xact->assoc_stream_id);
 
-    ogs_assert(true == Open5GSSBIServer::sendError(stream, OGS_SBI_HTTP_STATUS_INTERNAL_SERVER_ERROR, std::nullopt,
-                                 "Unable to Discover MBSTF", "MBSTF discovery failed" , "No MBSTF found in the network"));
+    /* The cause attribute carries a value, not a sentence: TS 29.571 V18.12.0 clause 5.2.4.1,
+       table 5.2.4.1-1, row cause: “A machine-readable application error cause specific to this
+       occurrence of the problem”. The values common to several APIs are those of TS 29.500
+       V18.10.0 table 5.2.7.2-1, whose NOTE 3 reserves UNSPECIFIED_NF_FAILURE for a condition no
+       other row names, which this is: TARGET_NF_NOT_REACHABLE would tell the consumer the NF it
+       addressed is unreachable, and that NF is this one, answering. What could not be discovered
+       stays in the detail, where free text belongs. */
+    ogs_assert(true == Open5GSSBIServer::sendError(stream, std::nullopt, ProblemCause::UNSPECIFIED_NF_FAILURE,
+                                                   "No MBSTF was found in the network"));
 
 }
 
