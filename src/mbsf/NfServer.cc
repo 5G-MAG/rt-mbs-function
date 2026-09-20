@@ -258,6 +258,40 @@ std::shared_ptr<Open5GSSBIResponse> NfServer::newResponse(const std::optional<st
                                                                                    allow_methods)));
 }
 
+bool NfServer::refuseUnsupportedPatchDocument(Open5GSSBIRequest &request, Open5GSSBIStream &stream,
+                                              size_t number_of_components, Open5GSSBIMessage &message,
+                                              const AppMetadata &app,
+                                              const std::optional<InterfaceMetadata> &interface)
+{
+    static const char patch_media_type[] = "application/merge-patch+json";
+
+    std::string content_type(request.headerValue(OGS_SBI_CONTENT_TYPE, std::string()));
+    if (content_type == patch_media_type) return false;
+
+    std::ostringstream err;
+    err << "Patch document \"" << content_type << "\" is not supported; send " << patch_media_type;
+    ogs_error("%s", err.str().c_str());
+
+    std::shared_ptr<Open5GSSBIResponse> response(newResponse(std::nullopt, "application/problem+json",
+                                                             std::nullopt, std::nullopt, 0, std::nullopt,
+                                                             interface, app));
+    ogs_assert(response);
+    /* The header is what tells a consumer which patch document to send instead, and clause 5.2.7.2
+       requires it on exactly this refusal. */
+    ogs_sbi_header_set(response->ogsSBIResponse()->http.headers, "Accept-Patch", patch_media_type);
+
+    CJson problem(CJson::newObject());
+    problem.set("title", CJson::newString("Unsupported Media Type"));
+    problem.set("status", CJson::newNumber(OGS_SBI_HTTP_STATUS_UNSUPPORTED_MEDIA_TYPE));
+    problem.set("detail", CJson::newString(err.str()));
+    problem.set("cause", CJson::newString(fiveg_mag_reftools::ProblemCause::UNSPECIFIED_MSG_FAILURE.cause()));
+    std::string body(problem.serialise());
+    populateResponse(response, body, OGS_SBI_HTTP_STATUS_UNSUPPORTED_MEDIA_TYPE);
+    ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *response));
+
+    return true;
+}
+
 bool NfServer::refuseUnsupportedContentCoding(Open5GSSBIRequest &request, Open5GSSBIStream &stream,
                                               size_t number_of_components, Open5GSSBIMessage &message,
                                               const AppMetadata &app,

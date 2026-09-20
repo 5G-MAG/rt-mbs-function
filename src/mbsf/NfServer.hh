@@ -157,6 +157,25 @@ public:
                                                const AppMetadata &app,
                                                const std::optional<InterfaceMetadata> &interface);
 
+    /** Refuse a PATCH whose request body is not a patch document this NF applies.
+     *
+     * Answers 415 with an Accept-Patch header naming what would have been accepted, and returns
+     * true. Returns false, having sent nothing, when the Content-Type is
+     * "application/merge-patch+json".
+     *
+     * TS 29.500 V18.10.0 clause 5.2.7.2: “If the HTTP PATCH method is rejected due to unsupported
+     * patch document, the NF shall include the Accept-Patch header field set to the value of
+     * supported patch document media types for a target resource i.e. to
+     * "application/merge-patch+json" if the NF supports "JSON Merge Patch" and to
+     * "application/json-patch+json" if the NF supports "JSON Patch".”
+     *
+     * This NF applies JSON Merge Patch and not JSON Patch, so the header names the one it applies.
+     */
+    static bool refuseUnsupportedPatchDocument(Open5GSSBIRequest &request, Open5GSSBIStream &stream,
+                                               size_t number_of_components, Open5GSSBIMessage &message,
+                                               const AppMetadata &app,
+                                               const std::optional<InterfaceMetadata> &interface);
+
     static std::map<std::string, std::string> makeInvalidParams(const std::string &param, const std::string &reason);
 
     // TS 29.500 V18.10.0 table 5.2.7.1-1 marks HTTP 406 mandatory for GET, generically across the 5GC

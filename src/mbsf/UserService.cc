@@ -141,7 +141,10 @@ CJson UserService::json(bool as_request = false) const
    a method that will be refused. */
 static std::string user_service_allow_methods(const Open5GSSBIMessage &message)
 {
-    return message.resourceComponent(1) ? "GET, PUT, PATCH, DELETE, OPTIONS" : "POST, OPTIONS";
+    /* The collection serves GET as well as POST, TS 29.580 V18.8.0 clause 6.1.3.2.3.1 alongside
+       6.1.3.2.3.2, and a GET of it answers 200. Leaving GET out told a consumer refused on the
+       collection that it could only POST there. */
+    return message.resourceComponent(1) ? "GET, PUT, PATCH, DELETE, OPTIONS" : "GET, POST, OPTIONS";
 }
 
 /* Refuse a ServiceNameDescription that names nothing.
@@ -792,12 +795,9 @@ bool UserService::processEvent(Open5GSEvent &event)
                         /* A body in a coding this NF cannot decode is refused before it is read, so the
                            encoded octets never reach the JSON parser and get blamed on the document. */
                         if (NfServer::refuseUnsupportedContentCoding(request, stream, 3, message, app_meta, api)) return true;
-                        if (request.headerValue(OGS_SBI_CONTENT_TYPE, std::string()) != "application/merge-patch+json") {
-                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_UNSUPPORTED_MEDIA_TYPE, 1,
-                                                                    message, app_meta, api, "Unsupported Media Type",
-                                                                    "Expected content type: application/merge-patch+json"));
-                            return true;
-                        }
+                        /* Answers 415 naming the patch document this NF applies, which clause
+                           5.2.7.2 requires on this refusal. */
+                        if (NfServer::refuseUnsupportedPatchDocument(request, stream, 3, message, app_meta, api)) return true;
 
                         std::string user_service_id(ptr_resource1);
                         try {
