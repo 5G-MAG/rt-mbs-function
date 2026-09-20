@@ -68,13 +68,18 @@ static std::string encode_atom(const std::string &raw_str);
 static std::string encode_mime_token(const std::string &raw_str);
 static std::string escape_chars(const std::string_view &s, char esc, const std::string &other_chars_to_esc);
 
-MultipartMime::MultipartMime(MultipartMime::MultipartType typ)
+MultipartMime::MultipartMime(MultipartMime::MultipartType typ, const std::optional<std::string> &root_type)
     :m_headers()
     ,m_body()
     ,m_separator(random_string(64))
     ,m_bodyFooterSepPos(m_body.end())
 {
-    m_headers.insert(std::make_pair(std::string{"Content-Type"}, std::format("multipart/{}; boundary={}", typ, encode_mime_token(m_separator))));
+    /* RFC 2387 clause 3.1 makes the "type" parameter mandatory on multipart/related, and
+       TS 26.517 clause 5.3.1 requires it to name the User Service Descriptions media type. It is
+       quoted because a media type contains a solidus, which is a tspecial. */
+    std::string content_type(std::format("multipart/{}; boundary={}", typ, encode_mime_token(m_separator)));
+    if (root_type) content_type += std::format("; type=\"{}\"", *root_type);
+    m_headers.insert(std::make_pair(std::string{"Content-Type"}, content_type));
     __insertFooterSep();
 }
 

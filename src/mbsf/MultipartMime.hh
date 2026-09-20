@@ -37,7 +37,9 @@ public:
         ALTERNATIVE
     };
 
-    MultipartMime(MultipartType typ = MIXED);
+    /* root_type is the RFC 2387 "type" parameter, the media type of the root body part. It is
+       mandatory for multipart/related and TS 26.517 clause 5.3.1 requires it on this bundle. */
+    MultipartMime(MultipartType typ = MIXED, const std::optional<std::string> &root_type = std::nullopt);
 
     MultipartMime(const MultipartMime &other) = delete;
     MultipartMime(MultipartMime &&other) = delete;

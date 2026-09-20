@@ -47,6 +47,7 @@
 
 // App header includes
 #include "common.hh"
+#include "ServiceAnnouncementMediaTypes.hh"
 #include "App.hh"
 #include "Context.hh"
 #include "DistributionSessionInfo.hh"
@@ -177,7 +178,7 @@ bool UserServiceAnnBundle::writeAnnouncement()
     std::string err;
     bool rv = writeToFile(abs_directory_path.string(), user_service_announcement_file_name, json_str, err);
     if (rv) {
-        rv = writeToFile(metadata_dir.string(), user_service_announcement_file_name, "Content-Type: application/3gpp-mbs-user-service-descriptions+json;version=\"Rel17\"\r\n", err);
+        rv = writeToFile(metadata_dir.string(), user_service_announcement_file_name, "Content-Type: " USER_SERVICE_DESCRIPTIONS_MIME_TYPE "\r\n", err);
         if (rv) {
             addToServingFiles(user_service_announcement_file_name);
         } else {
