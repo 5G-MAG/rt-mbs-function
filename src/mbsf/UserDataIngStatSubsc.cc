@@ -351,13 +351,24 @@ void UserDataIngStatSubsc::checkAndSetUserDataIngSessStartedTerminatedEvent(std:
             event.reset(new Event());
             *event = Event::VAL_USER_DATA_ING_SESS_STARTED;
 
-            std::optional<SubscribedEvents::DateTime> tp = user_data_ing_session->timeOfLatestDistributionSessionEvent(SubscribedEvents::DIST_SESS_STARTING);
+            /* Stamped when the session was seen to be established, which is the moment this
+               branch is reached: checkIfAllMBSDistributionSessionsEstablished() above is what
+               makes it true.
 
-            if (tp.has_value()) {
-                stat_subsc->setSubscribedEventTime(event, tp.value());
-                user_data_ing_session->resetMBSDistributionSessionsEstablishedFlag();
-            }
-            //stat_subsc->setSubscribedEventTime(event, DateTime::clock::now());
+               It used to be stamped with the time of the latest DIST_SESS_STARTING among the
+               Distribution Sessions, which is when they began starting and so is earlier than the
+               Ingest Session's own STARTING event. A subscriber to both therefore read STARTED
+               about 15 ms before STARTING, which reverses what the two mean. TS 29.580 V18.8.0
+               table 6.2.6.3.4-1 gives USER_DATA_ING_SESS_STARTING as “Indicates that the MBS User
+               Data Ingest Session is starting.” and USER_DATA_ING_SESS_STARTED as “Indicates that
+               the MBS User Data Ingest Session established.”, so one cannot precede the other.
+
+               DIST_SESS_STARTED would be the event to take a time from, being the established one
+               rather than the starting one, but nothing records it: switching to it removed the
+               STARTED notification altogether, the timepoint being absent and the guard around it
+               suppressing the event. */
+            stat_subsc->setSubscribedEventTime(event, DateTime::clock::now());
+            user_data_ing_session->resetMBSDistributionSessionsEstablishedFlag();
         }
         if (user_data_ing_session_id == id && user_data_ing_session->checkIfAllMBSDistributionSessionsTerminated()) {
 
@@ -383,6 +394,26 @@ void UserDataIngStatSubsc::checkAndSetUserDataIngSessStartedTerminatedEvent(std:
     }
 }
 
+/* The events TS 29.580 V18.8.0 table 6.2.6.3.4-1 marks with the applicability MBSEventsExt.
+   TS 29.500 V18.10.0 clause 6.6.2: "Such attributes or enumerated values shall only be sent and such
+   procedures shall only be applied if the corresponding feature is supported." The MBS User Data
+   Ingest Status Subscription carries no suppFeat of its own (table 6.2.6.2.7-1), so the feature that
+   governs is the one negotiated for the Ingest Session the subscription names. */
+static bool event_needs_mbs_events_ext(const std::shared_ptr< Event > &status_event)
+{
+    if (!status_event) return false;
+    switch (status_event->getValue()) {
+    case Event::VAL_SESSION_STARTED:
+    case Event::VAL_SESSION_RELEASED:
+    case Event::VAL_DIST_SESS_ACTIVATED:
+    case Event::VAL_DIST_SESS_EST_FAILURE:
+    case Event::VAL_USER_SER_AD:
+        return true;
+    default:
+        return false;
+    }
+}
+
 std::list<std::shared_ptr< EventNotification > > UserDataIngStatSubsc::makeEventNotifications() const
 {
     std::list<std::shared_ptr< EventNotification > > result;
@@ -395,6 +426,8 @@ std::list<std::shared_ptr< EventNotification > > UserDataIngStatSubsc::makeEvent
             if (!subscribed_event) continue;
             std::shared_ptr<SubscribedEvent> subsc_event = *subscribed_event;
             if (!subsc_event) continue;
+            if (event_needs_mbs_events_ext(subsc_event->getStatusEvent()) &&
+                !user_data_ing_session->mbsEventsExtNegotiated()) continue;
             /*
             if (SubscribedEvents::isSubscribedEventNotificationStimulatedByMbsf(subsc_event->getStatusEvent()))
             {
@@ -432,7 +465,6 @@ std::list<std::shared_ptr< EventNotification > > UserDataIngStatSubsc::makeEvent
             std::shared_ptr< UserDataIngSession::ContextData > context_data = user_data_ing_session->getDistributionSessionInfoData(dist_session_id);
             /* get list of registered events from the DistributionSession in the User Data Ing Session */
             const auto &dist_sess_event_timestamps = context_data->distributionSessionInfo->eventTimestamps();
-
             if (dist_sess_event_timestamps.isUpdated(status_event, m_cache->lastReportedEventTimes)) {
                 const std::pair<std::optional<SubscribedEvents::DateTime>, std::optional<std::string>> &time_point = dist_sess_event_timestamps.timepointForSubscribedEvent(subsc_event->getStatusEvent());
                 if (!time_point.first.has_value()) continue;
@@ -442,7 +474,11 @@ std::list<std::shared_ptr< EventNotification > > UserDataIngStatSubsc::makeEvent
                     *p = time_point;
                 }
                 const std::string &time_stamp = time_point_to_iso8601_utc_str(time_point.first.value());
-                std::shared_ptr< EventNotification > event_notification = makeEventNotification(status_event, time_stamp, dist_session_id, std::nullopt);
+                /* TS 29.580 V18.8.0 table 6.2.6.2.10-1, row statusAddInfo: "Represents additional
+                   information on the reported MBS User Data Ingest Session Status event within the
+                   "statusEvent" attribute." It is recorded beside the timepoint, so it is reported
+                   with it; discarding it here loses whatever the event carried. */
+                std::shared_ptr< EventNotification > event_notification = makeEventNotification(status_event, time_stamp, dist_session_id, time_point.second);
                 result.push_back(std::move(event_notification));
             }
         }
@@ -925,6 +961,16 @@ bool UserDataIngStatSubsc::processEvent(Open5GSEvent &event)
                     stat_subsc->sendNotifications();
 
                 }
+
+                /* Every subscription on this Ingest Session gets the pass, not only one naming the
+                   two events handled specially here. Those two need a timestamp set first, which is
+                   what their blocks do; the rest are already recorded and only need reporting.
+                   Without this a subscription naming MBS Distribution Session level events alone is
+                   never reported against by this handler, including the pass driven when the
+                   subscription itself is created, and stays silent until some unrelated event
+                   happens to drive one. sendNotifications() sends nothing when nothing changed, so
+                   the call above and this one do not duplicate. */
+                if (user_data_ing_session_id == id) stat_subsc->sendNotifications();
 
                 if (user_data_ing_session_id == id && stat_subsc->checkForUserServiceAnn()) {
                     if (user_data_ing_session.userSerAdNotificationSent()) break;

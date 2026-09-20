@@ -116,7 +116,8 @@ typedef enum {
     const std::pair<std::optional<DateTime>, std::optional<std::string>> &timepointForEventType(EventTypeBitMask event_type) const;
 
     SubscribedEvents &registerEvent(std::shared_ptr<DistSessionEventReport> dist_sess_event_report);
-    SubscribedEvents &registerEvent(EventTypeBitMask event_type);
+    SubscribedEvents &registerEvent(EventTypeBitMask event_type,
+                                    const std::optional<std::string> &status_add_info = std::nullopt);
     std::pair<std::optional<DateTime>, std::optional<std::string>> *subscribedEventType(std::shared_ptr< Event > event);
     SubscribedEvents &setSubscribedEventTime(std::shared_ptr< Event > event, std::optional<DateTime> time_point = std::nullopt, std::optional<std::string> status_add_info = std::nullopt);
     const std::pair<std::optional<DateTime>, std::optional<std::string>> &timepointForSubscribedEvent(std::shared_ptr< Event > event) const;
