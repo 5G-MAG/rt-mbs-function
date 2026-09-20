@@ -20,6 +20,7 @@
 #include "ogs-proto.h"
 #include "ogs-sbi.h"
 
+#include <sstream>
 #include <stdexcept>
 #include <string>
 
@@ -222,12 +223,20 @@ bool Nmb2Handler::processEvent(Open5GSEvent &event)
                             handle_mbstf_dist_session_response(sbi_xact, response, false);
                         } else {
                             ogs_error("Received invalid content-type from MBSTF");
+                            UserDataIngSession::registerDistSessionEstFailure(sbi_xact,
+                                    "MBSTF returned no usable representation of the MBS Distribution Session");
                             UserDataIngSession::deleteMBSTFSession(sbi_xact);
                             send_error(sbi_xact);
                          }
 
                     } else {
                         ogs_error("HTTP response error [%d]", message.resStatus());
+                        {
+                            std::ostringstream reason;
+                            reason << "MBSTF answered the MBS Distribution Session creation with status "
+                                   << message.resStatus();
+                            UserDataIngSession::registerDistSessionEstFailure(sbi_xact, reason.str());
+                        }
                         UserDataIngSession::deleteMBSTFSession(sbi_xact);
                         send_error(sbi_xact);
 
@@ -327,6 +336,10 @@ static bool handle_mbstf_dist_session_response(ogs_sbi_xact_t *xact, Open5GSSBIR
     try {
         create_rsp_data_from_mbstf = CJson::parse(response.content());
     } catch (std::exception &ex) {
+        if (!update) {
+            UserDataIngSession::registerDistSessionEstFailure(xact,
+                    std::string("MBSTF creation response is not JSON: ") + ex.what());
+        }
         UserDataIngSession::deleteMBSTFSession(xact);
         send_error(xact);
         return true;
@@ -344,6 +357,10 @@ static bool handle_mbstf_dist_session_response(ogs_sbi_xact_t *xact, Open5GSSBIR
             dist_session = create_rsp_data->getDistSession();
         }
     } catch (std::exception &err) {
+        if (!update) {
+            UserDataIngSession::registerDistSessionEstFailure(xact,
+                    std::string("MBSTF creation response did not parse as CreateRspData: ") + err.what());
+        }
         UserDataIngSession::deleteMBSTFSession(xact);
         char *error = ogs_msprintf("%s", err.what());
         ogs_error("%s", error);

@@ -327,6 +327,13 @@ void MBSFEventHandler::dispatch(Open5GSFSM &fsm, Open5GSEvent &event)
                           break;
                     }
 
+                    /* An Nmb2 create that never gets an answer is the MBSF failing to establish the
+                       Distribution Session at the MBSTF just as much as a rejected one is. The call
+                       filters on the transaction's own request, so transactions for anything else
+                       pass through it untouched. */
+                    UserDataIngSession::registerDistSessionEstFailure(sbi_xact,
+                            "MBSTF did not answer the MBS Distribution Session creation");
+
                     /* A consumer DELETE waits on a stream this transaction does not name:
                        assoc_stream_id still carries the stream the Distribution Session was
                        created on, closed long before any delete, so the assoc_stream path below

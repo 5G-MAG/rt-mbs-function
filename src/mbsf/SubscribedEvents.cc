@@ -269,11 +269,18 @@ const std::pair<std::optional<SubscribedEvents::DateTime>, std::optional< std::s
     return tpForEventType(event_type);
 }
 
-SubscribedEvents &SubscribedEvents::registerEvent(EventTypeBitMask event_type)
+SubscribedEvents &SubscribedEvents::registerEvent(EventTypeBitMask event_type,
+                                                 const std::optional<std::string> &status_add_info)
 {
     auto &tp = timepointForEventType(event_type);
     tp.first.emplace(DateTime::clock::now());
-    tp.second.reset();
+    /* TS 29.580 V18.8.0 table 6.2.6.2.10-1, row statusAddInfo: "Represents additional information on
+       the reported MBS User Data Ingest Session Status event within the "statusEvent" attribute." */
+    if (status_add_info) {
+        tp.second.emplace(*status_add_info);
+    } else {
+        tp.second.reset();
+    }
    // return tp;
    return *this;
 }
@@ -304,6 +311,16 @@ SubscribedEvents &SubscribedEvents::registerEvent(std::shared_ptr<DistSessionEve
     std::shared_ptr< DistSessionEventType > distribution_session_event_type = dist_sess_event_report->getEventType();
     const std::optional<std::string > &time_stamp = dist_sess_event_report->getTimeStamp();
     SubscribedEvents::EventTypeBitMask event_type = getEventTypeBitMask(*distribution_session_event_type);
+    /* The Nmbstf event type is an open enumeration, so a peer of a later release can report a value
+       this one does not know. TS 29.500 V18.10.0 clause 6.6.2: "Unknown attributes and values shall
+       be ignored by the receiving entity." Without this the value falls through getEventTypeBitMask()
+       to NONE, for which timepointForEventType() below throws std::range_error, out of a notification
+       handler that does not catch it. */
+    if (event_type == NONE) {
+        ogs_warn("Ignoring unknown MBS Distribution Session event type [%s] reported by the MBSTF",
+                 distribution_session_event_type->getString().c_str());
+        return *this;
+    }
     auto &tp = timepointForEventType(event_type);
     if (time_stamp.has_value()) {
         tp.first.emplace(to_time_point_iso8601(time_stamp.value()));
@@ -459,21 +476,20 @@ SubscribedEvents::EventTypeBitMask SubscribedEvents::getEventTypeBitMask(DistSes
         return DATA_INGEST_FAILURE;
     case DistSessionEventType::VAL_SESSION_DEACTIVATED:
         return DIST_SESS_TERMINATED;
-    // DIST_SESS_STARTED has no producer: nothing in the DistSessionEventType enum (see the full case
-    // list above) currently maps to it.
-    //
-    // UNRESOLVED, flagged rather than guessed: VAL_DATA_INGEST_SESSION_ESTABLISHED below may belong
-    // here instead of, or as well as, DIST_SESS_STARTING; the correct target may equally be
-    // USER_DATA_ING_SESS_STARTED, which by name is a closer match to DATA_INGEST_SESSION_ESTABLISHED
-    // than the Distribution-Session-level STARTING/STARTED pair. Settling it needs the primary
-    // TS 29.580 event-type table, since a wrong assignment trades one wrong notification type for
-    // another rather than closing the gap.
+    // DIST_SESS_STARTING and DIST_SESS_STARTED are absent from this mapping on purpose. TS 26.502
+    // V18.6.0 table 4.6.2-1 leaves the stimulating reference point column empty for both, which that
+    // clause defines as stimulated by the MBSF itself, so neither is derived from an Nmb2 report.
+    // They are registered where the MBSF acts: where it sends the Nmb2 create, and where that create
+    // is answered.
     case DistSessionEventType::VAL_SESSION_ACTIVATED:
         return DIST_SESS_ACTIVATED;
     case DistSessionEventType::VAL_SERVICE_MANAGEMENT_FAILURE:
         return DIST_SESS_SERV_MNGT_FAILURE;
+    // TS 29.580 V18.8.0 table 6.2.6.3.4-1 row USER_DATA_ING_SESS_STARTED: "This corresponds to the
+    // “user data ingest session established” event." That is the event this Nmbstf report carries,
+    // and TS 26.502 V18.6.0 table 4.6.2-1 gives it Nmb2 as its stimulating reference point.
     case DistSessionEventType::VAL_DATA_INGEST_SESSION_ESTABLISHED:
-        return DIST_SESS_STARTING;
+        return USER_DATA_ING_SESS_STARTED;
     case DistSessionEventType::VAL_DATA_INGEST_SESSION_TERMINATED:
         return SESSION_TERMINATED;
     default:

@@ -995,6 +995,17 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
             try {
                 //std::shared_ptr<UserDataIngSession> ing_session = find(ids_ptr->first);
                 std::shared_ptr<UserDataIngSession> ing_session = locate(ids->first);
+                /* TS 26.502 V18.6.0 table 4.6.2-1, row "Distribution Session starting": "The MBSF is
+                   starting to establish the MBS Distribution session at the MBSTF." The row's
+                   stimulating reference point column is empty, which the same clause defines as
+                   stimulated by the MBSF itself, so the event is this send and not anything the
+                   MBSTF later reports over Nmb2. */
+                {
+                    std::shared_ptr<ContextData> context_data(ing_session->getDistributionSessionInfoData(ids->second));
+                    if (context_data && context_data->distributionSessionInfo) {
+                        context_data->distributionSessionInfo->registerEvent(SubscribedEvents::DIST_SESS_STARTING);
+                    }
+                }
                 ing_session->nmbstfDiscoverAndSend(ids_ptr, Nmb2Build::buildNmb2DistSession, new UserDataIngDistSessId(*ids), nullptr);
                 return true;
             } catch (const std::out_of_range &e) {
@@ -2054,6 +2065,17 @@ bool UserDataIngSession::processDistSession(const std::shared_ptr<DistSession> &
     // MBSDistributionSessionInfo.objDistrInfo.objIngUri for return to the caller.
     context_data->receivedMBSTFResponse = true;
     context_data->distSession = dist_session;
+
+    /* TS 26.502 V18.6.0 table 4.6.2-1, row "Distribution Session established": "The MBS Distribution
+       Session is established." Its stimulating reference point column is empty, so the MBSF raises it
+       from its own act rather than from an Nmb2 report. This function runs only on the Nmb2 create
+       response (Nmb2Handler.cc, the !update arm), which is that act completing: the failure counterpart
+       in the same table, "Distribution Session establishment failure", is the same create not
+       completing. The event is not the DistSessionState reaching ESTABLISHED; the MBSTF creates the
+       session INACTIVE and the activity state is a separate axis. */
+    if (context_data->distributionSessionInfo) {
+        context_data->distributionSessionInfo->registerEvent(SubscribedEvents::DIST_SESS_STARTED);
+    }
     const auto &dist_sess_obj_data = dist_session->getObjDistributionData();
     if (dist_sess_obj_data && *dist_sess_obj_data.value()->getObjAcquisitionMethod() == ObjAcquisitionMethod::VAL_PUSH) {
         // This is an object PUSH method so copy objIngestBaseUrl to MBSDistributionSessionInfo.objDistrInfo.objIngUri
@@ -2990,6 +3012,60 @@ bool UserDataIngSession::mbsErrorHandlingNegotiated() const
     else if (last >= 'a' && last <= 'f') mask = (unsigned)(last - 'a' + 10);
     else if (last >= 'A' && last <= 'F') mask = (unsigned)(last - 'A' + 10);
     return (mask & 0x4) != 0;
+}
+
+bool UserDataIngSession::mbsEventsExtNegotiated() const
+{
+    /* TS 29.580 V18.8.0 table 6.2.8-1 numbers MBSEventsExt 2, so bit 2 (value 2) of the negotiated
+       bitmask, read the same way as mbsErrorHandlingNegotiated() above. */
+    const auto &supp_feat = m_MBSUserDataIngSession->getSuppFeat();
+    if (!supp_feat.has_value() || supp_feat->empty()) return false;
+    char last = supp_feat->back();
+    unsigned mask = 0;
+    if (last >= '0' && last <= '9') mask = (unsigned)(last - '0');
+    else if (last >= 'a' && last <= 'f') mask = (unsigned)(last - 'a' + 10);
+    else if (last >= 'A' && last <= 'F') mask = (unsigned)(last - 'A' + 10);
+    return (mask & 0x2) != 0;
+}
+
+void UserDataIngSession::registerDistSessionEstFailure(ogs_sbi_xact_t *xact, const std::string &reason)
+{
+    std::shared_ptr<UserDataIngDistSessId> ids = nullptr;
+
+    /* Only the Nmb2 creation of a Distribution Session can fail to establish one. A transaction for
+       any other request on that API reaching here would report a failure that did not happen, so the
+       request the transaction carries is what decides, not the caller. */
+    if (!xact || !xact->request) return;
+    const ogs_sbi_header_t &h = xact->request->h;
+    if (!h.method || ogs_strcasecmp(h.method, OGS_SBI_HTTP_METHOD_POST) != 0) return;
+    if (!h.service.name || std::string(h.service.name) != "nmbstf-distsession") return;
+    if (!h.resource.component[0] || std::string(h.resource.component[0]) != "dist-sessions") return;
+    if (h.resource.component[1]) return;
+
+    {
+        std::lock_guard<decltype(s_registry_mutex)> lock(s_registry_mutex);
+        auto it = s_xactRegistry.find(xact);
+        if (it != s_xactRegistry.end()) {
+            ids = it->second;
+        }
+    }
+    if (!ids) return;
+
+    try {
+        std::shared_ptr<UserDataIngSession> ing_sess = locate(ids->first);
+        /* The event is recorded whatever was negotiated. Whether it may be sent is decided where it
+           is sent, in UserDataIngStatSubsc::makeEventNotifications(), because that is what the
+           obligation is about and because every event carrying an applicability needs the same
+           check. */
+        std::shared_ptr<ContextData> context_data = ing_sess->getDistributionSessionInfoData(ids->second);
+        if (context_data && context_data->distributionSessionInfo) {
+            context_data->distributionSessionInfo->registerEvent(SubscribedEvents::DIST_SESS_EST_FAILURE, reason);
+        }
+    } catch (const std::out_of_range &e) {
+        std::ostringstream err;
+        err << "MBS User Data Ingest Session [" << ids->first << "] does not exist.";
+        ogs_error("%s", err.str().c_str());
+    }
 }
 
 void UserDataIngSession::recordDistSessionFailure(const std::string &dist_session_info_key,

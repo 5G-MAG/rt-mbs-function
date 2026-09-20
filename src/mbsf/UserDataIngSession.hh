@@ -316,6 +316,13 @@ public:
      */
     bool mbsErrorHandlingNegotiated() const;
 
+    /** Whether the MBSEventsExt feature was negotiated for this MBS User Data Ingest Session.
+     *
+     * TS 29.580 V18.8.0 table 6.2.8-1 gives it feature number 2, so bit 2 of the negotiated bitmask.
+     * The events table 6.2.6.3.4-1 marks with that applicability may only be reported where it was.
+     */
+    bool mbsEventsExtNegotiated() const;
+
     /** Record a Distribution Session the MB-SMF rejected, for reporting alongside the ones that
      *  succeeded. Keyed by the map key the consumer used in "mbsDisSessInfos". */
     void recordDistSessionFailure(const std::string &dist_session_info_key,
@@ -375,6 +382,14 @@ public:
     static void populateAndSendError(UserDataIngDistSessId *ids, const std::optional<fiveg_mag_reftools::ProblemCause> &cause = std::nullopt,
                     const std::optional<fiveg_mag_reftools::CJson> &problem_detail_json = std::nullopt);
     static void deleteMBSTFSession(ogs_sbi_xact_t *xact);
+
+    /** Record that establishing the MBS Distribution Session at the MBSTF failed, for the
+     *  Distribution Session the given Nmb2 transaction belongs to.
+     *
+     *  TS 26.502 V18.6.0 table 4.6.2-1 leaves this event's stimulating reference point column empty,
+     *  so it is the MBSF's own; the reason is carried in the notification's statusAddInfo.
+     */
+    static void registerDistSessionEstFailure(ogs_sbi_xact_t *xact, const std::string &reason);
     static bool handlePatchUpdateResponse(ogs_sbi_xact_t *xact, const std::shared_ptr<reftools::mbsf::DistSession> &dist_session);
     static void rollbackMBSTFDistSessionState(ogs_sbi_xact_t *xact);
 

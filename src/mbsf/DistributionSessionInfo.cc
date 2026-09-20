@@ -358,9 +358,10 @@ bool DistributionSessionInfo::resetDataIngestSessionTerminated() {
     return m_dataIngestSessionTerminated;
 };
 
-void DistributionSessionInfo::registerEvent(SubscribedEvents::EventTypeBitMask event_type)
+void DistributionSessionInfo::registerEvent(SubscribedEvents::EventTypeBitMask event_type,
+                                            const std::optional<std::string> &status_add_info)
 {
-    m_eventTimestamps.registerEvent(event_type);
+    m_eventTimestamps.registerEvent(event_type, status_add_info);
     sendSubscriptionNotifications();
 }
 
