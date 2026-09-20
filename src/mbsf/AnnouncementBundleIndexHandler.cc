@@ -28,6 +28,7 @@
 #include "ogs-sbi.h"
 
 #include "common.hh"
+#include "ServiceAnnouncementMediaTypes.hh"
 #include <DocrootHTTPRequestHandler.hh>
 #include <HTTPResponse.hh>
 #include <HTTPServer.hh>
@@ -52,7 +53,7 @@ HTTPResponse AnnouncementBundleIndexHandler::makeResponseForDir(const std::strin
     if (!dp.has_filename()) dp = dp.parent_path();
     auto user_data_ing_sess_id = dp.filename().string();
 
-    MultipartMime bundle(MultipartMime::RELATED);
+    MultipartMime bundle(MultipartMime::RELATED, USER_SERVICE_DESCRIPTIONS_MEDIA_TYPE);
 
     try {
         auto user_dat_ing_session = UserDataIngSession::find(user_data_ing_sess_id);

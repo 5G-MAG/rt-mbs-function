@@ -19,6 +19,10 @@
  */
 
 #include <string>
+#include <optional>
+#include <sstream>
+#include <iomanip>
+#include <ctime>
 #include <string_view>
 
 #include "common.hh"
@@ -49,6 +53,44 @@ inline std::string_view entityTagOpaque(std::string_view tag)
  * comparison for If-None-Match (section 13.1.2) does not arise here: this MBSF never emits a weak
  * tag, so no stored tag can be weak and the two comparisons coincide.
  */
+/** Parse an HTTP-date into a time point.
+ *
+ * RFC 9110 section 5.6.7 requires a recipient to accept all three formats; the preferred IMF-fixdate
+ * is tried first, then the obsolete RFC 850 and asctime forms. Returns nullopt if none parse, which
+ * RFC 9110 section 13.1.3 says to treat as no condition at all rather than as a failed one.
+ */
+inline std::optional<std::time_t> parseHttpDate(const std::string &value)
+{
+    static const char * const formats[] = {
+        "%a, %d %b %Y %H:%M:%S",    /* IMF-fixdate */
+        "%A, %d-%b-%y %H:%M:%S",    /* RFC 850     */
+        "%a %b %d %H:%M:%S %Y"      /* asctime     */
+    };
+    for (const char *fmt : formats) {
+        std::tm tm{};
+        std::istringstream in(value);
+        in >> std::get_time(&tm, fmt);
+        if (in.fail()) continue;
+        /* HTTP-dates are always GMT, so the fields are interpreted as UTC rather than local time. */
+        return timegm(&tm);
+    }
+    return std::nullopt;
+}
+
+/** True when the resource was last modified no later than the date the client offered.
+ *
+ * RFC 9110 section 13.1.3: a recipient answers 304 when the selected representation has not been
+ * modified since the given date. An unparseable date on either side answers false, so the request
+ * proceeds normally and the client gets the representation.
+ */
+inline bool notModifiedSince(const std::string &last_modified, const std::string &if_modified_since)
+{
+    auto lm = parseHttpDate(last_modified);
+    auto ims = parseHttpDate(if_modified_since);
+    if (!lm || !ims) return false;
+    return *lm <= *ims;
+}
+
 inline bool entityTagListMatches(std::string_view field_value, std::string_view etag)
 {
     const auto wanted = entityTagOpaque(etag);

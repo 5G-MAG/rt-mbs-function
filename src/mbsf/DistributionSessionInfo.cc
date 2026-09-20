@@ -652,19 +652,62 @@ std::shared_ptr<DistributionSessionDesc> DistributionSessionInfo::populateDistri
 
 void DistributionSessionInfo::validate() const
 {
-    if (!m_mbsDistributionSessionInfo) throw std::runtime_error("No MBSDistributionSessionInfo to validate");
+    /* TS 29.580 V18.8.0 clause 6.2.6.2.3, type MBSDistributionSessionInfo, attribute objDistrInfo: “This attribute shall be present only when the "distrMethod" attribute value is set to "OBJECT".”
+     *
+     * TS 29.580 V18.8.0 clause 6.2.6.2.3, type MBSDistributionSessionInfo, attribute pckDistrInfo: “This attribute shall be present only when the "distrMethod" attribute is set to "PACKET".”
+     *
+     * "Only when" binds in both directions, so the parameters for a method that was not chosen are
+     * refused as well as the missing parameters for the one that was. Both refusals are raised as a
+     * ModelException, which the request handlers turn into a 400 naming the attribute: a
+     * std::runtime_error here reached no catch at all and ended the process, so a request naming
+     * PACKET while carrying objDistrInfo terminated the MBSF.
+     */
+    if (!m_mbsDistributionSessionInfo) {
+        throw ModelException("No MBSDistributionSessionInfo to validate", "MBSDistributionSessionInfo", std::string(),
+                             fiveg_mag_reftools::ProblemCause::SYSTEM_FAILURE);
+    }
     const auto &distr_method = m_mbsDistributionSessionInfo->getDistrMethod();
+    if (!distr_method) {
+        throw ModelException("distrMethod must be present", "MBSDistributionSessionInfo", "distrMethod",
+                             fiveg_mag_reftools::ProblemCause::MANDATORY_IE_MISSING);
+    }
+    const auto &obj_dist_method_info = m_mbsDistributionSessionInfo->getObjDistrInfo();
+    const auto &pkt_dist_method_info = m_mbsDistributionSessionInfo->getPckDistrInfo();
+
     switch (distr_method->getValue()) {
     case DistributionMethod::VAL_OBJECT:
-        {
-            const auto &obj_dist_method_info = m_mbsDistributionSessionInfo->getObjDistrInfo();
-            if (!obj_dist_method_info) throw std::runtime_error("Must specify objDistrInfo if distrMethod is OBJECT");
+        if (!obj_dist_method_info) {
+            throw ModelException("objDistrInfo must be present when distrMethod is OBJECT",
+                                 "MBSDistributionSessionInfo", "objDistrInfo",
+                                 fiveg_mag_reftools::ProblemCause::MANDATORY_IE_MISSING);
+        }
+        if (pkt_dist_method_info) {
+            throw ModelException("pckDistrInfo must not be present when distrMethod is OBJECT",
+                                 "MBSDistributionSessionInfo", "pckDistrInfo",
+                                 fiveg_mag_reftools::ProblemCause::MANDATORY_IE_INCORRECT);
+        }
+        /* TS 29.580 V18.8.0 clause 6.2.6.2.5, type ObjectDistrMethInfo, attribute objIngUri: “When the "objDistrUri" attribute is present, this attribute shall also be present.”
+         *
+         * The ingest URI carries the URL prefix the MBSTF replaces with the distribution base URL
+         * to derive each object's distribution URI, so a distribution URI given without one leaves
+         * the MBSTF nothing to rewrite.
+         */
+        if (obj_dist_method_info.value()->getObjDistrUri() && !obj_dist_method_info.value()->getObjIngUri()) {
+            throw ModelException("objIngUri must be present when objDistrUri is present",
+                                 "ObjectDistrMethInfo", "objDistrInfo.objIngUri",
+                                 fiveg_mag_reftools::ProblemCause::MANDATORY_IE_MISSING);
         }
         break;
     case DistributionMethod::VAL_PACKET:
-        {
-            const auto &pkt_dist_method_info = m_mbsDistributionSessionInfo->getPckDistrInfo();
-            if (!pkt_dist_method_info) throw std::runtime_error("Must specify pktDistrInfo if distrMethod is PACKET");
+        if (!pkt_dist_method_info) {
+            throw ModelException("pckDistrInfo must be present when distrMethod is PACKET",
+                                 "MBSDistributionSessionInfo", "pckDistrInfo",
+                                 fiveg_mag_reftools::ProblemCause::MANDATORY_IE_MISSING);
+        }
+        if (obj_dist_method_info) {
+            throw ModelException("objDistrInfo must not be present when distrMethod is PACKET",
+                                 "MBSDistributionSessionInfo", "objDistrInfo",
+                                 fiveg_mag_reftools::ProblemCause::MANDATORY_IE_INCORRECT);
         }
         break;
     default:

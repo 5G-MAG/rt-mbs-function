@@ -41,6 +41,7 @@
 #include <random>
 #include <stdexcept>
 #include <set>
+#include <cctype>
 #include <string>
 #include <cstdint>
 #include <iostream>
@@ -197,6 +198,7 @@ static void send_model_error(const ModelException &err, Open5GSSBIStream &stream
                              const NfServer::AppMetadata &app_meta, const std::optional<NfServer::InterfaceMetadata> &api,
                              const std::string &no_cause_reason, const std::string &log_prefix);
 static void log_missing_ing_session(const std::string &id);
+static void validate_traffic_marking(const MBSUserDataIngSession &ing_session);
 
 static std::atomic<std::uint64_t> g_next_tsi = 2;
 
@@ -237,6 +239,8 @@ UserDataIngSession::UserDataIngSession(CJson &json, bool as_request)
 
     m_generated = std::chrono::system_clock::now();
     m_lastUsed = m_generated;
+
+    validate_traffic_marking(*m_MBSUserDataIngSession);
 
     std::string json_str(json.serialise());
     m_hash = calculate_hash(std::vector<std::string::value_type>(json_str.begin(), json_str.end()));
@@ -341,6 +345,43 @@ int UserDataIngSession::numberOfDistributionSessions()
     return count;
 }
 
+
+/* Refuse a traffic marking this MBSF cannot pass on unchanged.
+ *
+ * TS 29.580 V18.8.0 clause 6.2.6.2.3: “This attribute shall be encoded as a two octets string in hexadecimal representation.”
+ *
+ * TS 29.580 V18.8.0 clause 6.2.6.2.3: “The first octet shall contain the DSCP value in the IPv4 Type-of-Service or the IPv6 Traffic-Class field, and the second octet shall contain the ToS/Traffic Class mask field, which shall be set to "0xFC".”
+ *
+ * Both sentences describe the trafficMarkingInfo attribute of MBSDistributionSessionInfo. The
+ * generated model carries it as a free string, so a wrong length, a value that is not hexadecimal
+ * or a mask other than the one the clause fixes would be passed to the MBSTF, where a wrong mask
+ * changes which bits of the Traffic Class field are overwritten.
+ */
+static void validate_traffic_marking(const MBSUserDataIngSession &ing_session)
+{
+    const auto &infos = ing_session.getMbsDisSessInfos();
+    for (const auto &entry : infos) {
+        if (!entry.second) continue;
+        const auto &marking = entry.second.value()->getTrafficMarkingInfo();
+        if (!marking) continue;
+        const std::string &value = marking.value();
+        bool well_formed = (value.size() == 4);
+        if (well_formed) {
+            for (char ch : value) if (!std::isxdigit(static_cast<unsigned char>(ch))) well_formed = false;
+        }
+        const std::string param(std::string("mbsDisSessInfos.") + entry.first + ".trafficMarkingInfo");
+        if (!well_formed) {
+            throw ModelException("trafficMarkingInfo must be two octets in hexadecimal representation, i.e. four hexadecimal digits",
+                                 "MBSUserDataIngSession", param,
+                                 fiveg_mag_reftools::ProblemCause::MANDATORY_IE_INCORRECT);
+        }
+        const std::string mask(value.substr(2));
+        if (!(mask == "FC" || mask == "fc" || mask == "Fc" || mask == "fC")) {
+            throw ModelException("trafficMarkingInfo mask octet must be FC", "MBSUserDataIngSession", param,
+                                 fiveg_mag_reftools::ProblemCause::MANDATORY_IE_INCORRECT);
+        }
+    }
+}
 
 bool UserDataIngSession::processEvent(Open5GSEvent &event)
 {
@@ -470,6 +511,16 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
                             ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 3, message,
                                                     app_meta, api, "MBS User Service does not exist", ex.what(), std::nullopt,
                                                     std::nullopt));
+                        } catch (ModelException &ex) {
+                            /* Each MBS Distribution Session is built here rather than in the
+                               UserDataIngSession constructor above, so the attribute rules its own
+                               constructor enforces are raised at this point and not at the one the
+                               catch above covers. Without this the exception reached no handler and
+                               ended the process. */
+                            App::self().context()->deleteUserDataIngSession(user_data_ing_session->userDataIngSessionId());
+                            send_model_error(ex, stream, 3, message, app_meta, api,
+                                             "Problem with MBS Distribution Session",
+                                             "Creating MBS Distribution Session");
                         }
 
                         return true;
@@ -607,6 +658,7 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
                         // implemented yet (returns 404 above), so it is not affected.
                         try {
                             MBSUserDataIngSession update_model(user_data_ing_sess_update, true);
+                            validate_traffic_marking(update_model);
                             if (update_model.getActPeriods() && update_model.getActPeriodsRepRule()) {
                                 std::map<std::string,std::string> invalid_params;
                                 invalid_params["actPeriods"] = "actPeriods cannot be present if actPeriodsRepRule is present";

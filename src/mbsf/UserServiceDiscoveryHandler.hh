@@ -69,13 +69,16 @@ public:
 private:
     HTTPXPP_NAMESPACE_NAME(HTTPResponse) discover(const std::optional<std::string> &service_class,
                                                    const std::optional<std::string> &profile,
-                                                   const HTTPXPP_NAMESPACE_NAME(HTTPServer) &server) const;
+                                                   const HTTPXPP_NAMESPACE_NAME(HTTPRequest) &request,
+        const HTTPXPP_NAMESPACE_NAME(HTTPServer) &server) const;
     // cl.9.2.2 table 9.2.2-2, "Conformance profile": true iff `svc` has at least one available
     // Ingest Session whose UserServiceDescription includes a DistributionSessionDescription
     // tagged (cl.12.3's own conformanceProfiles property) with the given profile term.
     static bool hasConformanceProfile(const std::shared_ptr<UserService> &svc, const std::string &profile);
-    HTTPXPP_NAMESPACE_NAME(HTTPResponse) retrieve(const std::string &external_service_id,
-                                                   const HTTPXPP_NAMESPACE_NAME(HTTPServer) &server) const;
+    HTTPXPP_NAMESPACE_NAME(HTTPResponse) retrieve(
+        const std::string &external_service_id,
+        const HTTPXPP_NAMESPACE_NAME(HTTPRequest) &request,
+        const HTTPXPP_NAMESPACE_NAME(HTTPServer) &server) const;
     // Builds the User Service Descriptions Bundle Entity (cl.9.2.3.1/9.2.3.2, cl.5.3.1A) for the
     // given already-filtered set of matching UserServices: a User Service Descriptions document
     // (cl.5.3.1A) as the root part, plus each matching service's own dependent Session
@@ -83,6 +86,7 @@ private:
     // own "may be empty if none match" case).
     HTTPXPP_NAMESPACE_NAME(HTTPResponse) buildBundleResponse(
         const std::vector<std::shared_ptr<UserService>> &matches,
+        const HTTPXPP_NAMESPACE_NAME(HTTPRequest) &request,
         const HTTPXPP_NAMESPACE_NAME(HTTPServer) &server) const;
 };
 
