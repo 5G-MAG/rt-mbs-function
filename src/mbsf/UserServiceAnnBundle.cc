@@ -295,12 +295,31 @@ bool UserServiceAnnBundle::writeServiceDescriptionProtocolDoc(const std::shared_
     } else if (svc_str.empty()) {
         svc_str = dist_session_ctx->ssm ? "multicast" : "broadcast";
     }
-    if (dist_session_ctx->tmgi) {
-        uint64_t tmgi_val = std::stoll(dist_session_ctx->tmgi->mbs_service_id, nullptr, 16);
-        tmgi_val = (tmgi_val << 24) + (dist_session_ctx->tmgi->plmn.mcc2 << 20) + (dist_session_ctx->tmgi->plmn.mcc1 << 16) +
-                    (dist_session_ctx->tmgi->plmn.mnc3 << 12) + (dist_session_ctx->tmgi->plmn.mcc3 << 8) +
-                    (dist_session_ctx->tmgi->plmn.mnc2 << 4) + dist_session_ctx->tmgi->plmn.mnc1;;
-        svc_str += std::format(" {}", tmgi_val);
+    /* A TMGI object can exist before the MB-SMF has assigned an MBS Service ID to it: the library
+       documents mb_smf_sc_tmgi_new() as creating a TMGI that "has no mbs_service_id", and the
+       field is a char* that is then NULL. std::stoll() on that constructs a std::string from a
+       null pointer, and on an empty or non-hex string throws std::invalid_argument; either way the
+       exception leaves this bundler, leaves the SBI request handler that called it, and ends the
+       process through std::terminate(), losing every other session over one request that arrived
+       while a TMGI was still being assigned. The announcement simply omits the TMGI until there is
+       one to announce. */
+    if (dist_session_ctx->tmgi && dist_session_ctx->tmgi->mbs_service_id &&
+            *dist_session_ctx->tmgi->mbs_service_id) {
+        uint64_t tmgi_val = 0;
+        bool tmgi_parsed = true;
+        try {
+            tmgi_val = std::stoull(dist_session_ctx->tmgi->mbs_service_id, nullptr, 16);
+        } catch (const std::exception &err) {
+            ogs_error("MBS Service ID [%s] is not a hexadecimal value, omitting the TMGI from the announcement: %s",
+                      dist_session_ctx->tmgi->mbs_service_id, err.what());
+            tmgi_parsed = false;
+        }
+        if (tmgi_parsed) {
+            tmgi_val = (tmgi_val << 24) + (dist_session_ctx->tmgi->plmn.mcc2 << 20) + (dist_session_ctx->tmgi->plmn.mcc1 << 16) +
+                        (dist_session_ctx->tmgi->plmn.mnc3 << 12) + (dist_session_ctx->tmgi->plmn.mcc3 << 8) +
+                        (dist_session_ctx->tmgi->plmn.mnc2 << 4) + dist_session_ctx->tmgi->plmn.mnc1;
+            svc_str += std::format(" {}", tmgi_val);
+        }
     }
 
 
