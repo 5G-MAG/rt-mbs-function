@@ -182,11 +182,10 @@ void MBSFEventHandler::dispatch(Open5GSFSM &fsm, Open5GSEvent &event)
                     ogs_assert(sbi_xact_id >= OGS_MIN_POOL_ID && sbi_xact_id <= OGS_MAX_POOL_ID);
 
                     sbi_xact = ogs_sbi_xact_find_by_id(sbi_xact_id);
-                    ogs_assert(sbi_xact);
                     if (!sbi_xact) {
                           /* CLIENT_WAIT timer could remove SBI transaction
                            * before receiving SBI message */
-                          ogs_error("SBI transaction has already been removed");
+                          ogs_error("SBI transaction has already been removed [%d]", sbi_xact_id);
                           break;
                     }
                     std::string method(message.method());
@@ -319,9 +318,12 @@ void MBSFEventHandler::dispatch(Open5GSFSM &fsm, Open5GSEvent &event)
                     ogs_assert(sbi_xact_id >= OGS_MIN_POOL_ID && sbi_xact_id <= OGS_MAX_POOL_ID);
 
                     sbi_xact = ogs_sbi_xact_find_by_id(sbi_xact_id);
-                    ogs_assert(sbi_xact);
                     if (!sbi_xact) {
-                          ogs_error("SBI transaction has already been removed");
+                          /* A response and this timer's expiry can be queued in the same poll, and
+                             the response frees the transaction before the expiry is handled. The
+                             lookup is what tells the two apart; see the AMF's own account of it at
+                             subprojects/open5gs/src/amf/amf-sm.c:771. */
+                          ogs_error("SBI transaction has already been removed [%d]", sbi_xact_id);
                           break;
                     }
 

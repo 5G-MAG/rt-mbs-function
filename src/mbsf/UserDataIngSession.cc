@@ -199,6 +199,7 @@ static void send_model_error(const ModelException &err, Open5GSSBIStream &stream
                              const std::string &no_cause_reason, const std::string &log_prefix);
 static void log_missing_ing_session(const std::string &id);
 static void validate_traffic_marking(const MBSUserDataIngSession &ing_session);
+static std::list<std::string> take_nulled_dist_sess_infos(CJson &update);
 
 static std::atomic<std::uint64_t> g_next_tsi = 2;
 
@@ -624,6 +625,21 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
                         }
                         std::string user_data_ing_session_id(ptr_resource1);
 
+                        std::shared_ptr<UserDataIngSession> user_data_ing_sess;
+                        /* The target resource is resolved before anything looks at the body. Where it
+                           does not exist the answer is 404 whatever the body contains, and PUT on this
+                           resource cannot create one, so nothing a body could say would change it.
+                           TS 29.500 V18.10.0 clause 5.2.7.2: “If the specified target resource does
+                           not exist, the NF shall reject the HTTP method with the HTTP status code
+                           "404 Not Found".” */
+                        try {
+                            user_data_ing_sess = find(user_data_ing_session_id);
+                        } catch (const std::out_of_range &e) {
+                            send_invalid_user_data_ing_session_err(e, stream, 3, message, app_meta, api,
+                                                                   user_data_ing_session_id);
+                            return true;
+                        }
+
                         /* A body in a coding this NF cannot decode is refused before it is read, so the
                            encoded octets never reach the JSON parser and get blamed on the document. */
                         if (NfServer::refuseUnsupportedContentCoding(request, stream, 3, message, app_meta, api)) return true;
@@ -651,6 +667,16 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
                             ogs_debug("Patch Request Parsed JSON: %s", txt.c_str());
                         }
 
+                        /* Taken out before either model is built from this request: the generated
+                           map item validator refuses a NULL entry, and both the validation model
+                           below and processUserDataIngSessionUpdate()'s own model parse this same
+                           object. See take_nulled_dist_sess_infos() for what the entry means and
+                           why removing it performs the deletion rather than losing it. */
+                        for (const auto &nulled_key : take_nulled_dist_sess_infos(user_data_ing_sess_update)) {
+                            ogs_debug("Distribution Session [%s] is set to NULL in this update, so it is to be deleted",
+                                      nulled_key.c_str());
+                        }
+
                         // Reject actPeriods/actPeriodsRepRule given together, mirroring the
                         // mutual-exclusion check validate_state_setting_options() already
                         // enforces on POST (TS 29.580 clause 6: the two are mutually exclusive).
@@ -673,7 +699,6 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
                         }
 
                         try {
-                            std::shared_ptr<UserDataIngSession> user_data_ing_sess = find(user_data_ing_session_id);
                             user_data_ing_sess->processUserDataIngSessionUpdate(stream_id, request_ctx, user_data_ing_sess_update);
                             user_data_ing_sess->configureUserServiceAnnouncementBundler();
                             int response_code = 200;
@@ -1520,6 +1545,54 @@ const std::list<std::string> &UserDataIngSession::getUserServiceAnnBundleFilesLi
     return empty;
 }
 
+/** Take the NULL entries out of an update's mbsDisSessInfos, returning the keys that carried them.
+ *
+ * TS 29.580 V18.8.0 clause 5.3.2.4.2 makes a NULL map entry the way to delete one Distribution
+ * Session: “if an existing MBS Distribution Session shall be deleted, the AF shall include the
+ * corresponding map entry set to the value "NULL" within the "mbsDisSessInfos" attribute with the
+ * map key set to its string-based map key provisioned during the request that initially created
+ * the MBS Distribution Session.”
+ *
+ * The generated model cannot carry such an entry: its map item validator requires the members of
+ * MBSDistributionSessionInfo, so a NULL is refused as a missing maxContBitRate before any of the
+ * deletion handling downstream is reached. The model is generated from the OpenAPI document and is
+ * not in this repository, so the entry is removed here instead, leaving the key absent.
+ *
+ * Absent is what the reconciliation in processUserDataIngSessionUpdate() already treats as removal,
+ * so the deletion happens by the path that was already there and already tested, rather than a
+ * second one. A request that nulls every entry is left with an empty map and refused on
+ * cardinality, which is correct: clause 6.2.6.2 gives mbsDisSessInfos as M, 1..N, so the last
+ * Distribution Session cannot be nulled away and a consumer wanting none deletes the Ingest
+ * Session.
+ */
+static std::list<std::string> take_nulled_dist_sess_infos(CJson &update)
+{
+    std::list<std::string> nulled;
+
+    if (!update.isObject()) return nulled;
+    CJson infos(update.getObjectItemCaseSensitive("mbsDisSessInfos"));
+    if (!infos.isObject()) return nulled;
+
+    CJson kept(CJson::newObject());
+    const std::size_t entries = infos.arraySize();
+    for (std::size_t idx = 0; idx < entries; idx++) {
+        /* Within arraySize() every index names a real member, so the entry carries the key even
+           when its value is JSON null, which is the case this exists for. */
+        CJson entry(infos.index(idx));
+        const char *entry_key = entry.key();
+        if (!entry_key) continue;
+        if (entry.isNull()) {
+            nulled.push_back(std::string(entry_key));
+            continue;
+        }
+        kept.set(std::string(entry_key), entry);
+    }
+
+    if (!nulled.empty()) update.set("mbsDisSessInfos", std::move(kept));
+
+    return nulled;
+}
+
 void UserDataIngSession::processUserDataIngSessionUpdate(ogs_pool_id_t stream_id, const std::shared_ptr<Open5GSSBIRequest> &request, CJson &json)
 {
     std::shared_ptr< DistSessionState > dist_sess_state = nullptr;
@@ -1554,7 +1627,20 @@ void UserDataIngSession::processUserDataIngSessionUpdate(ogs_pool_id_t stream_id
     auto app_context = App::self().context();
     const MBSUserDataIngSession::MbsDisSessInfosType &current_dist_sess_infos = m_MBSUserDataIngSession->getMbsDisSessInfos();
     MBSUserDataIngSession::MbsDisSessInfosType update_dist_sess_infos = mbs_user_data_ing_session->getMbsDisSessInfos();
-    for(const auto &[key, sess_info] : current_dist_sess_infos) {
+    /* Iterated over a snapshot of the keys, not over the live map. The body calls
+       removeMbsDisSessInfos(), which erases from the very map current_dist_sess_infos refers to,
+       and advancing a range-for past an erased node is undefined. It behaved as a step backwards:
+       with two stored sessions and an update naming one, the loop visited the kept session, then
+       the removed one, then the kept session again. By the second visit its key had already been
+       erased from update_dist_sess_infos by the first, so nothing matched, and the session the
+       update asked to keep was deleted along with the one it asked to remove. */
+    std::list<std::string> stored_keys;
+    for (const auto &stored : current_dist_sess_infos) stored_keys.push_back(stored.first);
+
+    for (const auto &key : stored_keys) {
+        auto stored_it = current_dist_sess_infos.find(key);
+        if (stored_it == current_dist_sess_infos.end()) continue;
+        const auto &sess_info = stored_it->second;
         if (!sess_info.has_value() || !sess_info.value()) {
             m_MBSUserDataIngSession->removeMbsDisSessInfos(key);
             continue;

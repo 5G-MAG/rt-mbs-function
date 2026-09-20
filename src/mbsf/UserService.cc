@@ -655,6 +655,30 @@ bool UserService::processEvent(Open5GSEvent &event)
                                                                     user_service_allow_methods(message)));
                             return true;
                         }
+                        std::string user_service_id(ptr_resource1);
+                        std::shared_ptr<UserService> user_service;
+                        /* The target resource is resolved before anything looks at the body. Where it
+                           does not exist the answer is 404 whatever the body contains, and PUT on this
+                           resource cannot create one, so nothing a body could say would change it.
+                           TS 29.500 V18.10.0 clause 5.2.7.2: “If the specified target resource does
+                           not exist, the NF shall reject the HTTP method with the HTTP status code
+                           "404 Not Found".” */
+                        try {
+                            user_service = UserService::find(user_service_id);
+                        } catch (const std::out_of_range &e) {
+                            std::ostringstream err;
+                            err << "User Service [" << user_service_id << "] does not exist.";
+                            ogs_error("%s", err.str().c_str());
+                            std::ostringstream reason;
+                            reason << "Invalid MBS User Service identifier [" << user_service_id << "]";
+                            std::map<std::string, std::string> invalid_params(
+                                            NfServer::makeInvalidParams(std::string("{mbsUserServId}"), reason.str()));
+                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_NOT_FOUND, 2, message,
+                                                                    app_meta, api, "MBS User Service not found",
+                                                                    err.str(), std::nullopt, invalid_params));
+                            return true;
+                        }
+
                          /* A body in a coding this NF cannot decode is refused before it is read, so the
                             encoded octets never reach the JSON parser and get blamed on the document. */
                          if (NfServer::refuseUnsupportedContentCoding(request, stream, 3, message, app_meta, api)) return true;
@@ -682,11 +706,8 @@ bool UserService::processEvent(Open5GSEvent &event)
                             ogs_debug("Request Parsed JSON: %s", txt.c_str());
                         }
 
-                        std::string user_service_id(ptr_resource1);
                         try {
                             int response_code = 200;
-
-                            std::shared_ptr<UserService> user_service = UserService::find(user_service_id);
 
                             /* A failing If-Match must stop the update before it happens. This is the
                                case that matters most: without it a consumer using the entity-tag for
