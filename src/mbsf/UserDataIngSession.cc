@@ -658,6 +658,20 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
                             return true;
                         }
 
+                        /* This resource emits an entity-tag (the GET branch above already honours the
+                           conditional headers it invites); a failing If-Match must stop the replace
+                           before it happens, so it is checked here, once the target is resolved and
+                           before any body is read. RFC 9110 section 13.1.1. */
+                        if (evaluatePreconditions(request.headerValue("If-Match", std::string()),
+                                                  request.headerValue("If-None-Match", std::string()),
+                                                  user_data_ing_sess->hash(), false)
+                                != Precondition::Proceed) {
+                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_PRECONDITION_FAILED,
+                                                                   3, message, app_meta, api, "Precondition Failed",
+                                                                   "The entity-tag condition on this request does not hold"));
+                            return true;
+                        }
+
                         /* A body in a coding this NF cannot decode is refused before it is read, so the
                            encoded octets never reach the JSON parser and get blamed on the document. */
                         if (NfServer::refuseUnsupportedContentCoding(request, stream, 3, message, app_meta, api)) return true;
@@ -767,6 +781,18 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
                         } catch (const std::out_of_range &e) {
                             send_invalid_user_data_ing_session_err(e, stream, 3, message, app_meta, api,
                                                                    user_data_ing_session_id);
+                            return true;
+                        }
+
+                        /* Same obligation as PUT above, checked at the same point relative to the
+                           body: RFC 9110 section 13.1.1 applies to PATCH as much as to PUT. */
+                        if (evaluatePreconditions(request.headerValue("If-Match", std::string()),
+                                                  request.headerValue("If-None-Match", std::string()),
+                                                  user_data_ing_sess->hash(), false)
+                                != Precondition::Proceed) {
+                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_PRECONDITION_FAILED,
+                                                                   3, message, app_meta, api, "Precondition Failed",
+                                                                   "The entity-tag condition on this request does not hold"));
                             return true;
                         }
 

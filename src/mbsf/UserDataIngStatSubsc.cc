@@ -1212,6 +1212,18 @@ void UserDataIngStatSubsc::subscriptionPatch(Open5GSSBIStream &stream, Open5GSSB
                                const NfServer::AppMetadata &app_meta)
 {
 
+    /* Same obligation the PUT branch already checks, before the body is read for the same reason:
+       RFC 9110 section 13.1.1 applies to PATCH as much as to PUT. */
+    if (evaluatePreconditions(request.headerValue("If-Match", std::string()),
+                              request.headerValue("If-None-Match", std::string()),
+                              hash(), false)
+            != Precondition::Proceed) {
+        ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_PRECONDITION_FAILED,
+                                               1, message, app_meta, api, "Precondition Failed",
+                                               "The entity-tag condition on this request does not hold"));
+        return;
+    }
+
     /* A body in a coding this NF cannot decode is refused before it is read, so the
        encoded octets never reach the JSON parser and get blamed on the document. */
     if (NfServer::refuseUnsupportedContentCoding(request, stream, 3, message, app_meta, api)) return;
