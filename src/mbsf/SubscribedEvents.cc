@@ -413,11 +413,20 @@ const std::pair<std::optional<SubscribedEvents::DateTime>, std::optional<std::st
     case Event::VAL_USER_SER_AD:
         return userSerAd;
     default:
-        ogs_warn("Ignoring unknown Event: %s", event->getString().c_str());
         break;
     }
-    throw std::range_error("Bad SubscribedEvent given to SubscribedEvents::timepointForSubscribedEvent()");
-
+    /* Event is an open enumeration -- TS 29.580 V18.8.0 clause 6.2.6.3.4 gives its type a free
+       string alternative beside the sixteen named values, so a status subscription naming a value
+       from a later release is conformant, not malformed. TS 29.500 V18.10.0 clause 6.6.2:
+       "Unknown attributes and values shall be ignored by the receiving entity." isUpdated() calls
+       this unconditionally for every subscribed event on every notification pass, so a subscriber
+       naming one crashed the process here on the pass right after it subscribed. A static,
+       permanently-absent timepoint answers "not updated" the same way an event nobody has recorded
+       yet does, which is what an unrecognised value actually is: this MBSF has nothing to report
+       for it. */
+    ogs_warn("Ignoring unknown Event: %s", event->getString().c_str());
+    static const std::pair<std::optional<SubscribedEvents::DateTime>, std::optional<std::string>> no_timepoint;
+    return no_timepoint;
 }
 
 /*** private: ***/
