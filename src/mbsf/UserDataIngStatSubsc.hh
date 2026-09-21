@@ -93,6 +93,16 @@ public:
 
     /* Setters */
     void setSubscribedEventTime(std::shared_ptr< reftools::mbsf::Event > event, std::optional<SubscribedEvents::DateTime> time_point = std::nullopt, std::optional<std::string> status_add_info = std::nullopt);
+
+    /** Whether the User Service Announcement has been reported to THIS subscription.
+     *
+     * Each report is stamped with the time it is made, so the cache of what was last reported
+     * cannot suppress a repeat; this is what stops the announcement going out on every pass. It
+     * belongs to the subscription and not to the MBS User Data Ingest Session, because every
+     * consumer that subscribed to USER_SER_AD is owed the announcement, not just the first one.
+     */
+    bool userSerAdReported() const { return m_userSerAdReported; };
+    void userSerAdReported(bool reported) { m_userSerAdReported = reported; };
     UserDataIngStatSubsc &modify(fiveg_mag_reftools::CJson &json, bool as_request=false);
     UserDataIngStatSubsc &update(fiveg_mag_reftools::CJson &json, bool as_request=false);
 
@@ -145,6 +155,7 @@ private:
     int m_eventTypes; /* ORed EventTypeBitMask */
     reftools::mbsf::MBSUserDataIngStatSubsc m_mbsUserDataIngStatSubsc;
     SubscribedEvents m_subscribedEventTimestamps;
+    bool m_userSerAdReported = false;
 
     struct CacheType {
         CacheType() : lastReportedEventTimes(), client(), notifyUri(), notifyRetried(false) {};

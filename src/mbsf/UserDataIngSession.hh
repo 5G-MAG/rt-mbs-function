@@ -183,7 +183,6 @@ public:
     const std::shared_ptr<UserServiceAnnBundle> getUserServiceAnnBundler() const { return m_userServiceAnnBundle;};
     const bool isUserServiceAnnBundleAvailable() const { return m_userServiceAnnBundleAvailable;};
     const bool isIncludedInCarouselObjectManifest() const { return m_includedInCarouselObjectManifest;};
-    const bool userSerAdNotificationSent() const {return m_userSerAdNotificationSent;};
     ogs_sbi_xact_t *nmbstfDiscoverOnly(const std::shared_ptr<ContextData> &data);
     ogs_sbi_xact_t *nmbstfDiscoverAndSend(const std::shared_ptr<UserDataIngDistSessId> &ids, ogs_sbi_build_f build, void *context, void *data);
     UserDataIngSession &setNFInstance(ogs_sbi_service_type_e service_type, ogs_sbi_nf_instance_t *nf_instance);
@@ -369,7 +368,12 @@ public:
     std::shared_ptr<CarouselObject> getCarouselObject() const;
     void resetCarouselObject();
     void forEachObjectLocator(std::function<void(const std::string &)> fn) const;
-    void userSerAdNotificationSent(bool notification_sent) const;
+    /** Have every status subscription on this session report the User Service Announcement again.
+     *
+     * Called where the announcement is (re)configured. The state itself lives on each subscription,
+     * because each consumer that subscribed to USER_SER_AD is owed the announcement.
+     */
+    void resetUserSerAdReported() const;
 
     ActivePeriodsBase::TimeRange activeTimeRange() const { return m_activePeriods?m_activePeriods->activeTimeRange():ActivePeriodsBase::TimeRange{std::nullopt, std::nullopt}; };
 
@@ -438,7 +442,6 @@ private:
     std::shared_ptr<CarouselObject> m_carouselObject;
     bool m_userServiceAnnBundleAvailable;
     bool m_includedInCarouselObjectManifest;
-    mutable bool m_userSerAdNotificationSent;
     //std::shared_ptr<ObjManifest> m_carouselObjectManifest;
 
     //key: Dist Session Infos present in this User Data Ingest Session
