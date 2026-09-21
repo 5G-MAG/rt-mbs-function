@@ -18,12 +18,10 @@
  */
 
 // Open5GS includes
-#include "ogs-app.h"
 #include "ogs-sbi.h"
 
 // standard template library includes
 #include <memory>
-#include <stdexcept>
 #include <stdio.h>
 #include <string>
 #include <stdlib.h>
@@ -101,17 +99,19 @@ uint16_t MBSPlmnId::mnc() {
 
 std::shared_ptr<PlmnId> MBSPlmnId::fromPlmnId(const ogs_plmn_id_t &plmn_id)
 {
-    // Mnc keeps its leading zeros: it is formatted to the digit count the PLMN Id records, not
-    // to the width its numeric value happens to need, so a 3-digit MNC below 100 stays 3 digits.
-    char mcc_str[8];
-    char mnc_str[8];
-    std::snprintf(mcc_str, sizeof(mcc_str), "%03u", ogs_plmn_id_mcc(&plmn_id));
-    std::snprintf(mnc_str, sizeof(mnc_str), "%0*u", static_cast<int>(ogs_plmn_id_mnc_len(&plmn_id)),
-                  ogs_plmn_id_mnc(&plmn_id));
+    char *mcc_str = ogs_plmn_id_mcc_string(&plmn_id);
+    char *mnc_str = ogs_plmn_id_mnc_string(&plmn_id);
+    std::shared_ptr<PlmnId> result;
 
-    std::shared_ptr<PlmnId> result(new PlmnId());
-    result->setMcc(std::string(mcc_str));
-    result->setMnc(std::string(mnc_str));
+    if (mcc_str && mnc_str) {
+        result.reset(new PlmnId());
+        result->setMcc(mcc_str);
+        result->setMnc(mnc_str);
+    }
+
+    if (mcc_str) ogs_free(mcc_str);
+    if (mnc_str) ogs_free(mnc_str);
+
     return result;
 }
 
