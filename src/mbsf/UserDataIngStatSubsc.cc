@@ -972,15 +972,18 @@ bool UserDataIngStatSubsc::processEvent(Open5GSEvent &event)
                    the call above and this one do not duplicate. */
                 if (user_data_ing_session_id == id) stat_subsc->sendNotifications();
 
-                if (user_data_ing_session_id == id && stat_subsc->checkForUserServiceAnn()) {
-                    if (user_data_ing_session.userSerAdNotificationSent()) break;
+                /* Per subscription, not per Ingest Session, and continue rather than break: the
+                   announcement is owed to every consumer that subscribed to it, and one
+                   subscription having had it is no reason to stop walking the others. */
+                if (user_data_ing_session_id == id && stat_subsc->checkForUserServiceAnn()
+                        && !stat_subsc->userSerAdReported()) {
                     user_data_ing_session.forEachObjectLocator([&stat_subsc](const std::string &object_locator){
                         std::shared_ptr<Event> event(new Event());
                         *event = Event::VAL_USER_SER_AD;
                         stat_subsc->setSubscribedEventTime(event, DateTime::clock::now(), object_locator);
                         stat_subsc->sendNotifications();
                     });
-                    user_data_ing_session.userSerAdNotificationSent(true);
+                    stat_subsc->userSerAdReported(true);
                 }
             }
 

@@ -231,7 +231,6 @@ UserDataIngSession::UserDataIngSession(CJson &json, bool as_request)
     ,m_carouselObject()
     ,m_userServiceAnnBundleAvailable(false)
     ,m_includedInCarouselObjectManifest(false)
-    ,m_userSerAdNotificationSent(false)
     ,m_distributionSessionInfos()
     ,m_deleteRequests()
 {
@@ -276,7 +275,6 @@ UserDataIngSession::UserDataIngSession(const std::string &user_data_ing_session_
     ,m_carouselObject()
     ,m_userServiceAnnBundleAvailable(false)
     ,m_includedInCarouselObjectManifest(false)
-    ,m_userSerAdNotificationSent(false)
     ,m_distributionSessionInfos()
     ,m_deleteRequests()
 {
@@ -3419,7 +3417,7 @@ void UserDataIngSession::requiresUserServiceAnnouncement()
                 //ann_channel->addUserDataIngSession(user_data_ing_session);
                 resetCarouselObject();
                 includedInCarouselObjectManifest(false);
-                userSerAdNotificationSent(false);
+                resetUserSerAdReported();
             }
         }
     } catch (std::exception &ex) {
@@ -3446,7 +3444,7 @@ void UserDataIngSession::configureUserServiceAnnouncementBundler()
             if(ann_channel /*&& !user_data_ing_session->getUserServiceAnnBundler()*/) {
                 resetCarouselObject();
                 includedInCarouselObjectManifest(false);
-                userSerAdNotificationSent(false);
+                resetUserSerAdReported();
             }
         }
     } catch (std::exception &ex) {
@@ -3882,9 +3880,14 @@ void UserDataIngSession::forEachObjectLocator(std::function<void(const std::stri
     if (m_carouselObject) fn(m_carouselObject->object()->getLocator());
 }
 
-void UserDataIngSession::userSerAdNotificationSent(bool notification_sent) const
+void UserDataIngSession::resetUserSerAdReported() const
 {
-    m_userSerAdNotificationSent = notification_sent;
+    const auto &stat_subscs = App::self().context()->userDataIngStatSubscs();
+    for (const auto &entry : stat_subscs) {
+        if (entry.second && entry.second->userDataIngSessionId() == m_UserDataIngSessionId) {
+            entry.second->userSerAdReported(false);
+        }
+    }
 }
 
 const DistSessionState &UserDataIngSession::getDistributionSessionInfoState(const std::string &key) const
