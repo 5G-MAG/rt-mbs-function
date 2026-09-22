@@ -2109,15 +2109,6 @@ bool UserDataIngSession::processDistSession(const std::shared_ptr<DistSession> &
     if (context_data->distributionSessionInfo) {
         context_data->distributionSessionInfo->registerEvent(SubscribedEvents::DIST_SESS_STARTED);
     }
-    const auto &dist_sess_obj_data = dist_session->getObjDistributionData();
-    if (dist_sess_obj_data && *dist_sess_obj_data.value()->getObjAcquisitionMethod() == ObjAcquisitionMethod::VAL_PUSH) {
-        // This is an object PUSH method so copy objIngestBaseUrl to MBSDistributionSessionInfo.objDistrInfo.objIngUri
-        const auto &mbs_dist_sess_info = context_data->info;
-        const auto &obj_distr_info = mbs_dist_sess_info->getObjDistrInfo();
-        if (obj_distr_info) {
-            obj_distr_info.value()->setObjIngUri(dist_sess_obj_data.value()->getObjIngestBaseUrl());
-        }
-    }
 
     try {
         //std::shared_ptr<UserDataIngSession> ing_sess = find(ids->first);
