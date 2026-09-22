@@ -199,7 +199,8 @@ public:
     bool startTimer();
     const reftools::mbsf::DistSessionState &getDistSessionState(const std::optional<std::shared_ptr<reftools::mbsf::DistSessionState> > &user_state) const;
 
-    void processUserDataIngSessionUpdate(ogs_pool_id_t stream_id, const std::shared_ptr<Open5GSSBIRequest> &request, fiveg_mag_reftools::CJson &json);
+    void processUserDataIngSessionUpdate(ogs_pool_id_t stream_id, const std::shared_ptr<Open5GSSBIRequest> &request, fiveg_mag_reftools::CJson &json,
+                                          const std::list<std::string> &nulled_dist_sess_keys = {});
     void processDistributionSessionInfo(ogs_pool_id_t stream_id, const std::shared_ptr<Open5GSSBIRequest> &request);
     void handleUserDataIngSessionUpdate(ogs_pool_id_t stream_id, const std::shared_ptr<Open5GSSBIRequest> &request);
     void updateMbstfRemovedDistSession();

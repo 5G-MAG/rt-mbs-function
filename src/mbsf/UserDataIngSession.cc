@@ -34,6 +34,7 @@
 #include <netdb.h>
 
 // standard template library includes
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <functional>
@@ -703,8 +704,12 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
                            map item validator refuses a NULL entry, and both the validation model
                            below and processUserDataIngSessionUpdate()'s own model parse this same
                            object. See take_nulled_dist_sess_infos() for what the entry means and
-                           why removing it performs the deletion rather than losing it. */
-                        for (const auto &nulled_key : take_nulled_dist_sess_infos(user_data_ing_sess_update)) {
+                           why removing it performs the deletion rather than losing it. The keys are
+                           kept, not just logged: they are the only way processUserDataIngSessionUpdate()
+                           can tell "delete this" apart from "this key is simply not mentioned," which
+                           TS 29.580 V18.8.0 clause 5.3.2.4.2 treats as two different things. */
+                        std::list<std::string> nulled_dist_sess_keys(take_nulled_dist_sess_infos(user_data_ing_sess_update));
+                        for (const auto &nulled_key : nulled_dist_sess_keys) {
                             ogs_debug("Distribution Session [%s] is set to NULL in this update, so it is to be deleted",
                                       nulled_key.c_str());
                         }
@@ -731,7 +736,7 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
                         }
 
                         try {
-                            user_data_ing_sess->processUserDataIngSessionUpdate(stream_id, request_ctx, user_data_ing_sess_update);
+                            user_data_ing_sess->processUserDataIngSessionUpdate(stream_id, request_ctx, user_data_ing_sess_update, nulled_dist_sess_keys);
                             user_data_ing_sess->configureUserServiceAnnouncementBundler();
                             int response_code = 200;
                             CJson user_data_ing_session_json(user_data_ing_sess->json(false));
@@ -871,6 +876,13 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
                         CJson patched(user_data_ing_sess->json(false));
                         apply_merge_patch(patched, patch_json);
 
+                        /* Same reason as the PUT path above: the generated map item validator
+                           refuses a NULL mbsDisSessInfos entry, and apply_merge_patch() deliberately
+                           leaves a patched-to-null member as JSON null (see its own comment) rather
+                           than removing it, so a legitimate deletion request would otherwise be
+                           rejected as an invalid patch instead of being carried out. */
+                        std::list<std::string> nulled_dist_sess_keys(take_nulled_dist_sess_infos(patched));
+
                         try {
                             MBSUserDataIngSession patched_model(patched, true);
                             validate_traffic_marking(patched_model);
@@ -888,7 +900,7 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
                         }
 
                         try {
-                            user_data_ing_sess->processUserDataIngSessionUpdate(stream_id, request_ctx, patched);
+                            user_data_ing_sess->processUserDataIngSessionUpdate(stream_id, request_ctx, patched, nulled_dist_sess_keys);
                             user_data_ing_sess->configureUserServiceAnnouncementBundler();
                             CJson user_data_ing_session_json(user_data_ing_sess->json(false));
                             std::string body(user_data_ing_session_json.serialise());
@@ -1812,11 +1824,21 @@ static void apply_merge_patch(CJson &target, const CJson &patch)
     }
 }
 
-void UserDataIngSession::processUserDataIngSessionUpdate(ogs_pool_id_t stream_id, const std::shared_ptr<Open5GSSBIRequest> &request, CJson &json)
+void UserDataIngSession::processUserDataIngSessionUpdate(ogs_pool_id_t stream_id, const std::shared_ptr<Open5GSSBIRequest> &request, CJson &json,
+                                                           const std::list<std::string> &nulled_dist_sess_keys)
 {
     std::shared_ptr< DistSessionState > dist_sess_state = nullptr;
 
     std::shared_ptr<MBSUserDataIngSession> mbs_user_data_ing_session(new MBSUserDataIngSession(json, true));
+    /* The generated model cannot itself carry a NULL mbsDisSessInfos entry (see
+       take_nulled_dist_sess_infos()), so the caller pulled each one out of the JSON before this
+       model was built and hands the keys back here. Re-inserting them as an explicit empty
+       optional puts update_dist_sess_infos, below, back into the shape the reconciliation logic
+       is written against: a key present with no value is a deletion request, exactly as TS 29.580
+       V18.8.0 clause 5.3.2.4.2 defines it. */
+    for (const auto &nulled_key : nulled_dist_sess_keys) {
+        mbs_user_data_ing_session->addMbsDisSessInfos(nulled_key, MBSUserDataIngSession::MbsDisSessInfosItemType());
+    }
     const ActPeriodsType &act_periods = mbs_user_data_ing_session->getActPeriods();
     const ActPeriodsType &current_act_periods = m_MBSUserDataIngSession->getActPeriods();
 
@@ -1856,31 +1878,44 @@ void UserDataIngSession::processUserDataIngSessionUpdate(ogs_pool_id_t stream_id
     std::list<std::string> stored_keys;
     for (const auto &stored : current_dist_sess_infos) stored_keys.push_back(stored.first);
 
+    /* Two passes: validate every requested change first, mutating nothing; only once every
+       change in the request has been checked -- every update against its immutable fields, every
+       deletion against an existing match, every addition against MBS Session Id uniqueness, and
+       the resulting Distribution Session count against TS 29.580 V18.8.0 table 6.2.6.2.2-1's
+       mbsDisSessInfos row (M, cardinality 1..N) -- are the changes actually applied. A request
+       that fails any one check is rejected with the stored session completely untouched, rather
+       than a session left in whatever state the earlier, already-applied part of a rejected
+       request happened to leave it in. */
+    struct PlannedChange {
+        std::string key;
+        std::shared_ptr<ContextData> context_data;                     // null only for a planned addition
+        std::shared_ptr<MBSDistributionSessionInfo> stored_info;        // null for a planned addition
+        std::shared_ptr<MBSDistributionSessionInfo> update_info;        // null for a planned deletion
+        bool is_delete;
+        bool content_changed;
+        std::optional<std::shared_ptr<DistSessionState>> orig_update_state;
+    };
+    std::list<PlannedChange> plan;
+
+    // ---- Phase 1: validate. ----
     for (const auto &key : stored_keys) {
         auto stored_it = current_dist_sess_infos.find(key);
         if (stored_it == current_dist_sess_infos.end()) continue;
         const auto &sess_info = stored_it->second;
         if (!sess_info.has_value() || !sess_info.value()) {
-            m_MBSUserDataIngSession->removeMbsDisSessInfos(key);
+            // Defensive: a stored entry with no value should not occur, but is cleaned up
+            // regardless of what this update asks for, matching pre-existing behaviour.
+            plan.push_back(PlannedChange{key, getDistributionSessionInfoData(key), nullptr, nullptr, true, false, std::nullopt});
             continue;
         }
         const std::shared_ptr<MBSDistributionSessionInfo> &info = sess_info.value();
         std::shared_ptr<ContextData> context_data = getDistributionSessionInfoData(key);
         ogs_assert(context_data);
-        context_data->needsUpdate = false;
 
-        bool present_in_update = false;
         for (const auto &[key_in_update, sess_info_update]: update_dist_sess_infos) {
             if (key == key_in_update) {
-                /* Decided before the erase below, not after it. erase() destroys the node, and both
-                   key_in_update and sess_info_update are references into that node, so reading them
-                   afterwards is reading freed memory: has_value() then answered false whatever the
-                   request contained, present_in_update stayed false, and every stored distribution
-                   session was removed. A PUT of a session's own representation, unchanged, emptied
-                   mbsDisSessInfos and took the broadcast down with it. */
-                const bool describes_a_session = sess_info_update.has_value() && !!sess_info_update.value();
-                if (describes_a_session) {
-                    // update
+                if (sess_info_update.has_value() && sess_info_update.value()) {
+                    // validate update
                     std::shared_ptr<MBSDistributionSessionInfo> update_info = sess_info_update.value();
 
                     // TS 29.580 V18.8.0 clause 5.3.2.4.2 names mbsSessionId, mbsDistSessionId and
@@ -1947,55 +1982,38 @@ void UserDataIngSession::processUserDataIngSessionUpdate(ogs_pool_id_t stream_id
                     bool content_changed = (*update_info != *info);
                     update_info->setMbsDistSessState(orig_update_state);
 
-                    if (content_changed) {
-                        context_data->needsUpdate = true;
-                        context_data->distributionSessionInfo->updateMBSDistributionSessionInfo(update_info);
-                    } else if (orig_update_state != info->getMbsDistSessState()) {
-                        context_data->stateUpdate = true;
-                        info->setMbsDistSessState(orig_update_state);
-                        // buildNmb2DistSessionPatch()'s stateUpdate branch reads the wanted
-                        // state off context_data->info, which is normally the same object as
-                        // this loop's info -- set both explicitly rather than relying on that
-                        // aliasing.
-                        if (context_data->info && context_data->info != info) {
-                            context_data->info->setMbsDistSessState(orig_update_state);
-                        }
-                    }
+                    plan.push_back(PlannedChange{key, context_data, info, update_info, false, content_changed, orig_update_state});
+                } else {
+                    // entry is NULL (re-inserted above from nulled_dist_sess_keys): delete existing match
+                    plan.push_back(PlannedChange{key, context_data, info, nullptr, true, false, std::nullopt});
                 }
-                /* The key is copied for the same reason: erase() is handed a reference to the key
-                   stored inside the node it is destroying. */
+                // we matched the key and decided what to do with it; remove from the update so the
+                // addition pass below, and TS 29.580 V18.8.0 clause 5.3.2.4.2's "not mentioned"
+                // case, only ever see keys that did not match an existing stored session.
                 const std::string erased_key(key_in_update);
                 update_dist_sess_infos.erase(erased_key);
-                /* A map entry carrying NULL is a deletion request, not a description of a session to
-                   keep, so it must not mark the stored session as present. Leaving present_in_update
-                   false lets the !present_in_update branch below remove it.
-
-                   TS 29.580 V18.8.0 clause 5.3.2.4.2: “if an existing MBS Distribution Session shall
-                   be deleted, the AF shall include the corresponding map entry set to the value
-                   "NULL" within the "mbsDisSessInfos" attribute with the map key set to its
-                   string-based map key provisioned during the request that initially created the MBS
-                   Distribution Session.”
-
-                   The erase above still happens for a NULL entry, so the add loop that follows does
-                   not resurrect it as a new session. */
-                present_in_update = describes_a_session;
                 break;
             }
         }
-        if (!present_in_update) {
-            context_data->markForDeletion = true;
-            if (context_data->distributionSessionInfo) {
-                auto mbs_session_id = context_data->distributionSessionInfo->getUniqueMbsSessionId();
-                if (mbs_session_id && app_context->haveMbsSessionId(mbs_session_id)) {
-                    app_context->deleteMbsSessionId(mbs_session_id);
-                }
-            }
-            m_MBSUserDataIngSession->removeMbsDisSessInfos(key);
-        }
+        // A stored key matched by neither an update nor an explicit NULL entry is simply not
+        // mentioned in this update and is left untouched: it is in neither `plan` above, so phase
+        // 2 below never calls removeMbsDisSessInfos()/updateMBSDistributionSessionInfo() on it.
     }
 
-    // What is left in update_dist_sess_infos are new entries so add them
+    // What is left in update_dist_sess_infos are new entries, except for a NULL entry (re-inserted
+    // above from nulled_dist_sess_keys) whose key matched no stored session at all: deleting a
+    // Distribution Session that does not exist is a no-op, not an addition, and is not planned as
+    // either.
+    //
+    // Validate MBS Session Id uniqueness for the genuine additions, including against each other,
+    // before planning any of them.
+    std::list<UniqueMbsSessionId> reserved_mbs_session_ids;
     for (const auto &[key_in_update, sess_info_update]: update_dist_sess_infos) {
+        if (!sess_info_update.has_value() || !sess_info_update.value()) {
+            ogs_debug("Distribution Session [%s] is set to NULL in this update but does not exist; ignored",
+                      key_in_update.c_str());
+            continue;
+        }
         const auto &mbs_session_id = sess_info_update.value()->getMbsSessionId();
         if (mbs_session_id) {
             const auto &mbs_svc_area = sess_info_update.value()->getTgtServAreas();
@@ -2003,18 +2021,92 @@ void UserDataIngSession::processUserDataIngSessionUpdate(ogs_pool_id_t stream_id
             UniqueMbsSessionId cmp_mbs_session_id(!!mbs_session_id.value()->getSsm(), mbs_session_id.value(),
                                     mbs_svc_area?mbs_svc_area.value():std::shared_ptr<MbsServiceArea>(),
                                     ext_mbs_svc_area?ext_mbs_svc_area.value():std::shared_ptr<ExternalMbsServiceArea>());
-            if (app_context->haveMbsSessionId(cmp_mbs_session_id)) {
+            if (app_context->haveMbsSessionId(cmp_mbs_session_id) ||
+                    std::find(reserved_mbs_session_ids.begin(), reserved_mbs_session_ids.end(), cmp_mbs_session_id)
+                            != reserved_mbs_session_ids.end()) {
                 ogs_error("UserDataIngSession update adds already allocated MBS Session Id");
                 Open5GSSBIStream stream(stream_id);
                 Open5GSSBIMessage message;
                 message.parseHeader(*request);
                 NfServer::sendError(stream, MBSProblemCause::MBS_DIST_SESSION_ALREADY_CREATED, 2, message, App::self().mbsfAppMetadata(), g_nmbsf_userdataingsession_api_metadata, "Duplicate MBS Session Id", "UserDataIngSession update adds already allocated MBS Session Id");
                 return;
-            } else {
+            }
+            reserved_mbs_session_ids.push_back(cmp_mbs_session_id);
+        }
+        plan.push_back(PlannedChange{key_in_update, nullptr, nullptr, sess_info_update.value(), false, true, std::nullopt});
+    }
+
+    // TS 29.580 V18.8.0 table 6.2.6.2.2-1, mbsDisSessInfos row: "M", cardinality 1..N on the full
+    // stored representation. A request whose deletions and additions would leave none behind is
+    // rejected outright, matching clause 5.3.2.5's answer for a consumer that wants none: delete
+    // the whole Ingest Session instead.
+    {
+        std::size_t deletions = 0, additions = 0;
+        for (const auto &planned : plan) {
+            if (planned.is_delete) deletions++;
+            else if (!planned.context_data) additions++;
+        }
+        if (current_dist_sess_infos.size() - deletions + additions < 1) {
+            throw ModelException("This update would leave no MBS Distribution Sessions",
+                    "MBSUserDataIngSession", "mbsDisSessInfos",
+                    fiveg_mag_reftools::ProblemCause::MANDATORY_IE_INCORRECT);
+        }
+    }
+
+    // ---- Phase 2: apply. Nothing above this point has mutated the stored session or the
+    // app-wide MBS Session Id registry. ----
+    for (const auto &planned : plan) {
+        if (planned.context_data) planned.context_data->needsUpdate = false;
+        if (planned.is_delete) {
+            planned.context_data->markForDeletion = true;
+            if (planned.context_data->distributionSessionInfo) {
+                auto mbs_session_id = planned.context_data->distributionSessionInfo->getUniqueMbsSessionId();
+                if (mbs_session_id && app_context->haveMbsSessionId(mbs_session_id)) {
+                    app_context->deleteMbsSessionId(mbs_session_id);
+                }
+            }
+            m_MBSUserDataIngSession->removeMbsDisSessInfos(planned.key);
+        } else if (planned.context_data) {
+            // update
+            if (planned.content_changed) {
+                planned.context_data->needsUpdate = true;
+                planned.context_data->distributionSessionInfo->updateMBSDistributionSessionInfo(planned.update_info);
+            } else if (planned.orig_update_state != planned.stored_info->getMbsDistSessState()) {
+                planned.context_data->stateUpdate = true;
+                planned.stored_info->setMbsDistSessState(planned.orig_update_state);
+                // buildNmb2DistSessionPatch()'s stateUpdate branch reads the wanted
+                // state off context_data->info, which is normally the same object as
+                // planned.stored_info -- set both explicitly rather than relying on that
+                // aliasing.
+                if (planned.context_data->info && planned.context_data->info != planned.stored_info) {
+                    planned.context_data->info->setMbsDistSessState(planned.orig_update_state);
+                }
+            }
+        } else {
+            // addition
+            const auto &mbs_session_id = planned.update_info->getMbsSessionId();
+            if (mbs_session_id) {
+                const auto &mbs_svc_area = planned.update_info->getTgtServAreas();
+                const auto &ext_mbs_svc_area = planned.update_info->getExtTgtServAreas();
+                UniqueMbsSessionId cmp_mbs_session_id(!!mbs_session_id.value()->getSsm(), mbs_session_id.value(),
+                                        mbs_svc_area?mbs_svc_area.value():std::shared_ptr<MbsServiceArea>(),
+                                        ext_mbs_svc_area?ext_mbs_svc_area.value():std::shared_ptr<ExternalMbsServiceArea>());
                 app_context->addMbsSessionId(cmp_mbs_session_id);
             }
+            m_MBSUserDataIngSession->addMbsDisSessInfos(planned.key, MBSUserDataIngSession::MbsDisSessInfosItemType(planned.update_info));
         }
-        m_MBSUserDataIngSession->addMbsDisSessInfos(key_in_update, sess_info_update);
+    }
+
+    // needsUpdate reflects this cycle only. A stored key this update leaves untouched (in neither
+    // `plan` above) must not carry forward a flag an earlier cycle left set.
+    for (const auto &key : stored_keys) {
+        bool in_plan = false;
+        for (const auto &planned : plan) {
+            if (planned.context_data && planned.key == key) { in_plan = true; break; }
+        }
+        if (in_plan) continue;
+        std::shared_ptr<ContextData> context_data = getDistributionSessionInfoData(key);
+        if (context_data) context_data->needsUpdate = false;
     }
 
     // Reset the states for each dist session
