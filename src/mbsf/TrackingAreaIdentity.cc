@@ -86,7 +86,15 @@ mb_smf_sc_tai_t *TrackingAreaIdentity::populateTai() {
     tracking_area = tac();
     n_id = nid();
 
-    return mb_smf_sc_tai_new(mcc, mnc, tracking_area, n_id);
+    // Use the length-aware constructor: mcc()/mnc() alone lose the MNC's actual
+    // digit count (2 vs 3), which a plain numeric value under 100 cannot distinguish.
+    mb_smf_sc_tai_t *result = mb_smf_sc_tai_new_len(mcc, mnc, mbs_plmn_id->mncLen(), tracking_area, n_id);
+
+    // The constructor copies the Network Id's value rather than taking the pointer
+    // (mb-smf-service-consumer's own _tai_set_network_id()), so this one stays ours to release.
+    if (n_id) ogs_free(n_id);
+
+    return result;
 }
 
 uint32_t TrackingAreaIdentity::tac() {
@@ -124,17 +132,42 @@ uint32_t TrackingAreaIdentity::tac() {
 uint64_t* TrackingAreaIdentity::nid() {
     const std::optional<std::string > &nid = getNid();
     if (!nid.has_value()) return nullptr;
-    uint64_t value = 0;
-    for (char ch : nid.value()) {
-        if (std::isdigit(static_cast<unsigned char>(ch))) {
-            value = value * 10 + (ch - '0');
-        }
-    }
+    // TS 29.571 Nid is an 11-character hex string (44-bit SNPN Network Id) --
+    // parse as base 16, matching the correct sibling implementation MBSNcgi::nid().
+    uint64_t value = std::stoull(nid.value(), nullptr, 16);
 
-    uint64_t *result = static_cast<uint64_t*>(std::malloc(sizeof(uint64_t)));
+    // Allocated with the library's own allocator, not std::malloc: the mb-smf-service-consumer
+    // types this value is handed to are released with ogs_free(), which is talloc_free() and
+    // cannot free a pointer it did not allocate.
+    uint64_t *result = static_cast<uint64_t*>(ogs_malloc(sizeof(uint64_t)));
     if (result != nullptr) {
         *result = value;
     }
+    return result;
+}
+
+
+std::shared_ptr<Tai> TrackingAreaIdentity::fromTai(const mb_smf_sc_tai_t *tai)
+{
+    if (!tai) return nullptr;
+
+    // Tac and Nid are upper-case, zero-padded hex: the encoding tac() and nid() decode, and the
+    // one the library writes (_uint32_to_hex_str(tac, 4, 6), _uint64_to_hex_str(nid, 11, 11)).
+    char tac_str[16];
+    std::snprintf(tac_str, sizeof(tac_str), "%.4llX",
+                  static_cast<unsigned long long>(tai->tac & 0xFFFFFF));
+
+    std::shared_ptr<Tai> result(new Tai());
+    result->setPlmnId(MBSPlmnId::fromPlmnId(tai->plmn_id));
+    result->setTac(std::string(tac_str));
+
+    if (tai->nid) {
+        char nid_str[24];
+        std::snprintf(nid_str, sizeof(nid_str), "%.11llX",
+                      static_cast<unsigned long long>(*tai->nid & 0xFFFFFFFFFFFULL));
+        result->setNid(std::string(nid_str));
+    }
+
     return result;
 }
 

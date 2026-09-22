@@ -124,7 +124,7 @@ long Curl::__post(const std::string& url, std::chrono::milliseconds timeout, con
     } else if (res == CURLE_OPERATION_TIMEDOUT) {
             return -1; // Indicate timeout
     } else {
-            //std::cerr << "curl_easy_perform() failed: " << curl_easy_strerror(res) << std::endl;
+            ogs_error("curl_easy_perform() [POST %s] failed: %s", url.c_str(), curl_easy_strerror(res));
             return -2; // Indicate other error
     }
     return -2;
@@ -227,7 +227,7 @@ long Curl::__get(const std::string& url, std::chrono::milliseconds timeout, cons
         } else if (res == CURLE_OPERATION_TIMEDOUT) {
             return -1; // Indicate timeout
         } else {
-            //std::cerr << "curl_easy_perform() failed: " << curl_easy_strerror(res) << std::endl;
+            ogs_error("curl_easy_perform() [GET %s] failed: %s", url.c_str(), curl_easy_strerror(res));
             return -2; // Indicate other error
         }
     }

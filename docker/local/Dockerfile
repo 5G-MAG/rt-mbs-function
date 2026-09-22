@@ -1,5 +1,6 @@
 ############### Builder image (not for distribution) ##################
-FROM ubuntu:24.04 AS building
+ARG UBUNTU_VERSION=24.04
+FROM ubuntu:${UBUNTU_VERSION} AS building
 
 ARG PROXY=
 ENV http_proxy=$PROXY

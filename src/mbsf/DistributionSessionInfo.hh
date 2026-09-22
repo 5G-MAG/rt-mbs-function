@@ -119,10 +119,16 @@ public:
     std::optional<std::shared_ptr<ObjRepairParameters>> populateObjRepairParameters(const std::string &user_data_ing_session_id, const std::string &distribution_session_info_key);
     std::optional<std::string> objectAcqIdsContentType(const std::string &url);
 
+    /* For the events TS 26.502 V18.6.0 table 4.6.2-1 leaves without a stimulating reference point,
+       which that clause defines as stimulated by the MBSF itself. The caller is whatever part of the
+       MBSF performs the act the event names. The DistSessionEventReport overload below is the other
+       half: events the MBSTF reports over Nmb2. */
+    void registerEvent(SubscribedEvents::EventTypeBitMask event_type,
+                       const std::optional<std::string> &status_add_info = std::nullopt);
+
 private:
     void setState(std::shared_ptr< reftools::mbsf::DistSessionState > dist_session_state);
     void registerEvent(std::shared_ptr<reftools::mbsf::DistSessionEventReport> dist_sess_event_report);
-    void registerEvent(SubscribedEvents::EventTypeBitMask event_type);
     void sendSubscriptionNotifications();
     void validate() const;
     void contextReportedState(const std::shared_ptr<UserDataIngSession> &ing_sess, reftools::mbsf::DistSessionState::Enum state);

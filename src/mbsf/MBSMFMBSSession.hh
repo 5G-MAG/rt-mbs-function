@@ -23,6 +23,7 @@
 #include "ogs-sbi.h"
 #include "mb-smf-service-consumer.h"
 
+#include <atomic>
 #include <memory>
 #include <optional>
 #include <any>
@@ -35,6 +36,7 @@ namespace reftools::mbsf {
     class ExternalMbsServiceArea;
     class MbsServiceArea;
     class MbsServiceInfo;
+    class Tmgi;
 }
 
 MBSF_NAMESPACE_START
@@ -84,6 +86,12 @@ public:
     bool getAnyUeInd() const;
     bool getLocationDependent() const;
 
+    // The reduced MBS Service Area the MB-SMF created this session over, or nullptr unless it
+    // trimmed the area that was requested. TS 29.532 V18.6.0 clause 5.3.2.2.1 obliges the MB-SMF
+    // to report the reduction in redMbsServArea; this is where it becomes visible to the rest of
+    // this component. The requested area is left as it was set, so the two can be compared.
+    std::shared_ptr<reftools::mbsf::MbsServiceArea> getReducedServiceArea() const;
+
 
     MBSMFMBSSession &setAssociatedSessionId(std::shared_ptr<reftools::mbsf::AssociatedSessionId> associated_session_id);
     MBSMFMBSSession &setSession(mb_smf_sc_mbs_session_t *session);
@@ -94,6 +102,7 @@ public:
     MBSMFMBSSession &setTunnelRequest(bool request_udp_tunnel);
     MBSMFMBSSession &setCallback(const UserDataIngDistSessId &ids);
     MBSMFMBSSession &setTmgiRequest(bool req_tmgi);
+    MBSMFMBSSession &setTmgi(std::shared_ptr<reftools::mbsf::Tmgi> tmgi);
     MBSMFMBSSession &setActivityStatus(mb_smf_sc_activity_status_e activity_status);
     MBSMFMBSSession &setAnyUeInd(bool any_ue_ind);
     MBSMFMBSSession &setServiceInfo(std::shared_ptr<reftools::mbsf::MbsServiceInfo> mbs_service_info);
@@ -124,6 +133,9 @@ private:
 
     mb_smf_sc_mbs_session_t *m_session;
     mb_smf_sc_mbs_status_subscription_t *m_subscription;
+    // Owned by this class, not by m_session: see setTmgi()'s own comment for the ownership
+    // contract this rests on (mb-smf-service-consumer's mbs-session.c, code-derived).
+    mb_smf_sc_tmgi_t *m_afSuppliedTmgi;
     std::atomic<bool> m_changesInFlight;
     std::atomic<bool> m_sendUpdates;
     UserDataIngDistSessId m_id;

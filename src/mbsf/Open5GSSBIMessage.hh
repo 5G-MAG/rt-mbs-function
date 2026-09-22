@@ -66,6 +66,7 @@ public:
     int resStatus() const { return m_message?(m_message->res_status):0; };
 
     const char *contentType() const { return m_message?(m_message->http.content_type):nullptr; };
+    const char *accept() const { return m_message?(m_message->http.accept):nullptr; };
 
     Open5GSSBIMessage &serviceName(char *service_name);
     Open5GSSBIMessage &apiVersion(char *api_version);

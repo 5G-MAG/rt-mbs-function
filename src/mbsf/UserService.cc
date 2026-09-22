@@ -33,6 +33,7 @@
 #include "Context.hh"
 #include "hash.hh"
 #include "MBSFNetworkFunction.hh"
+#include "ConditionalRequest.hh"
 #include "NfServer.hh"
 #include "Open5GSEvent.hh"
 #include "Open5GSSBIMessage.hh"
@@ -46,6 +47,7 @@
 #include "UserServiceDesc.hh"
 #include "UserDataIngSession.hh"
 #include "openapi/model/MBSUserService.h"
+#include "openapi/model/MBSUserServicePatch.h"
 #include "openapi/model/CreateReqData.h"
 #include "openapi/model/TunnelAddress.h"
 #include "openapi/model/MbsServiceType.h"
@@ -64,6 +66,7 @@ using reftools::mbsf::ExternalMbsServiceArea;
 using reftools::mbsf::MbsServiceArea;
 using reftools::mbsf::MbsServiceType;
 using reftools::mbsf::MBSUserService;
+using reftools::mbsf::MBSUserServicePatch;
 using reftools::mbsf::TunnelAddress;
 using reftools::mbsf::ServiceNameDescription;
 
@@ -83,12 +86,16 @@ static const NfServer::InterfaceMetadata g_nmbsf_userservice_api_metadata(
 );
 
 
+static void validate_serv_name_descs(const std::shared_ptr<MBSUserService> &service);
+
 UserService::UserService(CJson &json, bool as_request)
     :m_MBSUserService(std::make_shared<MBSUserService>(json, as_request))
     ,m_userDataIngSessMutex(new std::recursive_mutex)
     ,m_userDataIngSessions()
     ,m_postDeleteEvent(nullptr)
 {
+    validate_serv_name_descs(m_MBSUserService);
+
     ogs_uuid_t uuid;
 
     char id[OGS_UUID_FORMATTED_LENGTH + 1];
@@ -117,11 +124,143 @@ CJson UserService::json(bool as_request = false) const
     return m_MBSUserService->toJSON(as_request);
 }
 
-void UserService::update(CJson &json, bool as_request)
+/* The methods this NF serves on the target resource, for the Allow header that clause 5.2.7.2 of
+   TS 29.500 requires alongside a 405, and for the answer to OPTIONS.
+
+   What the header must contain is the supported method(s) "for that resource", so it lists what is
+   actually served rather than everything TS 29.580 defines. PATCH is deliberately absent: TS 29.580
+   defines it on an individual MBS User Service, but this NF does not implement it (see
+   5G-MAG/rt-mbs-function#45, which the maintainers are holding pending 5G-MAG/Standards#182), and
+   advertising a method that is not served would misdirect a consumer that read the header. */
+/* The methods each resource of this API actually serves, which is what an Allow header and an
+   OPTIONS response have to state.
+
+   TS 29.580 V18.8.0 table 6.1.3.1-1 gives the collection GET and POST, and the individual resource
+   GET, PUT, PATCH and DELETE. The collection GET is absent below because this MBSF does not serve
+   it: the header states what is served, not what the table defines, or a consumer is told to retry
+   a method that will be refused. */
+static std::string user_service_allow_methods(const Open5GSSBIMessage &message)
 {
-    m_MBSUserService.reset(new MBSUserService(json, as_request));
+    /* The collection serves GET as well as POST, TS 29.580 V18.8.0 clause 6.1.3.2.3.1 alongside
+       6.1.3.2.3.2, and a GET of it answers 200. Leaving GET out told a consumer refused on the
+       collection that it could only POST there. */
+    return message.resourceComponent(1) ? "GET, PUT, PATCH, DELETE, OPTIONS" : "GET, POST, OPTIONS";
 }
 
+/* Refuse a ServiceNameDescription that names nothing.
+ *
+ * TS 29.580 V18.8.0 clause 6.1.6.2.3, type ServiceNameDescription, NOTE: “At least one of the "servName" attribute and the "servDescrip" attribute shall be included.”
+ *
+ * Both attributes are optional on their own, so the generated model admits an entry carrying
+ * neither, which reaches the service announcement as a language with nothing to say in it.
+ */
+static void validate_serv_name_descs(const std::shared_ptr<MBSUserService> &service)
+{
+    if (!service) return;
+    const auto &descs = service->getServNameDescs();
+    size_t index = 0;
+    for (const auto &entry : descs) {
+        if (entry && (entry.value()->getServName().has_value() || entry.value()->getServDescrip().has_value())) {
+            index++;
+            continue;
+        }
+        throw ModelException("servNameDescs entry must carry at least one of servName and servDescrip",
+                             "MBSUserService", std::string("servNameDescs[") + std::to_string(index) + "]",
+                             fiveg_mag_reftools::ProblemCause::MANDATORY_IE_MISSING);
+    }
+}
+
+static std::string serv_type_of(const std::shared_ptr<MBSUserService> &service)
+{
+    const std::shared_ptr<MbsServiceType> mbs_service_type = service ? service->getServType() : nullptr;
+    return mbs_service_type ? mbs_service_type->getString() : std::string();
+}
+
+/* TS 29.500 V18.10.0 cl.5.2.7.2/table 5.2.7.1-1: 413 (Payload Too Large) is mandatory for PATCH and
+ * POST; its own table 5.2.7.2-1 defines no named cause for it, so this constructs the numeric status
+ * directly, the same pattern as the 405/406/415/501 direct-dispatch checks already in this file.
+ * Returns true (and has already sent the 413 response) only when App::self().context()->
+ * maxRequestBodySize is configured and the request exceeds it. Does not close the requirement for a
+ * body genuinely exceeding the shared open5gs SBI server's own OGS_MAX_SDU_LEN -- see
+ * rt-mbs-transport-function.md's own M8 entry for that residual gap, which this repository shares. */
+static bool request_too_large(Open5GSSBIRequest &request, Open5GSSBIStream &stream, int path_segments,
+                              Open5GSSBIMessage &message, const NfServer::AppMetadata &app_meta,
+                              const std::optional<NfServer::InterfaceMetadata> &api)
+{
+    const auto &max_size = App::self().context()->maxRequestBodySize;
+    if (!max_size || request.contentLength() <= *max_size) return false;
+
+    std::ostringstream err;
+    err << "Request body of " << request.contentLength() << " bytes exceeds the configured maximum of "
+        << *max_size << " bytes";
+    ogs_error("%s", err.str().c_str());
+    ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_PAYLOAD_TOO_LARGE, path_segments, message,
+                                            app_meta, api, "Payload Too Large", err.str()));
+    return true;
+}
+
+void UserService::update(CJson &json, bool as_request)
+{
+    // servType must not change on a PUT (TS 29.580), so the incoming value is compared against the
+    // stored one before the object is replaced.
+    const std::string old_serv_type(serv_type_of(m_MBSUserService));
+    std::shared_ptr<MBSUserService> new_service(new MBSUserService(json, as_request));
+    if (!old_serv_type.empty() && serv_type_of(new_service) != old_serv_type) {
+        throw ModelException("servType cannot be changed once provisioned", "MBSUserService", "servType",
+                              fiveg_mag_reftools::ProblemCause::MANDATORY_IE_INCORRECT);
+    }
+    validate_serv_name_descs(new_service);
+    m_MBSUserService = std::move(new_service);
+}
+
+
+void UserService::modify(CJson &json, bool as_request)
+{
+    /* The patch names the attributes to change, and only those. TS 29.580 V18.8.0 clause 6.1.2.2:
+       “JSON object used in the HTTP PATCH request shall be encoded according to "JSON Merge Patch"
+       and shall be signalled by the content type "application/merge-patch+json", as defined in IETF
+       RFC 7396 [22].”
+
+       Applied through the generated MBSUserServicePatch type, which carries exactly the attributes
+       table 6.1.6.2.4-1 defines as patchable, so an attribute that may not be modified cannot be
+       reached from here. servType is deliberately absent from that table, which is the same rule
+       update() enforces for a PUT.
+
+       An attribute the patch does not mention is left alone. Explicitly removing an attribute by
+       sending null, which RFC 7396 also defines, is not reachable through this type: its accessors
+       report presence, not an explicit null, and every attribute in the table is optional with no
+       stated removal semantics. Anything beyond replacement therefore needs the model to
+       distinguish the two, and is not attempted here rather than guessed at. */
+    if (!m_MBSUserService) {
+        throw ModelException("No MBS User Service to modify", "MBSUserService", std::string(),
+                              fiveg_mag_reftools::ProblemCause::SYSTEM_FAILURE);
+    }
+
+    /* TS 29.580 V18.8.0 clause 5.2.2.4.2: “Only the "servType" attribute shall not be updated.”
+
+       MBSUserServicePatch carries no servType, so a patch naming it would otherwise be discarded
+       in silence and answered 200, telling the consumer an update it is forbidden to make had
+       succeeded. The PUT path refuses the same attempt, and this makes the two agree. */
+    if (json.isObject()) {
+        for (std::size_t i = 0; i < json.arraySize(); i++) {
+            CJson member(json.index(i));
+            if (member.key() && std::string(member.key()) == "servType") {
+                throw ModelException("servType cannot be changed once provisioned", "MBSUserService", "servType",
+                                      fiveg_mag_reftools::ProblemCause::MANDATORY_IE_INCORRECT);
+            }
+        }
+    }
+
+    MBSUserServicePatch patch(json, as_request);
+
+    if (patch.getExtServiceIds().has_value()) m_MBSUserService->setExtServiceIds(patch.getExtServiceIds().value());
+    if (patch.getServClass().has_value()) m_MBSUserService->setServClass(patch.getServClass().value());
+    if (patch.getServAnnModes().has_value()) m_MBSUserService->setServAnnModes(patch.getServAnnModes().value());
+    if (patch.getServNameDescs().has_value()) m_MBSUserService->setServNameDescs(patch.getServNameDescs().value());
+    if (patch.getMainServLang().has_value()) m_MBSUserService->setMainServLang(patch.getMainServLang().value());
+
+    validate_serv_name_descs(m_MBSUserService);
+}
 
 const std::shared_ptr<UserService> &UserService::find(const std::string &id)
 {
@@ -152,7 +291,11 @@ std::list<std::shared_ptr<UserServiceDesc::serviceNameLanguageDescription>> User
     for (const auto &service_name_description : service_name_descriptions) {
         if (service_name_description.has_value()) {
             std::shared_ptr< ServiceNameDescription > service_name_desc = service_name_description.value();
-            if (!service_name_desc->getServName().has_value()) continue;
+            // The guard tests getServDescrip(), the same field read below. TS 29.580's
+            // ServiceNameDescription is anyOf(servName, servDescrip), so an entry carrying only servName is a
+            // legitimate request and .value() on the empty servDescrip optional would end the process. The
+            // sibling UserServiceDescriptionNames() below guards and reads getServName() the same way.
+            if (!service_name_desc->getServDescrip().has_value()) continue;
             std::shared_ptr<UserServiceDesc::serviceNameLanguageDescription> desc(new UserServiceDesc::serviceNameLanguageDescription(service_name_desc->getServDescrip().value(), service_name_desc->getLanguage()));
             user_service_description_descs.push_back(std::move(desc));
         }
@@ -199,8 +342,12 @@ bool UserService::processEvent(Open5GSEvent &event)
             try {
                 message.parseHeader(request);
             } catch (std::exception &ex) {
+                /* Passed on, not consumed. This handler cannot answer a request whose URI it
+                   could not parse, and claiming the event would leave the stream with no response
+                   at all. MBSFEventHandler answers it, as it does for the sibling handlers, which
+                   all return false here. */
                 ogs_error("Failed to parse request headers");
-                return true;
+                return false;
             }
 
             std::string service_name(message.serviceName());
@@ -227,17 +374,74 @@ bool UserService::processEvent(Open5GSEvent &event)
                 if (resource0 == "mbs-user-services") {
                     std::string method(message.method());
                     const char *ptr_resource1 = message.resourceComponent(1);
-                    if (method == OGS_SBI_HTTP_METHOD_POST) {
+
+                    /* A method no resource of this API serves is not a wrong method for this resource,
+                       it is one the NF does not recognise at all, and has its own answer.
+
+                       TS 29.500 V18.10.0 clause 5.2.7.2: “A request using an HTTP method which is not supported by any resource of a given 5GC SBI API shall be rejected with the HTTP status code "501 Not Implemented".”
+
+                       The same clause's NOTE 1 says no cause attribute is needed, the status carrying
+                       enough on its own. Checked before the dispatch below so a HEAD or a TRACE does
+                       not fall through it to a 405, which would claim the method is merely wrong here. */
+                    if (method != OGS_SBI_HTTP_METHOD_POST && method != OGS_SBI_HTTP_METHOD_GET &&
+                        method != OGS_SBI_HTTP_METHOD_PUT && method != OGS_SBI_HTTP_METHOD_PATCH &&
+                        method != OGS_SBI_HTTP_METHOD_DELETE && method != OGS_SBI_HTTP_METHOD_OPTIONS) {
+                        ogs_error("Method [%s] is not supported by any resource of this API", method.c_str());
+                        ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_NOT_IMPLEMENTED, 0, message,
+                                                               app_meta, api, "Not Implemented",
+                                                               "Method not supported by any resource of this API"));
+                        return true;
+                    }
+
+                    /* The resource is decided once, here, before any method branch runs. Previously each
+                       branch tested the path components itself, so a path with a component after the
+                       identifier was answered by whichever branch it happened to land in rather than
+                       centrally. TS 29.580 defines only the collection and an individual MBS User
+                       Service, so anything deeper names no resource, which clause 5.2.7.2 of
+                       TS 29.500 answers 404 (quoted at the DELETE fallback below). */
+                    if (UserService::route(ptr_resource1, message.resourceComponent(2)) ==
+                            UserService::Route::NoSuchResource) {
+                        std::ostringstream err;
+                        err << "No such resource [" << message.uri() << "]";
+                        ogs_error("%s", err.str().c_str());
+                        ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_NOT_FOUND, 1, message,
+                                                               app_meta, api, "Not Found", err.str()));
+                        return true;
+                    }
+
+                    /* OPTIONS is answered at whichever level was addressed, so a consumer can discover
+                       what a resource serves instead of probing it. 204 with an Allow header and no
+                       body, the shape the transport function already uses for the same purpose. */
+                    if (method == OGS_SBI_HTTP_METHOD_OPTIONS) {
+                        std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(
+                                        std::nullopt, std::nullopt, std::nullopt, std::nullopt, 0,
+                                        user_service_allow_methods(message), api, app_meta));
+                        ogs_assert(response);
+                        NfServer::populateResponse(response, "", OGS_SBI_HTTP_STATUS_NO_CONTENT);
+                        ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *response));
+                        return true;
+                    }
+                    // Matches only a POST with no resource1, mbs-user-services being a collection endpoint. Matching
+                    // the prefix regardless of what follows would parse a request meant for a sub-resource, a
+                    // misrouted "/mbs-user-services/{id}/ingest-sessions" say, as a new MBSUserService creation body.
+                    // That body lacks fields MBSUserService requires, such as extServiceIds, and
+                    // checkAndSetUserServiceAnnouncementChannel() below constructs a raw MBSUserService from it with
+                    // no try/catch, so the ModelException would end the process.
+                    if (method == OGS_SBI_HTTP_METHOD_POST && !ptr_resource1) {
                         ogs_debug("POST response: status = %i", message.resStatus());
                         std::shared_ptr<UserService> user_service;
                         ogs_debug("Request body: %s", request.content());
                         //ogs_debug("Request " OGS_SBI_CONTENT_TYPE ": %s", request.headerValue(OGS_SBI_CONTENT_TYPE, std::string()).c_str());
+                        /* A body in a coding this NF cannot decode is refused before it is read, so the
+                           encoded octets never reach the JSON parser and get blamed on the document. */
+                        if (NfServer::refuseUnsupportedContentCoding(request, stream, 3, message, app_meta, api)) return true;
                         if (request.headerValue(OGS_SBI_CONTENT_TYPE, std::string()) != "application/json") {
                             ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_UNSUPPORTED_MEDIA_TYPE,
                                                                    3, message, app_meta, api, "Unsupported Media Type",
                                                                    "Expected content type: application/json"));
                             return true;
                         }
+                        if (request_too_large(request, stream, 3, message, app_meta, api)) return true;
 
                         CJson mbs_user_service(CJson::Null);
                         try {
@@ -250,6 +454,10 @@ bool UserService::processEvent(Open5GSEvent &event)
                             return true;
                         }
 
+                        // checkAndSetUserServiceAnnouncementChannel() constructs a raw MBSUserService straight from the
+                        // request body, throwing fiveg_mag_reftools::ModelException on any missing required field such as
+                        // extServiceIds, and catches nothing itself. Caught here so a malformed client body is answered
+                        // 400 Bad Request; uncaught it would reach std::terminate() and end the process.
                         try {
                             if(!checkAndSetUserServiceAnnouncementChannel(mbs_user_service, true)) {
                                 static const char *err = "MBSF cannot handle User Service Announcement channel without local configuration.";
@@ -266,6 +474,14 @@ bool UserService::processEvent(Open5GSEvent &event)
                                 ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 1, message,
                                               app_meta, api, "Mandatory information element missing", ex.what()));
                             }
+                            return true;
+                        } catch (const std::exception &ex) {
+                            // An exception of unknown type does not establish that the client was at fault, so it must
+                            // not be answered 400. ModelException, which does mean a malformed body, is caught above.
+                            ogs_error("Failed to create MBS User Service: %s", ex.what());
+                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_INTERNAL_SERVER_ERROR, 1,
+                                                                    message, app_meta, api,
+                                                                    "Problem creating MBS User Service", ex.what()));
                             return true;
                         }
 
@@ -291,9 +507,25 @@ bool UserService::processEvent(Open5GSEvent &event)
                         CJson mbs_user_service_json(user_service->json(false));
                         std::string body(mbs_user_service_json.serialise());
                         ogs_debug("Response Parsed JSON: %s", body.c_str());
-                        std::ostringstream location;
-                        location << request.uri() << "/" << user_service->userServiceId();
-                        std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(location.str(),
+                        /* The absolute URI of the created resource, not a path. TS 29.580 V18.8.0
+                           requires the response to include “an HTTP Location header field containing
+                           the URI of the created resource”, and TS 29.500 V18.10.0 has a consumer
+                           take the apiRoot from that header for subsequent requests sent through an
+                           SCP, which a path alone cannot supply.
+
+                           Falls back to the path if the server cannot be identified, which is worse
+                           but is what was sent before, rather than sending no Location at all. */
+                        std::string location(NfServer::resourceUri(stream, message,
+                                                {std::string(message.resourceComponent(0)),
+                                                 user_service->userServiceId()}));
+                        if (location.empty()) {
+                            std::ostringstream fallback;
+                            fallback << request.uri() << "/" << user_service->userServiceId();
+                            location = fallback.str();
+                            ogs_warn("Could not determine this server's own URI; the Location header "
+                                     "carries a path with no apiRoot");
+                        }
+                        std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(location,
                                                                                     body.empty()?nullptr:"application/json",
                                                                                     user_service->generated(),
                                                                                     user_service->hash().c_str(),
@@ -304,12 +536,46 @@ bool UserService::processEvent(Open5GSEvent &event)
                         ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *response));
                         return true;
                     } else if (method == OGS_SBI_HTTP_METHOD_GET) {
+                        /* TS 29.500 V18.10.0 table 5.2.7.1-1 marks 406 mandatory for GET. This response is always
+                           application/json, so a client whose Accept header cannot take that is answered 406 rather
+                           than sent a body it did not ask for. */
+                        std::optional<std::string> accept_hdr;
+                        if (message.accept()) accept_hdr = message.accept();
+                        if (!NfServer::acceptsMediaType(accept_hdr, "application/json")) {
+                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_NOT_ACCEPTABLE, 1, message,
+                                                                    app_meta, api, "Not Acceptable",
+                                                                    "This resource is only available as application/json"));
+                            return true;
+                        }
                         if (!ptr_resource1) {
-                            std::ostringstream err;
-                            err << "Invalid resource [" << message.uri() << "]";
-                            ogs_error("%s", err.str().c_str());
-                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 1, message,
-                                                                    app_meta, api, "Bad Request", err.str()));
+                            /* TS 29.580 V18.8.0 clause 6.1.3.2.3.1: “The GET method allows an NF service consumer (e.g. AF, NEF) to retrieve all the active MBS User Service(s) managed by the MBSF.”
+
+                               Table 6.1.3.2.3.1-3 gives the 200 response body as array(MBSUserService)
+                               with cardinality 0..N, so an empty array is the answer when none is
+                               active, not a 404.
+
+                               Review on 5G-MAG/rt-mbs-function#49 asked for 405 on a GET, PUT, PATCH
+                               or DELETE to this collection. The clause above defines GET on it, so GET
+                               is served here; PUT, PATCH and DELETE are defined only on the individual
+                               resource and keep their 405.
+
+                               A service being torn down is no longer active, so it is left out, which
+                               is the test find() already applies when resolving one by identifier. */
+                            CJson user_services(CJson::newArray());
+                            for (const auto &entry : App::self().context()->UserServices) {
+                                const std::shared_ptr<UserService> &user_serv = entry.second;
+                                if (!user_serv || user_serv->m_postDeleteEvent) continue;
+                                user_services.append(user_serv->json(false));
+                            }
+                            std::string body(user_services.serialise());
+                            ogs_debug("MBS User Services collection: %s", body.c_str());
+                            std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(std::nullopt,
+                                                    "application/json", std::nullopt, std::nullopt,
+                                                    App::self().context()->cacheControl.MBSUserServiceMaxAge,
+                                                    std::nullopt, api, app_meta));
+                            ogs_assert(response);
+                            NfServer::populateResponse(response, body, OGS_SBI_HTTP_STATUS_OK);
+                            ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *response));
                             return true;
                         }
                         std::string user_service_id(ptr_resource1);
@@ -317,6 +583,35 @@ bool UserService::processEvent(Open5GSEvent &event)
                             int response_code = 200;
 
                             std::shared_ptr<UserService> user_serv = UserService::find(user_service_id);
+
+                            /* RFC 9110 section 13.1.2 requires a matching If-None-Match on a safe
+                               method to be answered 304 rather than with the representation, and
+                               section 13.1.1 requires a failing If-Match not to perform the method
+                               at all. Both were ignored here. */
+                            switch (evaluatePreconditions(request.headerValue("If-Match", std::string()),
+                                                          request.headerValue("If-None-Match", std::string()),
+                                                          user_serv->hash(), true)) {
+                            case Precondition::NotModified: {
+                                std::shared_ptr<Open5GSSBIResponse> nm(NfServer::newResponse(std::nullopt,
+                                                        std::nullopt, user_serv->generated(),
+                                                        user_serv->hash().c_str(),
+                                                        App::self().context()->cacheControl.MBSUserServiceMaxAge,
+                                                        std::nullopt, api, app_meta));
+                                ogs_assert(nm);
+                                NfServer::populateResponse(nm, "", 304); // open5gs defines no constant for 304
+                                ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *nm));
+                                return true;
+                            }
+                            case Precondition::PreconditionFailed:
+                                ogs_assert(true == NfServer::sendError(stream,
+                                                        OGS_SBI_HTTP_STATUS_PRECONDITION_FAILED, 1, message,
+                                                        app_meta, api, "Precondition Failed",
+                                                        "The If-Match entity-tag does not match this resource"));
+                                return true;
+                            case Precondition::Proceed:
+                                break;
+                            }
+
                             CJson user_service_json(user_serv->json(false));
                             std::string body(user_service_json.serialise());
                             ogs_debug("Parsed JSON: %s", body.c_str());
@@ -351,19 +646,52 @@ bool UserService::processEvent(Open5GSEvent &event)
                     } else if (method == OGS_SBI_HTTP_METHOD_PUT) {
                         const char *ptr_resource2 = message.resourceComponent(2);
                         if (!ptr_resource1 && !ptr_resource2) {
-                            std::ostringstream err;
-                            err << "Invalid resource [" << message.uri() << "]";
-                            ogs_error("%s", err.str().c_str());
-                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 1, message,
-                                                                    app_meta, api, "Bad Request", err.str()));
+                            /* PUT names the collection, which does not serve it. The resource exists,
+                               so this is 405 with the methods it does serve, not 400. Review on
+                               5G-MAG/rt-mbs-function#49: “A GET, PUT, PATCH or DELETE to
+                               "/mbs-user-services" should also result in a 405 Method Not Allowed
+                               response.” */
+                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_METHOD_NOT_ALLOWED, 1,
+                                                                    message, app_meta, api, "Method Not Allowed",
+                                                                    "PUT is not served on the MBS User Services collection",
+                                                                    std::nullopt, std::nullopt, std::nullopt,
+                                                                    user_service_allow_methods(message)));
                             return true;
                         }
+                        std::string user_service_id(ptr_resource1);
+                        std::shared_ptr<UserService> user_service;
+                        /* The target resource is resolved before anything looks at the body. Where it
+                           does not exist the answer is 404 whatever the body contains, and PUT on this
+                           resource cannot create one, so nothing a body could say would change it.
+                           TS 29.500 V18.10.0 clause 5.2.7.2: “If the specified target resource does
+                           not exist, the NF shall reject the HTTP method with the HTTP status code
+                           "404 Not Found".” */
+                        try {
+                            user_service = UserService::find(user_service_id);
+                        } catch (const std::out_of_range &e) {
+                            std::ostringstream err;
+                            err << "User Service [" << user_service_id << "] does not exist.";
+                            ogs_error("%s", err.str().c_str());
+                            std::ostringstream reason;
+                            reason << "Invalid MBS User Service identifier [" << user_service_id << "]";
+                            std::map<std::string, std::string> invalid_params(
+                                            NfServer::makeInvalidParams(std::string("{mbsUserServId}"), reason.str()));
+                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_NOT_FOUND, 2, message,
+                                                                    app_meta, api, "MBS User Service not found",
+                                                                    err.str(), std::nullopt, invalid_params));
+                            return true;
+                        }
+
+                         /* A body in a coding this NF cannot decode is refused before it is read, so the
+                            encoded octets never reach the JSON parser and get blamed on the document. */
+                         if (NfServer::refuseUnsupportedContentCoding(request, stream, 3, message, app_meta, api)) return true;
                          if (request.headerValue(OGS_SBI_CONTENT_TYPE, std::string()) != "application/json") {
                             ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_UNSUPPORTED_MEDIA_TYPE,
                                                                    3, message, app_meta, api, "Unsupported Media Type",
                                                                    "Expected content type: application/json"));
                             return true;
                         }
+                        if (request_too_large(request, stream, 3, message, app_meta, api)) return true;
 
                         CJson mbs_user_service(CJson::Null);
                         try {
@@ -381,11 +709,28 @@ bool UserService::processEvent(Open5GSEvent &event)
                             ogs_debug("Request Parsed JSON: %s", txt.c_str());
                         }
 
-                        std::string user_service_id(ptr_resource1);
                         try {
                             int response_code = 200;
 
-                            std::shared_ptr<UserService> user_service = UserService::find(user_service_id);
+                            /* A failing If-Match must stop the update before it happens. This is the
+                               case that matters most: without it a consumer using the entity-tag for
+                               optimistic concurrency has its precondition ignored and overwrites a
+                               change it never saw, with a 200 saying the update succeeded.
+
+                               RFC 9110 section 13.1.1: “An origin server that evaluates an If-Match
+                               condition MUST NOT perform the requested method if the condition
+                               evaluates to false.” */
+                            if (evaluatePreconditions(request.headerValue("If-Match", std::string()),
+                                                      request.headerValue("If-None-Match", std::string()),
+                                                      user_service->hash(), false)
+                                    != Precondition::Proceed) {
+                                ogs_assert(true == NfServer::sendError(stream,
+                                                        OGS_SBI_HTTP_STATUS_PRECONDITION_FAILED, 1, message,
+                                                        app_meta, api, "Precondition Failed",
+                                                        "The entity-tag condition on this request does not hold"));
+                                return true;
+                            }
+
                             bool current_user_services_requires_ann = user_service->requiresUserServiceAnnouncement();
                             user_service->update(mbs_user_service, true);
                             bool new_user_service_requires_ann = user_service->requiresUserServiceAnnouncement();
@@ -430,7 +775,92 @@ bool UserService::processEvent(Open5GSEvent &event)
 
                         return true;
 
+                    } else if (method == OGS_SBI_HTTP_METHOD_PATCH) {
+                        /* TS 29.580 V18.8.0 table 6.1.3.1-1 gives the Individual MBS User Service a
+                           PATCH, "Request the modification of an existing MBS User Service managed by
+                           the MBSF.", and table 6.1.3.3.3.3-3 gives the response as MBSUserService
+                           with 200 OK. Review on 5G-MAG/rt-mbs-function#49 lists it among the methods
+                           that resource serves. */
+                        if (!ptr_resource1) {
+                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_METHOD_NOT_ALLOWED, 1,
+                                                                    message, app_meta, api, "Method Not Allowed",
+                                                                    "PATCH is not served on the MBS User Services collection",
+                                                                    std::nullopt, std::nullopt, std::nullopt,
+                                                                    user_service_allow_methods(message)));
+                            return true;
+                        }
+
+                        /* TS 29.580 V18.8.0 clause 6.1.2.2 requires the merge patch media type, and
+                           TS 29.500 V18.10.0 answers a content format it does not support with 415. */
+                        /* A body in a coding this NF cannot decode is refused before it is read, so the
+                           encoded octets never reach the JSON parser and get blamed on the document. */
+                        if (NfServer::refuseUnsupportedContentCoding(request, stream, 3, message, app_meta, api)) return true;
+                        /* Answers 415 naming the patch document this NF applies, which clause
+                           5.2.7.2 requires on this refusal. */
+                        if (NfServer::refuseUnsupportedPatchDocument(request, stream, 3, message, app_meta, api)) return true;
+
+                        std::string user_service_id(ptr_resource1);
+                        try {
+                            std::shared_ptr<UserService> user_service = UserService::find(user_service_id);
+
+                            if (evaluatePreconditions(request.headerValue("If-Match", std::string()),
+                                                      request.headerValue("If-None-Match", std::string()),
+                                                      user_service->hash(), false) != Precondition::Proceed) {
+                                ogs_assert(true == NfServer::sendError(stream,
+                                                        OGS_SBI_HTTP_STATUS_PRECONDITION_FAILED, 1, message,
+                                                        app_meta, api, "Precondition Failed",
+                                                        "The entity-tag condition on this request does not hold"));
+                                return true;
+                            }
+
+                            bool was_requiring_ann = user_service->requiresUserServiceAnnouncement();
+                            CJson patch_json(CJson::parse(request.content()));
+                            user_service->modify(patch_json, true);
+                            bool now_requiring_ann = user_service->requiresUserServiceAnnouncement();
+                            App::self().context()->updateAnnChannelCounter(now_requiring_ann, was_requiring_ann);
+
+                            CJson user_service_json(user_service->json(false));
+                            std::string body(user_service_json.serialise());
+                            std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(std::string(request.uri()),
+                                                    body.empty()?nullptr:"application/json",
+                                                    user_service->generated(), user_service->hash().c_str(),
+                                                    App::self().context()->cacheControl.MBSUserServiceMaxAge,
+                                                    std::nullopt, api, app_meta));
+                            ogs_assert(response);
+                            NfServer::populateResponse(response, body, 200);
+                            ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *response));
+                        } catch (const std::out_of_range &e) {
+                            std::ostringstream err;
+                            err << "MBS User Service [" << user_service_id << "] does not exist.";
+                            ogs_error("%s", err.str().c_str());
+                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_NOT_FOUND, 2, message,
+                                                                    app_meta, api, "MBSF User Service not found", err.str()));
+                        } catch (ModelException &ex) {
+                            if (ex.cause) {
+                                ogs_assert(true == NfServer::sendError(stream, ex.cause.value(), 2, message, app_meta,
+                                                api, "Unable to apply the MBS User Service patch", ex.what()));
+                            } else {
+                                ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 2,
+                                                message, app_meta, api,
+                                                "Unable to apply the MBS User Service patch", ex.what()));
+                            }
+                        }
+                        return true;
+
                     } else if (method == OGS_SBI_HTTP_METHOD_DELETE) {
+                        if (!message.resourceComponent(1)) {
+                            /* DELETE names the collection, which does not serve it. Answered 404
+                               before, which says the resource does not exist; it does, and only the
+                               method is wrong. Review on 5G-MAG/rt-mbs-function#49: “A GET, PUT, PATCH
+                               or DELETE to "/mbs-user-services" should also result in a 405 Method Not
+                               Allowed response.” */
+                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_METHOD_NOT_ALLOWED, 1,
+                                                                    message, app_meta, api, "Method Not Allowed",
+                                                                    "DELETE is not served on the MBS User Services collection",
+                                                                    std::nullopt, std::nullopt, std::nullopt,
+                                                                    user_service_allow_methods(message)));
+                            return true;
+                        }
                         if (message.resourceComponent(1) && !message.resourceComponent(2)) {
                             std::string user_service_id(message.resourceComponent(1));
 
@@ -460,22 +890,40 @@ bool UserService::processEvent(Open5GSEvent &event)
                             }
                             return true;
                         }
+                        // A malformed DELETE path, missing {mbsUserServId} or carrying an extra segment, names no
+                        // resource. TS 29.500 V18.10.0 clause 5.2.7.2: “If the specified target resource does not exist, the NF shall reject the HTTP method with the HTTP status code "404 Not Found".”
+                        // Without this fallback such a request falls through the whole if/else chain with no response
+                        // sent at all.
+                        {
+                            std::ostringstream err;
+                            err << "Invalid resource [" << message.uri() << "]";
+                            ogs_error("%s", err.str().c_str());
+                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_NOT_FOUND, 1, message,
+                                                                    app_meta, api, "Not Found", err.str()));
+                        }
+                        return true;
                     } else {
                         std::ostringstream err;
 
                         err << "Invalid method [" << message.method() << "] for " << message.serviceName() << "/"
                                 << message.apiVersion() << "/" << message.resourceComponent(0);
                         ogs_error("%s", err.str().c_str());
-                        ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 1, message,
-                                                                app_meta, api, "Bad request", err.str()));
+                        // The resource exists, this method is not one it serves. TS 29.500 V18.10.0 clause 5.2.7.2:
+                        // “If the NF supports the HTTP method for several resources in the API, but not for the target resource of a given HTTP request, the NF shall reject the request with the HTTP status code "405 Method Not Allowed" and shall include in the response an Allow header field containing the supported method(s) for that resource.”
+                        ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_METHOD_NOT_ALLOWED, 1, message,
+                                                                app_meta, api, "Method Not Allowed", err.str(),
+                                                                std::nullopt, std::nullopt, std::nullopt,
+                                                                user_service_allow_methods(message)));
                         return true;
                     }
                 } else {
+                    // An unrecognised first path component names no resource in this API, which clause 5.2.7.2 of
+                    // TS 29.500 answers 404 rather than 400; see the quotation at the DELETE fallback below.
                     std::ostringstream err;
                     err << "Unknown object type \"" << message.resourceComponent(0) << "\" in MBSF Distribution Session";
                     ogs_error("%s", err.str().c_str());
-                    ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 1, message, app_meta,
-                                                            api, "Bad request", err.str()));
+                    ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_NOT_FOUND, 1, message, app_meta,
+                                                            api, "Not Found", err.str()));
                     return true;
                 }
             } else {
@@ -592,6 +1040,17 @@ const std::shared_ptr<UserDataIngSession> &UserService::findUserDataIngSession(c
     return null_udis;
 }
 
+std::vector<std::shared_ptr<UserDataIngSession>> UserService::userDataIngSessions() const
+{
+    std::lock_guard<std::recursive_mutex> lock(*m_userDataIngSessMutex);
+    std::vector<std::shared_ptr<UserDataIngSession>> result;
+    result.reserve(m_userDataIngSessions.size());
+    for (const auto &[id, session] : m_userDataIngSessions) {
+        result.push_back(session);
+    }
+    return result;
+}
+
 bool UserService::isServiceAnnModePassedBack()
 {
     //std::list<std::optional<std::shared_ptr< ServiceAnnouncementMode > >
@@ -644,6 +1103,30 @@ bool UserService::requiresUserServiceAnnouncement()
         if (!service_ann_mode.has_value()) continue;
         if (service_ann_mode.value()->getValue() == reftools::mbsf::ServiceAnnouncementMode::VAL_VIA_MBS_DISTRIBUTION_SESSION) {
             return true;
+        }
+    }
+    return false;
+}
+
+bool UserService::requiresUserServiceAnnouncementBundle()
+{
+    if(!m_MBSUserService) return false;
+    const reftools::mbsf::MBSUserService::ServAnnModesType &service_ann_modes =  m_MBSUserService->getServAnnModes();
+    for( const auto &service_ann_mode : service_ann_modes) {
+        if (!service_ann_mode.has_value()) continue;
+        switch (service_ann_mode.value()->getValue()) {
+        case reftools::mbsf::ServiceAnnouncementMode::VAL_VIA_MBS_5:
+        case reftools::mbsf::ServiceAnnouncementMode::VAL_VIA_MBS_DISTRIBUTION_SESSION:
+            return true;
+        // PASSED_BACK deliberately excluded: UserDataIngSession::sendNmbsfMbsUserDataIngestResponse()
+        // already has its own, separate, unconditional mechanism for it
+        // (userServiceAnnouncement(), gated on isServiceAnnModePassedBack() directly, operating on
+        // the in-memory UserServiceDescription with no dependency on this bundle). Including it here
+        // would additionally build an on-disk UserServiceAnnBundle nothing then serves, since MBS-5
+        // discovery (TS 26.517 V18.6.0 cl.9.2.1) is specific to services using VIA_MBS_5.
+        case reftools::mbsf::ServiceAnnouncementMode::VAL_PASSED_BACK:
+        default:
+            break;
         }
     }
     return false;

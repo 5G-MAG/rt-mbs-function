@@ -29,6 +29,7 @@
 #include "Nmb2Handler.hh"
 #include "Open5GSEvent.hh"
 #include "Open5GSFSM.hh"
+#include "NfServer.hh"
 #include "Open5GSSBIServer.hh"
 #include "Open5GSSBIStream.hh"
 #include "UserService.hh"
@@ -94,16 +95,50 @@ void MBSFEventHandler::dispatch(Open5GSFSM &fsm, Open5GSEvent &event)
                     break;
                 }
                 std::string resource(message.resourceComponent(0));
-                message.parseRequest(request);
                 if (resource == OGS_SBI_RESOURCE_NAME_NF_STATUS_NOTIFY) {
                     std::string method(message.method());
                     if (method == OGS_SBI_HTTP_METHOD_POST) {
+                        /* Parsed here rather than before the resource and method are known, so a
+                           request this callback does not serve is answered on its own terms instead
+                           of on whatever its body happens to contain.
+
+                           parseRequest() throws when the body does not satisfy the schema, and an
+                           NRF is free to send one that does not. TS 29.500 V18.10.0 clause 5.2.7.2:
+                           “If a received HTTP request contains IEs or query parameters not compliant
+                           with the schema defined in the corresponding OpenAPI specification, the NF
+                           should reject the request with the appropriate error code, e.g. "400 Bad
+                           Request (INVALID_MSG_FORMAT)", even when the failed IEs are defined as
+                           optional by the schema.” */
+                        try {
+                            message.parseRequest(request);
+                        } catch (std::exception &ex) {
+                            ogs_error("ogs_sbi_parse_request() failed on NRF status notification");
+                            ogs_assert(true == Open5GSSBIServer::sendError(
+                                            stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, message,
+                                            "Bad Request", "Cannot parse NF status notification body",
+                                            ProblemCause::INVALID_MSG_FORMAT.cause().c_str()));
+                            break;
+                        }
                         ogs_nnrf_nfm_handle_nf_status_notify(stream.ogsSBIStream(), message.ogsSBIMessage());
                     } else {
                         ogs_error("Invalid HTTP method [%s]", method.c_str());
-                        ogs_assert(true == Open5GSSBIServer::sendError(stream,
-                                        OGS_SBI_HTTP_STATUS_METHOD_NOT_ALLOWED, message,
-                                        "Method Not Allowed", "Invalid HTTP method in NRF status notification", nullptr));
+                        /* Answered through NfServer so the response carries the Allow header, which
+                           Open5GSSBIServer::sendError cannot add: it hands the response to
+                           ogs_sbi_server_send_error(), which builds and sends it internally.
+
+                           TS 29.500 V18.10.0 clause 5.2.7.2: “If the NF supports the HTTP method for
+                           several resources in the API, but not for the target resource of a given HTTP
+                           request, the NF shall reject the request with the HTTP status code "405 Method
+                           Not Allowed" and shall include in the response an Allow header field
+                           containing the supported method(s) for that resource.”
+
+                           This resource is the NRF's status notification callback, which serves POST
+                           and nothing else. */
+                        ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_METHOD_NOT_ALLOWED, 0,
+                                        message, App::self().mbsfAppMetadata(), std::nullopt,
+                                        "Method Not Allowed", "Invalid HTTP method in NRF status notification",
+                                        std::nullopt, std::nullopt, std::nullopt,
+                                        std::string(OGS_SBI_HTTP_METHOD_POST)));
                     }
                 } else {
                     ogs_error("Invalid resource name [%s]", resource.c_str());
@@ -147,11 +182,10 @@ void MBSFEventHandler::dispatch(Open5GSFSM &fsm, Open5GSEvent &event)
                     ogs_assert(sbi_xact_id >= OGS_MIN_POOL_ID && sbi_xact_id <= OGS_MAX_POOL_ID);
 
                     sbi_xact = ogs_sbi_xact_find_by_id(sbi_xact_id);
-                    ogs_assert(sbi_xact);
                     if (!sbi_xact) {
                           /* CLIENT_WAIT timer could remove SBI transaction
                            * before receiving SBI message */
-                          ogs_error("SBI transaction has already been removed");
+                          ogs_error("SBI transaction has already been removed [%d]", sbi_xact_id);
                           break;
                     }
                     std::string method(message.method());
@@ -224,8 +258,13 @@ void MBSFEventHandler::dispatch(Open5GSFSM &fsm, Open5GSEvent &event)
                     ogs_error("Invalid resource name [%s]", resource.c_str());
                 }
             } else {
+                // This generic SBI-client dispatch branch has cases only for OGS_SBI_SERVICE_NAME_NNRF_NFM and
+                // NNRF_DISC (see the enclosing if/else chain), but MBSF legitimately calls other services and so
+                // receives their responses here too: "nmbsmf-mbssession", MB-SMF's own session service, arrives
+                // on Broadcast Context Create and Release. An unexpected service name is therefore logged and
+                // ignored, matching the "Invalid resource name" and "Invalid HTTP method" cases just above,
+                // rather than reaching ogs_assert_if_reached() and taking the process down.
                 ogs_error("Invalid service name [%s]", service_name.c_str());
-                ogs_assert_if_reached();
             }
         }
         break;
@@ -279,10 +318,33 @@ void MBSFEventHandler::dispatch(Open5GSFSM &fsm, Open5GSEvent &event)
                     ogs_assert(sbi_xact_id >= OGS_MIN_POOL_ID && sbi_xact_id <= OGS_MAX_POOL_ID);
 
                     sbi_xact = ogs_sbi_xact_find_by_id(sbi_xact_id);
-                    ogs_assert(sbi_xact);
                     if (!sbi_xact) {
-                          ogs_error("SBI transaction has already been removed");
+                          /* A response and this timer's expiry can be queued in the same poll, and
+                             the response frees the transaction before the expiry is handled. The
+                             lookup is what tells the two apart; see the AMF's own account of it at
+                             subprojects/open5gs/src/amf/amf-sm.c:771. */
+                          ogs_error("SBI transaction has already been removed [%d]", sbi_xact_id);
                           break;
+                    }
+
+                    /* An Nmb2 create that never gets an answer is the MBSF failing to establish the
+                       Distribution Session at the MBSTF just as much as a rejected one is. The call
+                       filters on the transaction's own request, so transactions for anything else
+                       pass through it untouched. */
+                    UserDataIngSession::registerDistSessionEstFailure(sbi_xact,
+                            "MBSTF did not answer the MBS Distribution Session creation");
+
+                    /* A consumer DELETE waits on a stream this transaction does not name:
+                       assoc_stream_id still carries the stream the Distribution Session was
+                       created on, closed long before any delete, so the assoc_stream path below
+                       finds nothing and, until this call, returned having answered nobody. The
+                       consumer was then left holding a DELETE that no later event could complete,
+                       because the transaction it depended on had just been destroyed. */
+                    if (UserDataIngSession::failPendingDeleteRequests(sbi_xact, ProblemCause::UNSPECIFIED_NF_FAILURE,
+                                                                      "No response from the downstream NF")) {
+                        ogs_error("Cannot receive SBI message");
+                        UserDataIngSession::removeXact(sbi_xact);
+                        return;
                     }
 
                     ogs_sbi_stream_t *ogs_stream = reinterpret_cast<ogs_sbi_stream_t*>(ogs_sbi_stream_find_by_id(sbi_xact->assoc_stream_id));
@@ -295,8 +357,18 @@ void MBSFEventHandler::dispatch(Open5GSFSM &fsm, Open5GSEvent &event)
                     if (sbi_xact) UserDataIngSession::removeXact(sbi_xact);
                     ogs_error("Cannot receive SBI message");
                     if (stream) {
-                        ogs_assert(true == Open5GSSBIServer::sendError(stream, std::nullopt, ProblemCause::TIMED_OUT_REQUEST,
-                                                                      "Downstream response timed out"));
+                        /* This timer is the MBSF's own client wait timer, so what expired is the
+                           request the MBSF sent downstream, not the request it is answering.
+                           TIMED_OUT_REQUEST names the other situation: TS 29.500 V18.10.0
+                           table 5.2.7.2-1 defines it as "The request is rejected due a request that
+                           has timed out at the HTTP client (see clause 6.11.2)", clause 6.11.2 being
+                           the 3gpp-Sbi-Max-Rsp-Time mechanism by which a server learns that its own
+                           consumer has already given up. Nothing in that table covers a downstream
+                           peer that never answered -- INBOUND_SERVER_ERROR is scoped by clause
+                           6.4.2.1 to a 503 or 429 actually received -- which is the case its NOTE 3
+                           reserves UNSPECIFIED_NF_FAILURE for. */
+                        ogs_assert(true == Open5GSSBIServer::sendError(stream, std::nullopt, ProblemCause::UNSPECIFIED_NF_FAILURE,
+                                                                      "No response from the downstream NF"));
                     }
 
                 }

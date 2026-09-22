@@ -29,6 +29,7 @@
 
 #include "common.hh"
 #include "App.hh"
+#include "ConditionalRequest.hh"
 #include "hash.hh"
 #include "ObjManifest.hh"
 #include "Open5GSSBIMessage.hh"
@@ -70,6 +71,12 @@ static const NfServer::InterfaceMetadata g_nmbsf_userdataingstatsubsc_api_metada
 std::recursive_mutex UserDataIngStatSubsc::m_mutex;
 
 static bool check_for_user_data_ing_session_and_distributions_sessions( CJson &subsc);
+/* TS 29.500 V18.10.0 cl.5.2.7.2/table 5.2.7.1-1: 413 (Payload Too Large), mandatory for PATCH and
+ * POST; see UserService.cc's own copy of this helper for the full citation and the residual
+ * shared-framework gap it does not close. */
+static bool request_too_large(Open5GSSBIRequest &request, Open5GSSBIStream &stream, int path_segments,
+                              Open5GSSBIMessage &message, const NfServer::AppMetadata &app_meta,
+                              const std::optional<NfServer::InterfaceMetadata> &api);
 static int notify_client_callback(int status, ogs_sbi_response_t *response, void *data);
 static void send_model_error(const ModelException &err, Open5GSSBIStream &stream, int path_segments, Open5GSSBIMessage &message,
                              const NfServer::AppMetadata &app_meta, const std::optional<NfServer::InterfaceMetadata> &api,
@@ -344,13 +351,24 @@ void UserDataIngStatSubsc::checkAndSetUserDataIngSessStartedTerminatedEvent(std:
             event.reset(new Event());
             *event = Event::VAL_USER_DATA_ING_SESS_STARTED;
 
-            std::optional<SubscribedEvents::DateTime> tp = user_data_ing_session->timeOfLatestDistributionSessionEvent(SubscribedEvents::DIST_SESS_STARTING);
+            /* Stamped when the session was seen to be established, which is the moment this
+               branch is reached: checkIfAllMBSDistributionSessionsEstablished() above is what
+               makes it true.
 
-            if (tp.has_value()) {
-                stat_subsc->setSubscribedEventTime(event, tp.value());
-                user_data_ing_session->resetMBSDistributionSessionsEstablishedFlag();
-            }
-            //stat_subsc->setSubscribedEventTime(event, DateTime::clock::now());
+               It used to be stamped with the time of the latest DIST_SESS_STARTING among the
+               Distribution Sessions, which is when they began starting and so is earlier than the
+               Ingest Session's own STARTING event. A subscriber to both therefore read STARTED
+               about 15 ms before STARTING, which reverses what the two mean. TS 29.580 V18.8.0
+               table 6.2.6.3.4-1 gives USER_DATA_ING_SESS_STARTING as “Indicates that the MBS User
+               Data Ingest Session is starting.” and USER_DATA_ING_SESS_STARTED as “Indicates that
+               the MBS User Data Ingest Session established.”, so one cannot precede the other.
+
+               DIST_SESS_STARTED would be the event to take a time from, being the established one
+               rather than the starting one, but nothing records it: switching to it removed the
+               STARTED notification altogether, the timepoint being absent and the guard around it
+               suppressing the event. */
+            stat_subsc->setSubscribedEventTime(event, DateTime::clock::now());
+            user_data_ing_session->resetMBSDistributionSessionsEstablishedFlag();
         }
         if (user_data_ing_session_id == id && user_data_ing_session->checkIfAllMBSDistributionSessionsTerminated()) {
 
@@ -376,6 +394,26 @@ void UserDataIngStatSubsc::checkAndSetUserDataIngSessStartedTerminatedEvent(std:
     }
 }
 
+/* The events TS 29.580 V18.8.0 table 6.2.6.3.4-1 marks with the applicability MBSEventsExt.
+   TS 29.500 V18.10.0 clause 6.6.2: "Such attributes or enumerated values shall only be sent and such
+   procedures shall only be applied if the corresponding feature is supported." The MBS User Data
+   Ingest Status Subscription carries no suppFeat of its own (table 6.2.6.2.7-1), so the feature that
+   governs is the one negotiated for the Ingest Session the subscription names. */
+static bool event_needs_mbs_events_ext(const std::shared_ptr< Event > &status_event)
+{
+    if (!status_event) return false;
+    switch (status_event->getValue()) {
+    case Event::VAL_SESSION_STARTED:
+    case Event::VAL_SESSION_RELEASED:
+    case Event::VAL_DIST_SESS_ACTIVATED:
+    case Event::VAL_DIST_SESS_EST_FAILURE:
+    case Event::VAL_USER_SER_AD:
+        return true;
+    default:
+        return false;
+    }
+}
+
 std::list<std::shared_ptr< EventNotification > > UserDataIngStatSubsc::makeEventNotifications() const
 {
     std::list<std::shared_ptr< EventNotification > > result;
@@ -388,6 +426,8 @@ std::list<std::shared_ptr< EventNotification > > UserDataIngStatSubsc::makeEvent
             if (!subscribed_event) continue;
             std::shared_ptr<SubscribedEvent> subsc_event = *subscribed_event;
             if (!subsc_event) continue;
+            if (event_needs_mbs_events_ext(subsc_event->getStatusEvent()) &&
+                !user_data_ing_session->mbsEventsExtNegotiated()) continue;
             /*
             if (SubscribedEvents::isSubscribedEventNotificationStimulatedByMbsf(subsc_event->getStatusEvent()))
             {
@@ -425,7 +465,6 @@ std::list<std::shared_ptr< EventNotification > > UserDataIngStatSubsc::makeEvent
             std::shared_ptr< UserDataIngSession::ContextData > context_data = user_data_ing_session->getDistributionSessionInfoData(dist_session_id);
             /* get list of registered events from the DistributionSession in the User Data Ing Session */
             const auto &dist_sess_event_timestamps = context_data->distributionSessionInfo->eventTimestamps();
-
             if (dist_sess_event_timestamps.isUpdated(status_event, m_cache->lastReportedEventTimes)) {
                 const std::pair<std::optional<SubscribedEvents::DateTime>, std::optional<std::string>> &time_point = dist_sess_event_timestamps.timepointForSubscribedEvent(subsc_event->getStatusEvent());
                 if (!time_point.first.has_value()) continue;
@@ -435,7 +474,11 @@ std::list<std::shared_ptr< EventNotification > > UserDataIngStatSubsc::makeEvent
                     *p = time_point;
                 }
                 const std::string &time_stamp = time_point_to_iso8601_utc_str(time_point.first.value());
-                std::shared_ptr< EventNotification > event_notification = makeEventNotification(status_event, time_stamp, dist_session_id, std::nullopt);
+                /* TS 29.580 V18.8.0 table 6.2.6.2.10-1, row statusAddInfo: "Represents additional
+                   information on the reported MBS User Data Ingest Session Status event within the
+                   "statusEvent" attribute." It is recorded beside the timepoint, so it is reported
+                   with it; discarding it here loses whatever the event carried. */
+                std::shared_ptr< EventNotification > event_notification = makeEventNotification(status_event, time_stamp, dist_session_id, time_point.second);
                 result.push_back(std::move(event_notification));
             }
         }
@@ -443,6 +486,22 @@ std::list<std::shared_ptr< EventNotification > > UserDataIngStatSubsc::makeEvent
     }
     return result;
 
+}
+
+static bool request_too_large(Open5GSSBIRequest &request, Open5GSSBIStream &stream, int path_segments,
+                              Open5GSSBIMessage &message, const NfServer::AppMetadata &app_meta,
+                              const std::optional<NfServer::InterfaceMetadata> &api)
+{
+    const auto &max_size = App::self().context()->maxRequestBodySize;
+    if (!max_size || request.contentLength() <= *max_size) return false;
+
+    std::ostringstream err;
+    err << "Request body of " << request.contentLength() << " bytes exceeds the configured maximum of "
+        << *max_size << " bytes";
+    ogs_error("%s", err.str().c_str());
+    ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_PAYLOAD_TOO_LARGE, path_segments, message,
+                                            app_meta, api, "Payload Too Large", err.str()));
+    return true;
 }
 
 static bool check_for_user_data_ing_session_and_distributions_sessions(CJson &subsc)
@@ -585,9 +644,60 @@ bool UserDataIngStatSubsc::processEvent(Open5GSEvent &event)
                             return true;
                         }
                         if (method == OGS_SBI_HTTP_METHOD_GET) {
+                            /* TS 29.500 V18.10.0 table 5.2.7.1-1 marks 406 mandatory for GET. This response is always
+                               application/json, so a client whose Accept header cannot take that is answered 406 rather
+                               than sent a body it did not ask for. */
+                            std::optional<std::string> accept_hdr;
+                            if (message.accept()) accept_hdr = message.accept();
+                            if (!NfServer::acceptsMediaType(accept_hdr, "application/json")) {
+                                ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_NOT_ACCEPTABLE, 4, message,
+                                                                        app_meta, api, "Not Acceptable",
+                                                                        "This resource is only available as application/json"));
+                                return true;
+                            }
+                            /* This resource emits an entity-tag, so it honours the conditional request
+                               headers that tag invites. RFC 9110 section 13.1.2 requires a matching
+                               If-None-Match on a safe method to be answered 304. */
+                            switch (evaluatePreconditions(request.headerValue("If-Match", std::string()),
+                                                          request.headerValue("If-None-Match", std::string()),
+                                                          user_data_ing_stat_subsc->hash(), true)) {
+                            case Precondition::NotModified: {
+                                std::shared_ptr<Open5GSSBIResponse> nm(NfServer::newResponse(std::nullopt,
+                                                        std::nullopt, user_data_ing_stat_subsc->generated(),
+                                                        user_data_ing_stat_subsc->hash().c_str(),
+                                                        App::self().context()->cacheControl.MBSUserServiceMaxAge,
+                                                        std::nullopt, api, app_meta));
+                                ogs_assert(nm);
+                                NfServer::populateResponse(nm, "", 304); // open5gs defines no constant for 304
+                                ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *nm));
+                                return true;
+                            }
+                            case Precondition::PreconditionFailed:
+                                ogs_assert(true == NfServer::sendError(stream,
+                                                        OGS_SBI_HTTP_STATUS_PRECONDITION_FAILED, 4, message,
+                                                        app_meta, api, "Precondition Failed",
+                                                        "The If-Match entity-tag does not match this resource"));
+                                return true;
+                            case Precondition::Proceed:
+                                break;
+                            }
+
                              user_data_ing_stat_subsc->sendResponse(stream, api, app_meta);
                             return true;
                         } else if (method == OGS_SBI_HTTP_METHOD_PUT) {
+                            /* A failing If-Match must stop the update before it happens, so the
+                               precondition is evaluated here rather than inside subscriptionUpdate().
+                               RFC 9110 section 13.1.1. */
+                            if (evaluatePreconditions(request.headerValue("If-Match", std::string()),
+                                                      request.headerValue("If-None-Match", std::string()),
+                                                      user_data_ing_stat_subsc->hash(), false)
+                                    != Precondition::Proceed) {
+                                ogs_assert(true == NfServer::sendError(stream,
+                                                        OGS_SBI_HTTP_STATUS_PRECONDITION_FAILED, 4, message,
+                                                        app_meta, api, "Precondition Failed",
+                                                        "The entity-tag condition on this request does not hold"));
+                                return true;
+                            }
                                    user_data_ing_stat_subsc->subscriptionUpdate(stream, message, request, api, app_meta);
                             return true;
 
@@ -624,12 +734,16 @@ bool UserDataIngStatSubsc::processEvent(Open5GSEvent &event)
                             ogs_debug("POST response: status = %i", message.resStatus());
                             std::shared_ptr<UserDataIngStatSubsc> user_data_ing_stat_subsc = nullptr;
                             ogs_debug("Request body: %s", request.content());
+                            /* A body in a coding this NF cannot decode is refused before it is read, so the
+                               encoded octets never reach the JSON parser and get blamed on the document. */
+                            if (NfServer::refuseUnsupportedContentCoding(request, stream, 3, message, app_meta, api)) return true;
                             if (request.headerValue(OGS_SBI_CONTENT_TYPE, std::string()) != "application/json") {
                                 ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_UNSUPPORTED_MEDIA_TYPE,
                                                                    3, message, app_meta, api, "Unsupported Media Type",
                                                                    "Expected content type: application/json"));
                                 return true;
                             }
+                            if (request_too_large(request, stream, 3, message, app_meta, api)) return true;
                             CJson subsc(CJson::Null);
                             try {
                                 subsc = CJson::parse(request.content());
@@ -646,14 +760,30 @@ bool UserDataIngStatSubsc::processEvent(Open5GSEvent &event)
                                 ogs_debug("Request Parsed JSON: %s", txt.c_str());
                             }
 
-                            if (!check_for_user_data_ing_session_and_distributions_sessions(subsc)) {
-                                std::ostringstream err;
-                                err << "Invalid User Data Ing Session or Distribution session present in User Data Ingest Stat Subsc";
-                                ogs_error("%s", err.str().c_str());
-                                ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 3, message, app_meta,
-                                                            api, "Bad request", err.str()));
+                            /* This check parses the request body into the model before the guarded
+                               construction below does, so a malformed body threw ModelException from
+                               here, out of the SBI request handler, and terminated the process. The
+                               catch below could never see it: the throw happens first. Report it the
+                               same way the construction does, so one bad request is answered rather
+                               than fatal. */
+                            try {
+                                if (!check_for_user_data_ing_session_and_distributions_sessions(subsc)) {
+                                    std::ostringstream err;
+                                    err << "Invalid User Data Ing Session or Distribution session present in User Data Ingest Stat Subsc";
+                                    ogs_error("%s", err.str().c_str());
+                                    ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 3, message, app_meta,
+                                                                api, "Bad request", err.str()));
+                                    return true;
+                                }
+                            } catch (ModelException &ex) {
+                                if (ex.cause) {
+                                    ogs_assert(true == NfServer::sendError(stream, ex.cause.value(), 3, message, app_meta,
+                                                    api, "Mandatory information element missing", ex.what(), std::nullopt, std::nullopt));
+                                } else {
+                                    ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 3, message,
+                                                    app_meta, api, "Mandatory information element missing", ex.what(), std::nullopt, std::nullopt));
+                                }
                                 return true;
-
                             }
 
                             try {
@@ -680,9 +810,20 @@ bool UserDataIngStatSubsc::processEvent(Open5GSEvent &event)
                             CJson user_data_ing_stat_subsc_json(user_data_ing_stat_subsc->json(false));
                             std::string body(user_data_ing_stat_subsc_json.serialise());
                             ogs_debug("Response Parsed JSON: %s", body.c_str());
-                            std::ostringstream location;
-                            location << request.uri() << "/" << user_data_ing_stat_subsc->subscriptionId();
-                            std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(location.str(),
+                            /* The absolute URI of the created resource, not a path: a consumer
+                               behind an SCP takes the apiRoot from this header. Same helper as the
+                               other two creates. */
+                            std::string location(NfServer::resourceUri(stream, message,
+                                                    {std::string(message.resourceComponent(0)),
+                                                     user_data_ing_stat_subsc->subscriptionId()}));
+                            if (location.empty()) {
+                                std::ostringstream fallback;
+                                fallback << request.uri() << "/" << user_data_ing_stat_subsc->subscriptionId();
+                                location = fallback.str();
+                                ogs_warn("Could not determine this server's own URI; the Location "
+                                         "header carries a path with no apiRoot");
+                            }
+                            std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(location,
                                 body.empty()?nullptr:"application/json",
                                 user_data_ing_stat_subsc->generated(),
                                 user_data_ing_stat_subsc->hash().c_str(),
@@ -693,8 +834,41 @@ bool UserDataIngStatSubsc::processEvent(Open5GSEvent &event)
                                 ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *response));
 
                             return true;
+                        } else if (method == OGS_SBI_HTTP_METHOD_GET) {
+                            /* TS 29.500 V18.10.0 table 5.2.7.1-1 marks 406 mandatory for GET. This response is always
+                               application/json, so a client whose Accept header cannot take that is answered 406 rather
+                               than sent a body it did not ask for, as the individual resource's GET above already does. */
+                            std::optional<std::string> accept_hdr;
+                            if (message.accept()) accept_hdr = message.accept();
+                            if (!NfServer::acceptsMediaType(accept_hdr, "application/json")) {
+                                ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_NOT_ACCEPTABLE, 1, message,
+                                                                        app_meta, api, "Not Acceptable",
+                                                                        "This resource is only available as application/json"));
+                                return true;
+                            }
+                            /* TS 29.580 V18.8.0 clause 6.2.3.4.3.1: “The GET method allows an NF service consumer (e.g. AF, NEF) to retrieve all the active MBS User Data Ingest Session Status Subscriptions managed by the MBSF.”
+
+                               Table 6.2.3.4.3.1-3 gives the 200 response body as
+                               array(MBSUserDataIngStatSubsc) with cardinality 0..N, so an empty array
+                               answers an empty collection. No headers table is defined for the 200,
+                               so no entity-tag is sent. */
+                            CJson stat_subscs(CJson::newArray());
+                            for (const auto &entry : App::self().context()->userDataIngStatSubscs()) {
+                                if (!entry.second) continue;
+                                stat_subscs.append(entry.second->json(false));
+                            }
+                            std::string body(stat_subscs.serialise());
+                            ogs_debug("MBS User Data Ingest Session Status Subscriptions collection: %s", body.c_str());
+                            std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(std::nullopt,
+                                                    "application/json", std::nullopt, std::nullopt,
+                                                    App::self().context()->cacheControl.MBSUserServiceMaxAge,
+                                                    std::nullopt, api, app_meta));
+                            ogs_assert(response);
+                            NfServer::populateResponse(response, body, OGS_SBI_HTTP_STATUS_OK);
+                            ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *response));
+                            return true;
                         } else if (method == OGS_SBI_HTTP_METHOD_OPTIONS) {
-                            std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(std::nullopt, std::nullopt, std::nullopt, std::nullopt, 0, OGS_SBI_HTTP_METHOD_POST ", " OGS_SBI_HTTP_METHOD_OPTIONS, api, app_meta));
+                            std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(std::nullopt, std::nullopt, std::nullopt, std::nullopt, 0, OGS_SBI_HTTP_METHOD_GET ", " OGS_SBI_HTTP_METHOD_POST ", " OGS_SBI_HTTP_METHOD_OPTIONS, api, app_meta));
                             NfServer::populateResponse(response, "", OGS_SBI_HTTP_STATUS_NO_CONTENT);
                             ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *response));
                             return true;
@@ -705,8 +879,18 @@ bool UserDataIngStatSubsc::processEvent(Open5GSEvent &event)
                             err << "Invalid method [" << message.method() << "] for " << message.serviceName() << "/"
                                 << message.apiVersion() << "/" << message.resourceComponent(0);
                             ogs_error("%s", err.str().c_str());
-                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 1, message,
-                                                                app_meta, api, "Bad request", err.str()));
+                            /* The collection exists and only the method is wrong, so this is 405 with
+                               what it does serve, not 400.
+
+                               TS 29.500 V18.10.0 clause 5.2.7.2: “If the NF supports the HTTP method
+                               for several resources in the API, but not for the target resource of a
+                               given HTTP request, the NF shall reject the request with the HTTP status
+                               code "405 Method Not Allowed" and shall include in the response an Allow
+                               header field containing the supported method(s) for that resource.” */
+                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_METHOD_NOT_ALLOWED, 1,
+                                                                message, app_meta, api, "Method Not Allowed", err.str(),
+                                                                std::nullopt, std::nullopt, std::nullopt,
+                                                                std::string(OGS_SBI_HTTP_METHOD_GET ", " OGS_SBI_HTTP_METHOD_POST ", " OGS_SBI_HTTP_METHOD_OPTIONS)));
                             return true;
                         }
                     }
@@ -778,15 +962,28 @@ bool UserDataIngStatSubsc::processEvent(Open5GSEvent &event)
 
                 }
 
-                if (user_data_ing_session_id == id && stat_subsc->checkForUserServiceAnn()) {
-                    if (user_data_ing_session.userSerAdNotificationSent()) break;
+                /* Every subscription on this Ingest Session gets the pass, not only one naming the
+                   two events handled specially here. Those two need a timestamp set first, which is
+                   what their blocks do; the rest are already recorded and only need reporting.
+                   Without this a subscription naming MBS Distribution Session level events alone is
+                   never reported against by this handler, including the pass driven when the
+                   subscription itself is created, and stays silent until some unrelated event
+                   happens to drive one. sendNotifications() sends nothing when nothing changed, so
+                   the call above and this one do not duplicate. */
+                if (user_data_ing_session_id == id) stat_subsc->sendNotifications();
+
+                /* Per subscription, not per Ingest Session, and continue rather than break: the
+                   announcement is owed to every consumer that subscribed to it, and one
+                   subscription having had it is no reason to stop walking the others. */
+                if (user_data_ing_session_id == id && stat_subsc->checkForUserServiceAnn()
+                        && !stat_subsc->userSerAdReported()) {
                     user_data_ing_session.forEachObjectLocator([&stat_subsc](const std::string &object_locator){
                         std::shared_ptr<Event> event(new Event());
                         *event = Event::VAL_USER_SER_AD;
                         stat_subsc->setSubscribedEventTime(event, DateTime::clock::now(), object_locator);
                         stat_subsc->sendNotifications();
                     });
-                    user_data_ing_session.userSerAdNotificationSent(true);
+                    stat_subsc->userSerAdReported(true);
                 }
             }
 
@@ -824,9 +1021,18 @@ bool UserDataIngStatSubsc::processClientResponse(const Open5GSEvent &event)
         if (looks_like_pointer) {
             RequestData *req_data = reinterpret_cast<RequestData*>(const_cast<void*>(raw));
             if (req_data && req_data->subscription == this) {
-                if (event.sbiState() == OGS_OK) {
+                // The peer's HTTP status decides whether the notification was accepted: a 4xx or 5xx from the
+                // notification receiver is a failure, not a success. One bounded retry follows, guarded by
+                // m_cache->notifyRetried so a persistently failing peer gets exactly one extra attempt rather
+                // than an unbounded loop. A full retry queue would be more than this needs.
+                bool notify_failed = (event.sbiState() != OGS_OK);
+                if (!notify_failed) {
                     auto resp = event.sbiResponse(true);
                     ogs_debug("Got %i response from notification(s) to %s", resp.status(), req_data->request->uri());
+                    if (resp.status() < 200 || resp.status() >= 300) {
+                        ogs_warn("Notification to %s rejected with HTTP status %i", req_data->request->uri(), resp.status());
+                        notify_failed = true;
+                    }
                 } else {
                     ogs_debug("Problem sending notification(s) to %s", req_data->request->uri());
                 }
@@ -834,6 +1040,17 @@ bool UserDataIngStatSubsc::processClientResponse(const Open5GSEvent &event)
                 req_data->request->setOwner(true);
                 req_data->request.reset();
                 delete req_data;
+
+                if (m_cache) {
+                    if (!notify_failed) {
+                        // Successful notification -- a future failure gets its own fresh retry.
+                        m_cache->notifyRetried = false;
+                    } else if (!m_cache->notifyRetried) {
+                        m_cache->notifyRetried = true;
+                        ogs_warn("UserDataIngStatSubsc[%p]: retrying failed notification once", this);
+                        sendNotifications();
+                    }
+                }
 
                 return true;
             }
@@ -995,11 +1212,25 @@ void UserDataIngStatSubsc::subscriptionPatch(Open5GSSBIStream &stream, Open5GSSB
                                const NfServer::AppMetadata &app_meta)
 {
 
-    if (request.headerValue(OGS_SBI_CONTENT_TYPE, std::string()) != "application/merge-patch+json") {
-        ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_UNSUPPORTED_MEDIA_TYPE,
-                                1, message, app_meta, api, "Unsupported Media Type", "Expected content type: application/merge-patch+json"));
+    /* Same obligation the PUT branch already checks, before the body is read for the same reason:
+       RFC 9110 section 13.1.1 applies to PATCH as much as to PUT. */
+    if (evaluatePreconditions(request.headerValue("If-Match", std::string()),
+                              request.headerValue("If-None-Match", std::string()),
+                              hash(), false)
+            != Precondition::Proceed) {
+        ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_PRECONDITION_FAILED,
+                                               1, message, app_meta, api, "Precondition Failed",
+                                               "The entity-tag condition on this request does not hold"));
         return;
     }
+
+    /* A body in a coding this NF cannot decode is refused before it is read, so the
+       encoded octets never reach the JSON parser and get blamed on the document. */
+    if (NfServer::refuseUnsupportedContentCoding(request, stream, 3, message, app_meta, api)) return;
+    /* Answers 415 naming the patch document this NF applies, which TS 29.500 V18.10.0
+       clause 5.2.7.2 requires on this refusal. */
+    if (NfServer::refuseUnsupportedPatchDocument(request, stream, 4, message, app_meta, api)) return;
+    if (request_too_large(request, stream, 1, message, app_meta, api)) return;
 
     CJson req_json(CJson::Null);
     try {

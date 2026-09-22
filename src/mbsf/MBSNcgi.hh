@@ -65,6 +65,10 @@ public:
     uint64_t nrCellId();
     mb_smf_sc_ncgi_t *populateNcgi();
 
+    // The reverse of populateNcgi(): build an Ncgi model from what the mb-smf-service-consumer
+    // library parsed out of an MB-SMF response.
+    static std::shared_ptr<reftools::mbsf::Ncgi> fromNcgi(const mb_smf_sc_ncgi_t *ncgi);
+
 private:
     std::shared_ptr<reftools::mbsf::Ncgi> m_ncgi;
 

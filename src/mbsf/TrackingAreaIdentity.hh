@@ -65,6 +65,10 @@ public:
     uint64_t *nid();
     mb_smf_sc_tai_t *populateTai();
 
+    // The reverse of populateTai(): build a Tai model from what the mb-smf-service-consumer
+    // library parsed out of an MB-SMF response.
+    static std::shared_ptr<reftools::mbsf::Tai> fromTai(const mb_smf_sc_tai_t *tai);
+
 private:
     std::shared_ptr<reftools::mbsf::Tai> m_tai;
 

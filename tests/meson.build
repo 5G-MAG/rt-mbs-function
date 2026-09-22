@@ -20,3 +20,75 @@ libuuid_dep=dependency('uuid', required:true)
 
 #test_http_server = executable('test_http_server', 'test_http_server.cc', dependencies : [libhttpxpp_dep], install:false)
 #test('test_http_server', test_http_server, verbose: true, timeout: 600, protocol: 'exitcode')
+
+# MBSMFMBSSession::setTmgi() AF-supplied-TMGI passthrough, see the test's own file comment.
+test_mbsmf_tmgi_exe = executable('test_mbsmf_tmgi', 'test_mbsmf_tmgi.cc',
+    include_directories : [libmbsf_libinc, libinc],
+    dependencies : [libmbsf_dep],
+    install : false)
+test('test_mbsmf_tmgi', test_mbsmf_tmgi_exe, suite: 'unit',
+     args: ['-c'] + files('test_mbsmf_tmgi.yaml'), timeout: 60, protocol: 'exitcode')
+
+# MultipartMime's own body assembly (RFC 2045/2387/2557 boundary, ordering, filename/Content-
+# Location escaping), see the test's own file comment.
+test_multipart_mime_exe = executable('test_multipart_mime', 'test_multipart_mime.cc',
+    include_directories : [libmbsf_libinc, libinc],
+    dependencies : [libmbsf_dep],
+    install : false)
+test('test_multipart_mime', test_multipart_mime_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')
+
+# ServiceArea::fromServiceArea() and MBSMFMBSSession::getReducedServiceArea(), the direction that
+# reads an MBS Service Area back out of the mb-smf-service-consumer types, see the test's own
+# file comment.
+test_service_area_from_exe = executable('test_service_area_from', 'test_service_area_from.cc',
+    include_directories : [libmbsf_libinc, libinc],
+    dependencies : [libmbsf_dep],
+    install : false)
+test('test_service_area_from', test_service_area_from_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')
+
+# UserServiceAnnBundle::sdpBandwidthBitRate(), the transport-overhead adjustment the SDP bandwidth
+# line needs, see the test's own file comment.
+test_sdp_bandwidth_exe = executable('test_sdp_bandwidth', 'test_sdp_bandwidth.cc',
+    include_directories : [libmbsf_libinc, libinc],
+    dependencies : [libmbsf_dep],
+    install : false)
+test('test_sdp_bandwidth', test_sdp_bandwidth_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')
+
+# NfServer::acceptsMediaType(), the Accept header matching behind the 406 answer, see the test's own
+# file comment.
+test_accepts_media_type_exe = executable('test_accepts_media_type', 'test_accepts_media_type.cc',
+    include_directories : [libmbsf_libinc, libinc],
+    dependencies : [libmbsf_dep],
+    install : false)
+test('test_accepts_media_type', test_accepts_media_type_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')
+
+# UserService::route(), the path decision made before any method branch runs, see the test's own
+# file comment.
+test_user_service_route_exe = executable('test_user_service_route', 'test_user_service_route.cc',
+    include_directories : [libmbsf_libinc, libinc],
+    dependencies : [libmbsf_dep],
+    install : false)
+test('test_user_service_route', test_user_service_route_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')
+
+# servTypeViolations(), which attributes and which identifier type each MBS service type permits,
+# see the test's own file comment.
+test_serv_type_attribute_rules_exe = executable('test_serv_type_attribute_rules', 'test_serv_type_attribute_rules.cc',
+    include_directories : [libmbsf_libinc, libinc],
+    dependencies : [libmbsf_dep],
+    install : false)
+test('test_serv_type_attribute_rules', test_serv_type_attribute_rules_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')
+
+# UserServiceAnnBundle::announcedAttributes(), which session description attributes each
+# distribution method announces, see the test's own file comment.
+test_sdp_announced_attributes_exe = executable('test_sdp_announced_attributes', 'test_sdp_announced_attributes.cc',
+    include_directories : [libmbsf_libinc, libinc],
+    dependencies : [libmbsf_dep],
+    install : false)
+test('test_sdp_announced_attributes', test_sdp_announced_attributes_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')
+
+# evaluatePreconditions(), If-Match and If-None-Match handling, see the test's own file comment.
+test_conditional_request_exe = executable('test_conditional_request', 'test_conditional_request.cc',
+    include_directories : [libmbsf_libinc, libinc],
+    dependencies : [libmbsf_dep],
+    install : false)
+test('test_conditional_request', test_conditional_request_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')
