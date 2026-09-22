@@ -2089,6 +2089,15 @@ bool UserDataIngSession::processDistSession(const std::shared_ptr<DistSession> &
     // MBSDistributionSessionInfo.objDistrInfo.objIngUri for return to the caller.
     context_data->receivedMBSTFResponse = true;
     context_data->distSession = dist_session;
+    const auto &dist_sess_obj_data = dist_session->getObjDistributionData();
+    if (dist_sess_obj_data && *dist_sess_obj_data.value()->getObjAcquisitionMethod() == ObjAcquisitionMethod::VAL_PUSH) {
+        // This is an object PUSH method so copy objIngestBaseUrl to MBSDistributionSessionInfo.objDistrInfo.objIngUri
+        const auto &mbs_dist_sess_info = context_data->info;
+        const auto &obj_distr_info = mbs_dist_sess_info->getObjDistrInfo();
+        if (obj_distr_info) {
+            obj_distr_info.value()->setObjIngUri(dist_sess_obj_data.value()->getObjIngestBaseUrl());
+        }
+    }
 
     /* TS 26.502 V18.6.0 table 4.6.2-1, row "Distribution Session established": "The MBS Distribution
        Session is established." Its stimulating reference point column is empty, so the MBSF raises it
