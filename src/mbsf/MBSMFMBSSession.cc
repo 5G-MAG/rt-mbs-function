@@ -290,6 +290,10 @@ bool MBSMFMBSSession::processEvent(Open5GSEvent &MBSMFEvent)
                         // has been sent, so the bare call is reached only with no problem_details at all or an
                         // unregistered cause string.
                         bool cause_handled = false;
+                        ogs_debug("MB-SMF create failed: problem_details %s, cause [%s]",
+                                  mbsf_event->problem_details ? "present" : "absent",
+                                  (mbsf_event->problem_details && mbsf_event->problem_details->cause) ?
+                                      mbsf_event->problem_details->cause : "");
                         if (mbsf_event->problem_details) {
                             cJSON *problem = OpenAPI_problem_details_convertToJSON((OpenAPI_problem_details_t*)mbsf_event->problem_details);
                             CJson problem_detail(problem, true);
@@ -299,6 +303,24 @@ bool MBSMFMBSSession::processEvent(Open5GSEvent &MBSMFEvent)
                                 if (cause.has_value()) {
                                     UserDataIngSession::setMBSSessionFailureFlag(*ids, cause.value(), problem_detail);
                                     cause_handled = true;
+                                } else {
+                                    /* A cause with no Nmbsf equivalent: propagationTable maps it to nothing, or
+                                       does not list it. The cause itself is still withheld, as the table intends,
+                                       but the rest of the MB-SMF's account is kept. Falling through to the bare
+                                       call below discarded all of it, so the consumer got neither the MB-SMF's
+                                       status nor its detail, only a fallback text that prints internal pointer
+                                       addresses. */
+                                    OpenAPI_problem_details_t *without_cause =
+                                        OpenAPI_problem_details_copy(nullptr, mbsf_event->problem_details);
+                                    if (without_cause) {
+                                        ogs_free(without_cause->cause);
+                                        without_cause->cause = nullptr;
+                                        CJson detail_only(OpenAPI_problem_details_convertToJSON(without_cause), true);
+                                        OpenAPI_problem_details_free(without_cause);
+                                        UserDataIngSession::setMBSSessionFailureFlag(*ids, ProblemCause::INBOUND_SERVER_ERROR,
+                                                                                     detail_only);
+                                        cause_handled = true;
+                                    }
                                 }
                             } else {
                                 UserDataIngSession::setMBSSessionFailureFlag(*ids, ProblemCause::INBOUND_SERVER_ERROR, problem_detail);
