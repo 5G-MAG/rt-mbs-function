@@ -307,7 +307,10 @@ public:
     static std::shared_ptr<ContextData> getContextData(const std::shared_ptr<UserDataIngDistSessId> &ids);
 
     bool checkIfAllMBSSessionResponsesReceived();
-    void handleFailedMBSSession();
+    /** Decide the answer once every MB-SMF response for a request is in and at least one failed.
+     *  Returns true when the whole MBS User Data Ingest Session is to be rolled back by deleting it,
+     *  which the caller does, since it holds a reference that keeps this object alive meanwhile. */
+    bool handleFailedMBSSession();
 
     /** Whether the MBSErrorHandling feature was negotiated for this MBS User Data Ingest Session.
      *
@@ -334,6 +337,10 @@ public:
 
     /** Attach the recorded failures to the representation about to be returned, if any. */
     void attachFailedDistSessions();
+
+    /** Answer a request whose requested Distribution Sessions all failed with differing causes, as MBS
+     *  problem details carrying each session's cause instead of a single one. */
+    void sendDistSessionFailures(const std::shared_ptr<ContextData> &context_data);
 
     /** Attach the MBS Service Areas the MB-SMF reduced, for an update response.
      *
@@ -457,6 +464,9 @@ private:
        what TS 29.580 requires the failure map to be keyed by. Empty whenever the outcome was not
        mixed, since the all-failed case is still answered as an error. */
     std::map<std::string, std::shared_ptr< reftools::mbsf::MbsDistSessFailure > > m_failedDistSessions;
+    // Whether this session's create has been answered. Until it has, a failed MB-SMF outcome belongs
+    // to the create, which is undone by deleting the session; afterwards it belongs to an update.
+    bool m_createAnswered = false;
 
     std::list<ogs_pool_id_t> m_deleteRequests;
 

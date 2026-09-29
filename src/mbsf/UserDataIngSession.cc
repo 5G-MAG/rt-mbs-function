@@ -2453,6 +2453,7 @@ bool UserDataIngSession::sendNmbsfMbsUserDataIngestResponse(const std::shared_pt
         ogs_assert(response);
         NfServer::populateResponse(response, body, OGS_SBI_HTTP_STATUS_CREATED);
         ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *response));
+        ing_sess->m_createAnswered = true;
 
         return true;
     } catch (const std::out_of_range &e) {
@@ -3016,14 +3017,11 @@ void UserDataIngSession::setMBSSessionFlag(const UserDataIngDistSessId &ids)
             if(ann_channel) ann_channel->notify();
             return;
         }
-        if (ing_sess->checkIfAllMBSSessionResponsesReceived()) {
-            bool rv = ing_sess->checkIfAllMBSSessionCreated();
-            if (!rv) {
-                ing_sess->handleFailedMBSSession();
+        if (ing_sess->checkIfAllMBSSessionResponsesReceived() && !ing_sess->checkIfAllMBSSessionCreated()) {
+            if (ing_sess->handleFailedMBSSession()) {
+                App::self().context()->deleteUserDataIngSession(ids.first);
             }
-
         }
-        //ing_sess->checkIfAllMBSSessionCreated();
     } catch (const std::out_of_range &e) {
         std::ostringstream err;
         err << "MBS User Data Ingest Session [" << ids.first << "] does not exist.";
@@ -3105,8 +3103,16 @@ void UserDataIngSession::setMBSSessionFailureFlag(const UserDataIngDistSessId &i
         context_data->mbsmfProblemCause = cause;
         context_data->mbsmfProblemDetailJson = problem_detail_json;
         if (ing_sess->checkIfAllMBSSessionResponsesReceived()) {
-            populateAndSendError(new UserDataIngDistSessId(ids), cause, problem_detail_json);
-            App::self().context()->deleteUserDataIngSession(ids_first);
+            /* The same decision as when the last response to arrive is a success. Answering here on
+               this session's error alone made the outcome depend on arrival order: with
+               MBSErrorHandling negotiated, one success and one failure gave a 201 with
+               failedDistSessions if the failure came first and a 4xx if it came last. */
+            if (ing_sess->isUserServiceAnnouncementChannel(ids.second)) {
+                populateAndSendError(new UserDataIngDistSessId(ids), cause, problem_detail_json);
+                App::self().context()->deleteUserDataIngSession(ids_first);
+            } else if (ing_sess->handleFailedMBSSession()) {
+                App::self().context()->deleteUserDataIngSession(ids_first);
+            }
         }
     } catch (const std::out_of_range &e) {
         std::ostringstream err;
@@ -3256,65 +3262,98 @@ void UserDataIngSession::attachReducedServiceAreas()
     m_MBSUserDataIngSession->setRedMbsServAreaInfo(std::move(areas));
 }
 
-void UserDataIngSession::handleFailedMBSSession()
+bool UserDataIngSession::handleFailedMBSSession()
 {
     std::lock_guard<decltype(m_distSessInfosMutex)::element_type> lock(*m_distSessInfosMutex);
 
-    /* Collected before anything is removed, because the partial path mutates the map it walks. */
+    /* Only the Distribution Sessions this request asked for count. On an update the ingest session
+       also holds sessions created by earlier requests, which were not requested/targeted now and must
+       neither be counted as successes nor rolled back. Every context a request creates shares the
+       stream that request arrived on, and the first failure identifies it. */
+    std::shared_ptr<ContextData> first_failed;
+    for (const auto &[key, context_data] : m_distributionSessionInfos) {
+        if (context_data->MBSSessionStatus == MBSSessionState::FAILED) { first_failed = context_data; break; }
+    }
+    if (!first_failed) return false;
+    const ogs_pool_id_t this_request = first_failed->streamId;
+
     std::vector<std::string> failed_keys;
+    std::vector<std::string> this_request_keys;
     size_t succeeded = 0;
-    for (const auto &dist_sess_info : m_distributionSessionInfos) {
-        if (dist_sess_info.second->MBSSessionStatus == MBSSessionState::FAILED) {
-            failed_keys.push_back(dist_sess_info.first);
-        } else {
-            succeeded++;
-        }
+    for (const auto &[key, context_data] : m_distributionSessionInfos) {
+        if (context_data->streamId != this_request) continue;
+        this_request_keys.push_back(key);
+        if (context_data->MBSSessionStatus == MBSSessionState::FAILED) failed_keys.push_back(key);
+        else if (context_data->MBSSessionStatus == MBSSessionState::CREATED) succeeded++;
+    }
+
+    /* Not read from the request: an update is answered before the MB-SMF has replied for the sessions
+       it adds, so by the time a failure arrives here that request and its stream may already be gone,
+       and parsing it read freed memory. */
+    const bool is_create = !m_createAnswered;
+
+    const bool error_handling = mbsErrorHandlingNegotiated();
+    for (const auto &key : failed_keys) {
+        std::shared_ptr<ContextData> context_data = getDistributionSessionInfoData(key);
+        if (context_data) recordDistSessionFailure(key, context_data);
     }
 
     /* A mixed outcome is reported rather than rejected, so the sessions that were created stay created.
        TS 29.580 V18.8.0 clause 6.2.6.2.2, failedDistSessions: “This attribute may be present only in responses from the MBSF and only when the creation/update of at least one of the requested/targeted MBS Distribution Session(s) failed and the creation/update of at least one of the requested/targeted MBS Distribution Session(s) succeeded.”
-       Both halves of that condition are required here, so an all-failed outcome still goes down the
-       error path below and a wholly successful one never reaches this function.
-
-       Gated on the feature having been negotiated: a consumer that did not ask for MBSErrorHandling is
-       answered exactly as before, which is the behaviour its request was written against. */
-    if (mbsErrorHandlingNegotiated() && succeeded > 0 && !failed_keys.empty()) {
-        for (const auto &key : failed_keys) {
-            std::shared_ptr<ContextData> context_data = getDistributionSessionInfoData(key);
-            if (!context_data) continue;
-            recordDistSessionFailure(key, context_data);
-        }
+       Gated on the feature having been negotiated: a consumer that did not ask for MBSErrorHandling
+       cannot be told which sessions failed, so it gets one error below. */
+    if (error_handling && succeeded > 0) {
         for (const auto &key : failed_keys) {
             removeDistributionSessionInfo(key);
+            m_MBSUserDataIngSession->removeMbsDisSessInfos(key);
         }
         ogs_info("%zu MBS Distribution Session(s) failed and %zu succeeded; reporting the failures in "
-                 "the response rather than rejecting the request", failed_keys.size(), succeeded);
-        return;
+                 "failedDistSessions", failed_keys.size(), succeeded);
+        /* The MBSTF step starts only once every remaining session is created, and it was waiting on
+           checkIfAllMBSSessionCreated(), which the failures had made false. Nothing asked again after
+           they were removed, so the created sessions never reached the MBSTF and the request was never
+           answered. They are all created now. */
+        sendMbstfRequests();
+        return false;
     }
 
-    /* One error, not one per failed session. Every Distribution Session of a request shares the stream
-       the request arrived on (each context is built with the same stream_id, see updateContexts()), so
-       sending from inside the loop answered a single request once per failure.
+    /* One error, not one per failed session.
 
        RFC 9110 section 15: “A single request can have multiple associated responses: zero or more "interim" (non-final) responses with status codes in the "informational" (1xx) range, followed by exactly one "final" response with a status code in one of the other ranges.”
 
-       The first failure is the one answered, and it is the whole request that failed: this point is
-       only reached when no session succeeded, or when the consumer did not negotiate MBSErrorHandling
-       and so cannot be told which of them did. The rest are logged so nothing is lost silently. */
-    bool answered = false;
-    for (const auto &dist_sess_info : m_distributionSessionInfos) {
-        if (dist_sess_info.second->MBSSessionStatus != MBSSessionState::FAILED) continue;
-        if (answered) {
-            ogs_warn("MBS Distribution Session [%s] also failed; not answered separately, the request "
-                     "has already had its one response",
-                     dist_sess_info.second->distSessionInfoKey.c_str());
-            continue;
-        }
-        UserDataIngDistSessId *ids = new UserDataIngDistSessId(dist_sess_info.second->ingSessionId,
-                                                               dist_sess_info.second->distSessionInfoKey);
-        populateAndSendError(ids, dist_sess_info.second->mbsmfProblemCause, dist_sess_info.second->mbsmfProblemDetailJson);
-        answered = true;
+       Where every requested session failed and the consumer negotiated MBSErrorHandling, their causes
+       may differ, and the MBS problem details carry them per session.
+       TS 29.580 V18.8.0 table 6.2.6.4.1-1, MbsDistSessFailureSets: “This attribute shall be present only when the cause of the MBS Distribution Session creation/update failure is not the same for all the requested/targeted MBS Distribution Session(s) within the MBS User Data Ingest Session.”
+       and, in the same row: “When this data type is present, the "cause" attribute of the ProblemDetails data type shall not be present as the value of the "causes" attribute of this data type replaces the value of the "cause" attribute of the ProblemDetails data type.”
+       Where they share one cause, that cause is answered on its own, as before. */
+    std::set<std::string> distinct_causes;
+    for (const auto &[key, failure] : m_failedDistSessions) {
+        const auto &cause = failure ? failure->getCause() : nullptr;
+        distinct_causes.insert(cause ? cause->getString() : std::string());
     }
+
+    if (error_handling && distinct_causes.size() > 1) {
+        sendDistSessionFailures(first_failed);
+    } else {
+        UserDataIngDistSessId *ids = new UserDataIngDistSessId(first_failed->ingSessionId, first_failed->distSessionInfoKey);
+        populateAndSendError(ids, first_failed->mbsmfProblemCause, first_failed->mbsmfProblemDetailJson);
+    }
+    for (const auto &key : failed_keys) {
+        if (key == first_failed->distSessionInfoKey) continue;
+        ogs_warn("MBS Distribution Session [%s] also failed; covered by the one answer already sent", key.c_str());
+    }
+
+    /* The request failed, so nothing it created may remain. TS 29.580 gives no partial result without
+       MBSErrorHandling, and none where every session failed. A create is undone by deleting the ingest
+       session, whose destructor releases every MB-SMF session it holds. An update is undone only as far
+       as its own additions: deleting the ingest session there destroyed the sessions earlier requests
+       had created, which this request never touched. */
+    if (is_create) return true;
+    for (const auto &key : this_request_keys) {
+        removeDistributionSessionInfo(key);
+        m_MBSUserDataIngSession->removeMbsDisSessInfos(key);
+    }
+    return false;
 }
 
 
@@ -3475,6 +3514,38 @@ void UserDataIngSession::populateAndSendError(UserDataIngDistSessId *ids, const 
         ogs_assert(true == Open5GSSBIServer::sendError(stream, std::nullopt, ProblemCause::INBOUND_SERVER_ERROR, error.c_str()));
 
     }
+}
+
+
+void UserDataIngSession::sendDistSessionFailures(const std::shared_ptr<ContextData> &context_data)
+{
+    /* The status: table 6.2.7.3-1 gives each named cause its own, and with differing causes no one of
+       them describes the whole. 400 is the status the POST response table lists first for
+       ProblemDetailsMBS, and the reviewer's suggestion; it is a choice, not something a clause fixes. */
+    Open5GSSBIStream stream;
+    try {
+        stream = std::move(Open5GSSBIStream(context_data->streamId));
+    } catch (std::runtime_error &ex) {
+        return;
+    }
+    std::optional<NfServer::InterfaceMetadata> api(g_nmbsf_userdataingsession_api_metadata);
+    std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(std::nullopt, "application/problem+json",
+                                                                       std::nullopt, std::nullopt, 0, std::nullopt,
+                                                                       api, App::self().mbsfAppMetadata()));
+    auto sets = std::make_shared<reftools::mbsf::MbsDistSessFailureSets>();
+    reftools::mbsf::MbsDistSessFailureSets::CausesType causes;
+    for (const auto &[key, failure] : m_failedDistSessions) causes[key] = failure;
+    sets->setCauses(std::move(causes));
+
+    CJson problem(sets->toJSON(false));
+    problem.set("title", CJson::newString("MBS Distribution Session creation/update failed"));
+    problem.set("status", CJson::newNumber(OGS_SBI_HTTP_STATUS_BAD_REQUEST));
+    problem.set("detail", CJson::newString(std::format("none of the {} requested MBS Distribution Session(s) "
+                                                       "could be created, and their causes differ",
+                                                       m_failedDistSessions.size())));
+    std::string body(problem.serialise());
+    NfServer::populateResponse(response, body, OGS_SBI_HTTP_STATUS_BAD_REQUEST);
+    ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *response));
 }
 
 
