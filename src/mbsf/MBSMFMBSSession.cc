@@ -59,6 +59,7 @@ MBSMFMBSSession::MBSMFMBSSession()
     ,m_afSuppliedTmgi(nullptr)
     ,m_changesInFlight(false)
     ,m_sendUpdates(false)
+    ,m_deleteRequested(false)
     ,m_id({"",""})
 {
 }
@@ -69,6 +70,7 @@ MBSMFMBSSession::MBSMFMBSSession(mb_smf_sc_mbs_session_t *session)
     ,m_afSuppliedTmgi(nullptr)
     ,m_changesInFlight(false)
     ,m_sendUpdates(false)
+    ,m_deleteRequested(false)
     ,m_id({"",""})
 {
     //createStatusSubscription(0, static_cast<mb_smf_sc_mbs_session_event_type_e>(-1), nullptr, time(NULL)+3600, (void *)session);
@@ -92,6 +94,13 @@ MBSMFMBSSession::~MBSMFMBSSession()
 
 void MBSMFMBSSession::deleteSession()
 {
+    /* Released at most once. The owners of this object call deleteSession() explicitly and then drop
+       their reference, and the destructor calls it too, so every teardown through
+       UserDataIngSession::clearDistributionSessionInfos() or removeDistributionSessionInfo() reached
+       here twice. The second call sent a second DELETE for a session whose first release was still in
+       flight, and its completion callback then ran against memory the first had already released, which
+       ended the process: "ogs_talloc_size: Expectation `ptr' failed". */
+    if (m_deleteRequested.exchange(true)) return;
     if (m_session) {
         ogs_debug("MBSMFMBSSession::deleteSession: this=%p, m_session=%p", this, m_session);
         if (m_subscription) mb_smf_sc_mbs_status_subscription_delete(m_subscription);
