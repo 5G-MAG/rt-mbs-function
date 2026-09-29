@@ -4377,6 +4377,10 @@ static bool validate_state_setting_options(const std::shared_ptr<UserDataIngSess
        request: see the decision after the loop. */
     std::vector<std::string> already_created_sessions;
     const bool error_handling = user_data_ing_session->mbsErrorHandlingNegotiated();
+    /* MBS Session IDs already named by an earlier Distribution Session of this same request. The
+       registry check below only sees sessions that exist, so two entries of one request naming the
+       same ID both passed it and both went to the MB-SMF. */
+    std::set<UniqueMbsSessionId> seen_in_request;
     if (mbs_user_data_ing_session->getActPeriods() && mbs_user_data_ing_session->getActPeriodsRepRule()) {
         invalid_params["actPeriods"] = "actPeriods cannot be present if any mbsDistSessState or actPeriodRepRule are present";
         invalid_params["actPeriodRepRule"] = "actPeriodRepRule cannot be present if any mbsDistSessState or actPeriods are present";
@@ -4406,7 +4410,13 @@ static bool validate_state_setting_options(const std::shared_ptr<UserDataIngSess
                     UniqueMbsSessionId unique_mbs_session_id(!!mbs_session_id.value()->getSsm(), mbs_session_id.value(),
                                     mbs_service_area?mbs_service_area.value():std::shared_ptr<MbsServiceArea>(),
                                     ext_mbs_service_area?ext_mbs_service_area.value():std::shared_ptr<ExternalMbsServiceArea>());
-                    if (context->haveMbsSessionId(unique_mbs_session_id)) {
+                    if (!seen_in_request.insert(unique_mbs_session_id).second) {
+                        /* Refused as a malformed request rather than as an already created session:
+                           the conflict is between two entries of this request, not with anything in
+                           the MBS system, and no clause names a cause for it. */
+                        invalid_params[std::format("mbsDisSessInfos.{}.mbsSessionId", dist_sess_id)] =
+                            "mbsSessionId repeats another MBS Distribution Session of this request";
+                    } else if (context->haveMbsSessionId(unique_mbs_session_id)) {
                         if (error_handling) {
                             already_created_sessions.push_back(dist_sess_id);
                         } else {
