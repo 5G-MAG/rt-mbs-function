@@ -2422,12 +2422,6 @@ bool UserDataIngSession::sendNmbsfMbsUserDataIngestResponse(const std::shared_pt
             ing_sess->attachReducedServiceAreas();
         }
 
-        /* TS 29.580 V18.8.0 clause 6.2.6.2.2, redMbsServAreaInfo: “This attribute may be present only in a response to an MBS User Data Ingest Session update/modification request.”
-           So not on the create that first establishes the sessions, whatever the MB-SMF retained. */
-        if (ing_sess->mbsErrorHandlingNegotiated() && message.method() != std::string(OGS_SBI_HTTP_METHOD_POST)) {
-            ing_sess->attachReducedServiceAreas();
-        }
-
         CJson user_data_ing_sess_json(ing_sess->json(false));
         std::string body(user_data_ing_sess_json.serialise());
         ogs_debug("Response Parsed JSON: %s", body.c_str());
