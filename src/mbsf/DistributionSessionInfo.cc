@@ -692,11 +692,25 @@ void DistributionSessionInfo::validate() const
          * The ingest URI carries the URL prefix the MBSTF replaces with the distribution base URL
          * to derive each object's distribution URI, so a distribution URI given without one leaves
          * the MBSTF nothing to rewrite.
+         *
+         * Except where the MBSF is the one that supplies it. TS 29.580 V18.8.0 table 6.2.6.2.5-1, NOTE 2: “When the "objAcqMethod" attribute is set to "PUSH", this attribute may be provided by the MBSF in the response to the creation and/or update/modification request of the corresponding MBS User Data Ingest Session.”
+         *
+         * In PUSH mode the ingest base URL belongs to the MBSTF, which returns it as
+         * objIngestBaseUrl, and processDistSession() copies it into objIngUri before the MBSF
+         * answers. The consumer cannot know it beforehand, so requiring it on the request would make
+         * PUSH with URL replacement impossible to ask for. The row's rule is read as holding for the
+         * resource the MBSF returns, which NOTE 2 makes the MBSF responsible for completing.
          */
-        if (obj_dist_method_info.value()->getObjDistrUri() && !obj_dist_method_info.value()->getObjIngUri()) {
-            throw ModelException("objIngUri must be present when objDistrUri is present",
-                                 "ObjectDistrMethInfo", "objDistrInfo.objIngUri",
-                                 fiveg_mag_reftools::ProblemCause::MANDATORY_IE_MISSING);
+        {
+            const auto &acq_method = obj_dist_method_info.value()->getObjAcqMethod();
+            const bool mbsf_supplies_ing_uri =
+                acq_method && acq_method->getValue() == reftools::mbsf::ObjAcquisitionMethod::VAL_PUSH;
+            if (obj_dist_method_info.value()->getObjDistrUri() && !obj_dist_method_info.value()->getObjIngUri() &&
+                !mbsf_supplies_ing_uri) {
+                throw ModelException("objIngUri must be present when objDistrUri is present",
+                                     "ObjectDistrMethInfo", "objDistrInfo.objIngUri",
+                                     fiveg_mag_reftools::ProblemCause::MANDATORY_IE_MISSING);
+            }
         }
         break;
     case DistributionMethod::VAL_PACKET:
