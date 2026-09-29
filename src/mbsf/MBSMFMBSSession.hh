@@ -138,6 +138,9 @@ private:
     mb_smf_sc_tmgi_t *m_afSuppliedTmgi;
     std::atomic<bool> m_changesInFlight;
     std::atomic<bool> m_sendUpdates;
+    // Set once deleteSession() has asked the MB-SMF to release this session, so a second call is a
+    // no-op. See deleteSession() for why a second call happens at all.
+    std::atomic<bool> m_deleteRequested;
     UserDataIngDistSessId m_id;
 };
 
