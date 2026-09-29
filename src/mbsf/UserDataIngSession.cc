@@ -3212,6 +3212,15 @@ void UserDataIngSession::recordDistSessionFailure(const std::string &dist_sessio
     m_failedDistSessions[dist_session_info_key] = failure;
 }
 
+void UserDataIngSession::recordDistSessionFailure(const std::string &dist_session_info_key, const std::string &cause_str)
+{
+    auto failure = std::make_shared<reftools::mbsf::MbsDistSessFailure>();
+    auto cause = std::make_shared<reftools::mbsf::DistSessionFailure>();
+    cause->fromString(cause_str);
+    failure->setCause(cause);
+    m_failedDistSessions[dist_session_info_key] = failure;
+}
+
 void UserDataIngSession::attachFailedDistSessions()
 {
     if (m_failedDistSessions.empty()) return;
@@ -4291,9 +4300,12 @@ static bool validate_state_setting_options(const std::shared_ptr<UserDataIngSess
 {
     std::shared_ptr<MBSUserDataIngSession> mbs_user_data_ing_session = user_data_ing_session->getMBSUserIngSession();
     std::map<std::string,std::string> invalid_params;
-    /* Set when a requested MBS Distribution Session duplicates one that already exists, which has its
-       own named error rather than being an incorrect IE. Holds the consumer's map key for the detail. */
-    std::optional<std::string> already_created_session;
+    /* The consumer's map keys of requested MBS Distribution Sessions that duplicate one already in the
+       MBS system. That has a named cause of its own rather than being an incorrect IE, and where
+       MBSErrorHandling is negotiated it is a failure of that one Distribution Session, not of the
+       request: see the decision after the loop. */
+    std::vector<std::string> already_created_sessions;
+    const bool error_handling = user_data_ing_session->mbsErrorHandlingNegotiated();
     if (mbs_user_data_ing_session->getActPeriods() && mbs_user_data_ing_session->getActPeriodsRepRule()) {
         invalid_params["actPeriods"] = "actPeriods cannot be present if any mbsDistSessState or actPeriodRepRule are present";
         invalid_params["actPeriodRepRule"] = "actPeriodRepRule cannot be present if any mbsDistSessState or actPeriods are present";
@@ -4324,11 +4336,13 @@ static bool validate_state_setting_options(const std::shared_ptr<UserDataIngSess
                                     mbs_service_area?mbs_service_area.value():std::shared_ptr<MbsServiceArea>(),
                                     ext_mbs_service_area?ext_mbs_service_area.value():std::shared_ptr<ExternalMbsServiceArea>());
                     if (context->haveMbsSessionId(unique_mbs_session_id)) {
-                        invalid_params[std::format("mbsDisSessInfos.{}.mbsSessionId", dist_sess_id)] = "mbsSessionId already used in another UserDataIngSession";
-                        /* Kept alongside the invalid_params entry rather than instead of it, so the
-                           consumer that did not negotiate MBSErrorHandling still gets what it did
-                           before. See the answer chosen below. */
-                        already_created_session = dist_sess_id;
+                        if (error_handling) {
+                            already_created_sessions.push_back(dist_sess_id);
+                        } else {
+                            /* Without the feature there is no per-session answer to give, so the
+                               request is refused as a whole, exactly as it was before. */
+                            invalid_params[std::format("mbsDisSessInfos.{}.mbsSessionId", dist_sess_id)] = "mbsSessionId already used in another UserDataIngSession";
+                        }
                     }
                 }
 
@@ -4372,31 +4386,46 @@ static bool validate_state_setting_options(const std::shared_ptr<UserDataIngSess
             }
         }
     }
-    /* A duplicate MBS Distribution Session has a named error of its own, which says more than an
-       incorrect-IE answer does.
-
-       TS 29.580 V18.8.0 table 6.2.7.3-1, row MBS_DIST_SESSION_ALREADY_CREATED (403 Forbidden): “Indicates that the requested MBS Distribution Session has already been created.”
-
-       Its applicability column is MBSErrorHandling, so a consumer that did not negotiate the feature
-       is answered exactly as before: the invalid_params entry is still recorded above for that case. */
-    if (already_created_session && user_data_ing_session->mbsErrorHandlingNegotiated()) {
-        std::string detail = std::format("MBS Distribution Session [{}] has already been created",
-                                         *already_created_session);
-        ogs_assert(true == Open5GSSBIServer::sendError(stream, OGS_SBI_HTTP_STATUS_FORBIDDEN, message,
-                                                       "MBS Distribution Session already created",
-                                                       detail.c_str(),
-                                                       reftools::mbsf::DistSessionFailure::STR_MBS_DIST_SESSION_ALREADY_CREATED));
-        return false;
-    }
-
+    /* A request that is malformed is refused as a whole before any Distribution Session is judged on
+       its own, so these are answered first. */
     if (!invalid_params.empty()) {
         ogs_assert(true == NfServer::sendError(stream, ProblemCause::OPTIONAL_IE_INCORRECT, 0, message,
                                                             app_meta, api, std::nullopt, std::nullopt, std::nullopt, invalid_params));
-
         return false;
-    } else {
-        return true;
     }
+
+    /* With MBSErrorHandling negotiated, a duplicate is a failure of that Distribution Session alone.
+
+       TS 29.580 V18.8.0 table 6.2.7.3-1, row MBS_DIST_SESSION_ALREADY_CREATED (403 Forbidden): “Indicates that the requested MBS Distribution Session has already been created.”
+
+       TS 29.580 V18.8.0 table 6.2.6.2.2-1, failedDistSessions: “This attribute may be present only in responses from the MBSF and only when the creation/update of at least one of the requested/targeted MBS Distribution Session(s) failed and the creation/update of at least one of the requested/targeted MBS Distribution Session(s) succeeded.”
+
+       So where others remain, each duplicate is recorded under its own key with that cause and taken
+       out of the request, the rest are created, and the duplicates come back in failedDistSessions of
+       the 201. Where every one is a duplicate nothing can succeed, the request fails, and because they
+       share the one cause it is answered with that cause. Nothing is sent to the MB-SMF for a
+       duplicate, so nothing needs rolling back. */
+    if (!already_created_sessions.empty()) {
+        const auto &requested = mbs_user_data_ing_session->getMbsDisSessInfos();
+        if (already_created_sessions.size() >= requested.size()) {
+            std::string detail = std::format("every requested MBS Distribution Session has already been created ({})",
+                                             already_created_sessions.size());
+            ogs_assert(true == Open5GSSBIServer::sendError(stream, OGS_SBI_HTTP_STATUS_FORBIDDEN, message,
+                                                           "MBS Distribution Session already created",
+                                                           detail.c_str(),
+                                                           reftools::mbsf::DistSessionFailure::STR_MBS_DIST_SESSION_ALREADY_CREATED));
+            return false;
+        }
+        for (const auto &key : already_created_sessions) {
+            user_data_ing_session->recordDistSessionFailure(
+                    key, reftools::mbsf::DistSessionFailure::STR_MBS_DIST_SESSION_ALREADY_CREATED);
+            mbs_user_data_ing_session->removeMbsDisSessInfos(key);
+            ogs_info("MBS Distribution Session [%s] duplicates one already in the MBS system; reported in "
+                     "failedDistSessions and not created", key.c_str());
+        }
+    }
+
+    return true;
 }
 
 static std::shared_ptr<MBSMFMBSSession> populate_mb_smf_mbs_session(

@@ -328,6 +328,10 @@ public:
     void recordDistSessionFailure(const std::string &dist_session_info_key,
                                   const std::shared_ptr<ContextData> &context_data);
 
+    /** Record a Distribution Session this MBSF refused itself, before anything was sent to the MB-SMF,
+     *  with the DistSessionFailure cause it is refused for. Keyed as the overload above. */
+    void recordDistSessionFailure(const std::string &dist_session_info_key, const std::string &cause);
+
     /** Attach the recorded failures to the representation about to be returned, if any. */
     void attachFailedDistSessions();
 
