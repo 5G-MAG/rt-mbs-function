@@ -124,21 +124,9 @@ CJson UserService::json(bool as_request = false) const
     return m_MBSUserService->toJSON(as_request);
 }
 
-/* The methods this NF serves on the target resource, for the Allow header that clause 5.2.7.2 of
-   TS 29.500 requires alongside a 405, and for the answer to OPTIONS.
-
-   What the header must contain is the supported method(s) "for that resource", so it lists what is
-   actually served rather than everything TS 29.580 defines. PATCH is deliberately absent: TS 29.580
-   defines it on an individual MBS User Service, but this NF does not implement it (see
-   5G-MAG/rt-mbs-function#45, which the maintainers are holding pending 5G-MAG/Standards#182), and
-   advertising a method that is not served would misdirect a consumer that read the header. */
-/* The methods each resource of this API actually serves, which is what an Allow header and an
-   OPTIONS response have to state.
-
-   TS 29.580 V18.8.0 table 6.1.3.1-1 gives the collection GET and POST, and the individual resource
-   GET, PUT, PATCH and DELETE. The collection GET is absent below because this MBSF does not serve
-   it: the header states what is served, not what the table defines, or a consumer is told to retry
-   a method that will be refused. */
+/* The methods each resource of this API serves, for the Allow header TS 29.500 clause 5.2.7.2
+   requires alongside a 405, and for the answer to OPTIONS. TS 29.580 V18.8.0 defines GET and POST on
+   the collection, and GET, PUT, PATCH and DELETE on an individual MBS User Service; all are served. */
 static std::string user_service_allow_methods(const Open5GSSBIMessage &message)
 {
     /* The collection serves GET as well as POST, TS 29.580 V18.8.0 clause 6.1.3.2.3.1 alongside

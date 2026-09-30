@@ -717,8 +717,7 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
                         // Reject actPeriods/actPeriodsRepRule given together, mirroring the
                         // mutual-exclusion check validate_state_setting_options() already
                         // enforces on POST (TS 29.580 clause 6: the two are mutually exclusive).
-                        // This is a PUT-only fix: PATCH on this resource is intentionally not
-                        // implemented yet (returns 404 above), so it is not affected.
+                        // PATCH makes the same check on its own path below.
                         try {
                             MBSUserDataIngSession update_model(user_data_ing_sess_update, true);
                             validate_traffic_marking(update_model);
