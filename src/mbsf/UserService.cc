@@ -492,13 +492,23 @@ bool UserService::processEvent(Open5GSEvent &event)
 
                         try {
                             user_service.reset(new UserService(mbs_user_service, true));
+                        } catch (ModelException &ex) {
+                            /* A body that fails validation: the client's fault, as for the parse above. */
+                            ogs_error("Invalid MBS User Service: %s", ex.what());
+                            if (ex.cause) {
+                                ogs_assert(true == NfServer::sendError(stream, ex.cause.value(), 1, message, app_meta,
+                                                                        api, "Bad Request", ex.what()));
+                            } else {
+                                ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 1, message,
+                                                                        app_meta, api, "Bad Request", ex.what()));
+                            }
+                            return true;
                         } catch (std::exception &err) {
-                            ogs_error("Error while populating MBSF Session: %s", err.what());
-                            char *error = ogs_msprintf("Bad request [%s]", err.what());
-                            ogs_error("%s", error);
-                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST, 0, message,
-                                                                            app_meta, api, "Bad Request", error));
-                            ogs_free(error);
+                            /* Not established to be the client's fault, so not a 400; see the catch above. */
+                            ogs_error("Failed to create MBS User Service: %s", err.what());
+                            ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_INTERNAL_SERVER_ERROR, 1,
+                                                                    message, app_meta, api,
+                                                                    "Problem creating MBS User Service", err.what()));
                             return true;
                         }
 
