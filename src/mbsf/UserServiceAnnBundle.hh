@@ -125,11 +125,14 @@ public:
     UserServiceAnnBundle &operator=(const UserServiceAnnBundle &) = delete;
     UserServiceAnnBundle &operator=(UserServiceAnnBundle &&) = delete;
 
-    UserServiceAnnBundle &addToServingFiles(const std::string &file_name) { m_nameOfFilesToServe.push_back(file_name); return *this; };
-    UserServiceAnnBundle &removeFromServingFiles(const std::string &file_name) { m_nameOfFilesToServe.remove(file_name); return *this; };
-    UserServiceAnnBundle &clearServingFiles() { m_nameOfFilesToServe.clear(); return *this; };
+    /* The list is rebuilt on the bundle's worker thread while the announcement HTTP server reads it,
+       so every access holds m_filesToServeMutex and readers get a copy. Handing out a reference let
+       a reader iterate nodes the worker had just freed. */
+    UserServiceAnnBundle &addToServingFiles(const std::string &file_name) { std::lock_guard lock(m_filesToServeMutex); m_nameOfFilesToServe.push_back(file_name); return *this; };
+    UserServiceAnnBundle &removeFromServingFiles(const std::string &file_name) { std::lock_guard lock(m_filesToServeMutex); m_nameOfFilesToServe.remove(file_name); return *this; };
+    UserServiceAnnBundle &clearServingFiles() { std::lock_guard lock(m_filesToServeMutex); m_nameOfFilesToServe.clear(); return *this; };
 
-    const std::list<std::string> &filesToServe() const { return m_nameOfFilesToServe; };
+    std::list<std::string> filesToServe() const { std::lock_guard lock(m_filesToServeMutex); return m_nameOfFilesToServe; };
 
     void notify() { m_userServiceAnnChange.notify_all(); };
     void wait();
@@ -152,6 +155,7 @@ private:
 
     std::weak_ptr<UserDataIngSession> m_userDataIngSession;
     std::list<std::string> m_nameOfFilesToServe;
+    mutable std::mutex m_filesToServeMutex;
     std::condition_variable_any m_userServiceAnnChange;
     std::unique_ptr<std::recursive_mutex> m_userServiceAnnMutex;
     std::thread m_userServiceAnnThread;

@@ -1715,11 +1715,10 @@ void UserDataIngSession::userServiceAnnChannelDistributionSessionInfo()
     }
 }
 
-const std::list<std::string> &UserDataIngSession::getUserServiceAnnBundleFilesList() const
+std::list<std::string> UserDataIngSession::getUserServiceAnnBundleFilesList() const
 {
     if (m_userServiceAnnBundle) return m_userServiceAnnBundle->filesToServe();
-    static const std::list<std::string> empty;
-    return empty;
+    return {};
 }
 
 /** Take the NULL entries out of an update's mbsDisSessInfos, returning the keys that carried them.
