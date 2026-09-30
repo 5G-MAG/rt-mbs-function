@@ -57,7 +57,7 @@ HTTPResponse AnnouncementBundleIndexHandler::makeResponseForDir(const std::strin
 
     try {
         auto user_dat_ing_session = UserDataIngSession::find(user_data_ing_sess_id);
-        auto &filenames = user_dat_ing_session->getUserServiceAnnBundleFilesList();
+        const auto filenames = user_dat_ing_session->getUserServiceAnnBundleFilesList();
         if (filenames.empty()) {
             return server.makeResponse().statusCode(404);
         }

@@ -371,7 +371,7 @@ public:
     bool userDataIngSessionForServiceAnnChannel(const std::shared_ptr<UserDataIngDistSessId> &ids);
     bool isUserServiceAnnouncementChannel(const std::string &distribution_session_info_key);
     void userServiceAnnChannelDistributionSessionInfo();
-    const std::list<std::string> &getUserServiceAnnBundleFilesList() const;
+    std::list<std::string> getUserServiceAnnBundleFilesList() const;
     void setDistSessionState(const std::shared_ptr<reftools::mbsf::DistSessionState> &state);
     void configureUserServiceAnnouncementBundler();
     void userServiceAnnBundled();
