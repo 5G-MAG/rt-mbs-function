@@ -233,6 +233,9 @@ public:
     bool checkIfAllMBSSessionCreated();
     bool checkIfAllMBSSessionDeletionsReceived();
     bool checkIfAllMBSTFResponsesReceived();
+    /* Whether a Distribution Session this request added is still waiting for its MB-SMF or MBSTF
+       outcome, in which case the request is answered from that outcome rather than now. */
+    bool awaitsDownstreamOutcome(const std::shared_ptr<Open5GSSBIRequest> &request) const;
     bool resetReceivedMBSTFResponseFlags();
     bool checkIfAllMBSTFPatchResponsesReceived();
 
