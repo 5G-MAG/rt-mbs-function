@@ -3037,6 +3037,14 @@ void UserDataIngSession::setMBSSessionDeleted(const UserDataIngDistSessId &ids)
         // setMBSSessionFlag() above uses locate() for the same reason.
         std::shared_ptr<UserDataIngSession> ing_sess = locate(ids.first);
         std::shared_ptr<ContextData> context_data = ing_sess->getDistributionSessionInfoData(ids.second);
+        /* Already removed: a failed Distribution Session is taken out of the Ingest Session before its
+           MBS Session is released, and a session the MB-SMF never created is reported deleted at once.
+           Nothing is left to mark. */
+        if (!context_data) {
+            ogs_debug("MBS Session of Distribution Session [%s] deleted after its context was removed",
+                      ids.second.c_str());
+            return;
+        }
         context_data->MBSSessionStatus = MBSSessionState::DELETED;
         if (ing_sess->checkIfAllMBSSessionDeletionsReceived()) {
             const NfServer::AppMetadata &app_meta = App::self().mbsfAppMetadata();
