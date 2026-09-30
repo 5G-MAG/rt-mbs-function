@@ -381,6 +381,8 @@ const char *MBSMFMBSSession::mbsfLocalGetName(LocalEvent *mbsf_event)
         return "MBSF_LOCAL_EVENT_MBS_SESSION_NOTIFY";
     case MBSF_LOCAL_EVENT_MBS_SESSION_UPDATE_RESULT:
         return "MBSF_LOCAL_EVENT_MBS_SESSION_UPDATE_RESULT";
+    case MBSF_LOCAL_EVENT_MBS_SESSION_DELETED:
+        return "MBSF_LOCAL_EVENT_MBS_SESSION_DELETED";
     default:
         break;
     }
