@@ -3202,8 +3202,7 @@ void UserDataIngSession::recordDistSessionFailure(const std::string &dist_sessio
     /* The cause is relayed from what the MB-SMF said rather than re-derived, which is what the feature
        asks for: TS 29.580 V18.8.0 table 6.2.8-1 lists "Support of the missing MBS Session related error
        handling procedures to enable end-to-end relaying of errors" among MBSErrorHandling's
-       functionalities. DistSessionFailure carries an OTHER value and keeps the original string, so a
-       cause this API does not name is passed through intact instead of being flattened or guessed. */
+       functionalities. */
     auto failure = std::make_shared<reftools::mbsf::MbsDistSessFailure>();
     auto cause = std::make_shared<reftools::mbsf::DistSessionFailure>();
 
@@ -3215,10 +3214,13 @@ void UserDataIngSession::recordDistSessionFailure(const std::string &dist_sessio
     if (!cause_str.empty()) {
         cause->fromString(cause_str);
     } else {
-        /* No cause on the wire. UNSPECIFIED would be a guess at which of the six applied, so the
-           relayed value stays empty-stringed through OTHER rather than naming a cause the MB-SMF
-           never gave. */
-        cause->fromString(std::string("OTHER"));
+        /* No Nmbsf cause from the MB-SMF (none sent, or one this API does not define, which is removed
+           before this point). The cause the MBSF itself gave this failure is used, the one its error
+           response carries, so the two agree; "OTHER" is no DistSessionFailure value. Review on
+           5G-MAG/rt-mbs-function#49 asked for INBOUND_SERVER_ERROR here, the cause the MBSF gives an
+           MB-SMF failure. */
+        cause->fromString(context_data->mbsmfProblemCause ? context_data->mbsmfProblemCause->cause()
+                                                          : ProblemCause::INBOUND_SERVER_ERROR.cause());
     }
     failure->setCause(cause);
     m_failedDistSessions[dist_session_info_key] = failure;
