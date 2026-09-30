@@ -737,6 +737,10 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
                         try {
                             user_data_ing_sess->processUserDataIngSessionUpdate(stream_id, request_ctx, user_data_ing_sess_update, nulled_dist_sess_keys);
                             user_data_ing_sess->configureUserServiceAnnouncementBundler();
+                            /* An update that adds Distribution Sessions is answered once the MB-SMF and
+                               MBSTF have, as a create is, so an addition they refuse is reported rather
+                               than answered 200 and dropped. Review on 5G-MAG/rt-mbs-function#49. */
+                            if (user_data_ing_sess->awaitsDownstreamOutcome(request_ctx)) return true;
                             int response_code = 200;
                             CJson user_data_ing_session_json(user_data_ing_sess->json(false));
                             std::string body(user_data_ing_session_json.serialise());
@@ -901,6 +905,10 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
                         try {
                             user_data_ing_sess->processUserDataIngSessionUpdate(stream_id, request_ctx, patched, nulled_dist_sess_keys);
                             user_data_ing_sess->configureUserServiceAnnouncementBundler();
+                            /* An update that adds Distribution Sessions is answered once the MB-SMF and
+                               MBSTF have, as a create is, so an addition they refuse is reported rather
+                               than answered 200 and dropped. Review on 5G-MAG/rt-mbs-function#49. */
+                            if (user_data_ing_sess->awaitsDownstreamOutcome(request_ctx)) return true;
                             CJson user_data_ing_session_json(user_data_ing_sess->json(false));
                             std::string body(user_data_ing_session_json.serialise());
                             std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(std::string(request.uri()),
@@ -2354,6 +2362,19 @@ UserDataIngSession &UserDataIngSession::userServiceAnnouncement(const std::share
     return *this;
 }
 
+bool UserDataIngSession::awaitsDownstreamOutcome(const std::shared_ptr<Open5GSSBIRequest> &request) const
+{
+    /* Matched on the request, not the stream id: stream ids are pooled and a finished create's id can
+       be reused by a later update. */
+    for (const auto &[key, context_data] : m_distributionSessionInfos) {
+        if (context_data && context_data->request && context_data->request.get() == request.get() &&
+            context_data->MBSSessionStatus != MBSSessionState::FAILED) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool UserDataIngSession::sendNmbsfMbsUserDataIngestResponse(const std::shared_ptr<UserDataIngSession::UserDataIngDistSessId> &ids)
 {
 
@@ -2430,7 +2451,11 @@ bool UserDataIngSession::sendNmbsfMbsUserDataIngestResponse(const std::shared_pt
         /* The absolute URI of the created resource, not a path: a consumer behind an SCP takes the
            apiRoot from this header, and a path carries none. Same reasoning and the same helper as
            the MBS User Service create. */
-        std::string location(NfServer::resourceUri(stream, message,
+        /* An update deferred until its additions were settled is answered as the PUT and PATCH
+           handlers answer one that was not: 200, with the resource as it now stands. */
+        const bool is_update = ogs_strcasecmp(message.method(), OGS_SBI_HTTP_METHOD_POST) != 0;
+        std::string location(is_update ? std::string(request->uri()) :
+                             NfServer::resourceUri(stream, message,
                                 {std::string(message.resourceComponent(0)),
                                  ing_sess->userDataIngSessionId()}));
         if (location.empty()) {
@@ -2447,7 +2472,7 @@ bool UserDataIngSession::sendNmbsfMbsUserDataIngestResponse(const std::shared_pt
                             App::self().context()->cacheControl.MBSUserServiceMaxAge,
                             std::nullopt/*nullptr*/, api,  App::self().mbsfAppMetadata()));
         ogs_assert(response);
-        NfServer::populateResponse(response, body, OGS_SBI_HTTP_STATUS_CREATED);
+        NfServer::populateResponse(response, body, is_update ? OGS_SBI_HTTP_STATUS_OK : OGS_SBI_HTTP_STATUS_CREATED);
         ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *response));
         ing_sess->m_createAnswered = true;
 
