@@ -1844,26 +1844,6 @@ void UserDataIngSession::processUserDataIngSessionUpdate(ogs_pool_id_t stream_id
 
     const ActPeriodsRepRuleType &act_periods_rep_rule = mbs_user_data_ing_session->getActPeriodsRepRule();
 
-    if (current_act_periods.has_value()) {
-        m_MBSUserDataIngSession->clearActPeriods();
-    }
-    m_MBSUserDataIngSession->setActPeriodsRepRule(std::nullopt);
-
-    if (act_periods.has_value() && !act_periods->empty()) {
-        activePeriods(act_periods);
-
-        m_MBSUserDataIngSession->setActPeriods(std::move(act_periods));
-
-        createTimer();
-    } else if (act_periods_rep_rule.has_value()) {
-        activePeriodsRepRule(act_periods_rep_rule);
-
-        m_MBSUserDataIngSession->setActPeriodsRepRule(std::move(act_periods_rep_rule));
-
-        createTimer();
-    } else {
-        alwaysActive();
-    }
 
     auto app_context = App::self().context();
     const MBSUserDataIngSession::MbsDisSessInfosType &current_dist_sess_infos = m_MBSUserDataIngSession->getMbsDisSessInfos();
@@ -2058,6 +2038,27 @@ void UserDataIngSession::processUserDataIngSessionUpdate(ogs_pool_id_t stream_id
 
     // ---- Phase 2: apply. Nothing above this point has mutated the stored session or the
     // app-wide MBS Session Id registry. ----
+    /* Activity periods are applied here, with the rest, so a rejected update leaves them as they were. */
+    if (current_act_periods.has_value()) {
+        m_MBSUserDataIngSession->clearActPeriods();
+    }
+    m_MBSUserDataIngSession->setActPeriodsRepRule(std::nullopt);
+
+    if (act_periods.has_value() && !act_periods->empty()) {
+        activePeriods(act_periods);
+
+        m_MBSUserDataIngSession->setActPeriods(std::move(act_periods));
+
+        createTimer();
+    } else if (act_periods_rep_rule.has_value()) {
+        activePeriodsRepRule(act_periods_rep_rule);
+
+        m_MBSUserDataIngSession->setActPeriodsRepRule(std::move(act_periods_rep_rule));
+
+        createTimer();
+    } else {
+        alwaysActive();
+    }
     for (const auto &planned : plan) {
         if (planned.context_data) planned.context_data->needsUpdate = false;
         if (planned.is_delete) {
