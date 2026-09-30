@@ -413,6 +413,19 @@ bool UserService::processEvent(Open5GSEvent &event)
                        what a resource serves instead of probing it. 204 with an Allow header and no
                        body, the shape the transport function already uses for the same purpose. */
                     if (method == OGS_SBI_HTTP_METHOD_OPTIONS) {
+                        /* An identifier that names no MBS User Service is no resource, so 404, as the
+                           other methods answer it; only an existing one has methods to list. */
+                        if (ptr_resource1) {
+                            try {
+                                UserService::find(ptr_resource1);
+                            } catch (const std::out_of_range &) {
+                                std::ostringstream err;
+                                err << "No such MBS User Service [" << ptr_resource1 << "]";
+                                ogs_assert(true == NfServer::sendError(stream, OGS_SBI_HTTP_STATUS_NOT_FOUND, 1, message,
+                                                                       app_meta, api, "Not Found", err.str()));
+                                return true;
+                            }
+                        }
                         std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(
                                         std::nullopt, std::nullopt, std::nullopt, std::nullopt, 0,
                                         user_service_allow_methods(message), api, app_meta));
