@@ -2025,11 +2025,14 @@ void UserDataIngSession::processUserDataIngSessionUpdate(ogs_pool_id_t stream_id
                     std::find(reserved_mbs_session_ids.begin(), reserved_mbs_session_ids.end(), cmp_mbs_session_id)
                             != reserved_mbs_session_ids.end()) {
                 ogs_error("UserDataIngSession update adds already allocated MBS Session Id");
-                Open5GSSBIStream stream(stream_id);
-                Open5GSSBIMessage message;
-                message.parseHeader(*request);
-                NfServer::sendError(stream, MBSProblemCause::MBS_DIST_SESSION_ALREADY_CREATED, 2, message, App::self().mbsfAppMetadata(), g_nmbsf_userdataingsession_api_metadata, "Duplicate MBS Session Id", "UserDataIngSession update adds already allocated MBS Session Id");
-                return;
+                /* Thrown, not answered here: this function returns to a caller that then answered 200
+                   on the same stream. Still in validation, so nothing has changed yet. The cause
+                   follows the create path: MBS_DIST_SESSION_ALREADY_CREATED only under
+                   MBSErrorHandling, the applicability TS 29.580 V18.8.0 table 6.2.7.3-1 gives it. */
+                throw ModelException("adds an MBS Session Id that is already allocated", "MBSUserDataIngestSession",
+                                     std::format("mbsDisSessInfos.{}.mbsSessionId", key_in_update),
+                                     mbsErrorHandlingNegotiated() ? MBSProblemCause::MBS_DIST_SESSION_ALREADY_CREATED
+                                                                  : ProblemCause::MANDATORY_IE_INCORRECT);
             }
             reserved_mbs_session_ids.push_back(cmp_mbs_session_id);
         }
