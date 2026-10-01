@@ -3533,10 +3533,30 @@ void UserDataIngSession::populateAndSendError(UserDataIngDistSessId *ids, const 
         }
     }
 
+    /* A refusal the MB-SMF gave with no cause this API defines (UNKNOWN_TMGI, say, which is removed before
+       this point) is still a refusal of what the consumer asked for, so its status and detail are relayed
+       and the cause is left out. INBOUND_SERVER_ERROR would misdescribe it.
+
+       TS 29.500 V18.10.0 table 5.2.7.2-1, INBOUND_SERVER_ERROR: “The request is rejected due to the receipt of an 5xx error from an inbound server”
+
+       TS 29.501 V18.7.0 clause 4.8.2: “All the application error causes supported by an API should be defined in a specific clause "Application Errors" under the "Error Handling" clause specified for the API.”
+
+       Limited to 400, 403 and 404, the error statuses the POST, PUT and PATCH response tables of
+       TS 29.580 V18.8.0 list for ProblemDetailsMBS. Not gated on MBSErrorHandling: no cause is relayed,
+       and the cause it replaces is wrong for any consumer. Review on 5G-MAG/rt-mbs-function#49. */
+    const bool relay_status_only = !relay && relay_cause.empty() &&
+                                   (relay_status == OGS_SBI_HTTP_STATUS_BAD_REQUEST ||
+                                    relay_status == OGS_SBI_HTTP_STATUS_FORBIDDEN ||
+                                    relay_status == OGS_SBI_HTTP_STATUS_NOT_FOUND);
+
     if (relay) {
         ogs_assert(true == Open5GSSBIServer::sendError(stream, relay_status, std::nullopt,
                                                        "MBS Distribution Session failure", error.c_str(),
                                                        relay_cause.c_str()));
+    } else if (relay_status_only) {
+        ogs_assert(true == Open5GSSBIServer::sendError(stream, relay_status, std::nullopt,
+                                                       "MBS Distribution Session failure", error.c_str(),
+                                                       nullptr));
     } else if (cause.has_value()) {
         ogs_assert(true == Open5GSSBIServer::sendError(stream, std::nullopt, cause.value(), error.c_str()));
 
