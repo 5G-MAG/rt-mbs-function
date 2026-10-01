@@ -740,7 +740,14 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
                             /* An update that adds Distribution Sessions is answered once the MB-SMF and
                                MBSTF have, as a create is, so an addition they refuse is reported rather
                                than answered 200 and dropped. Review on 5G-MAG/rt-mbs-function#49. */
-                            if (user_data_ing_sess->awaitsDownstreamOutcome(request_ctx)) return true;
+                            if (user_data_ing_sess->awaitsDownstreamOutcome(request_ctx)) {
+                                user_data_ing_sess->m_pendingUpdate.reset(); // answered from its additions
+                                return true;
+                            }
+                            /* Likewise an update that only changes existing Distribution Sessions, so a change
+                               the MB-SMF or MBSTF refuses is reported rather than answered 200 and kept. Review
+                               on 5G-MAG/rt-mbs-function#49. */
+                            if (user_data_ing_sess->awaitsUpdateOutcome(request_ctx)) return true;
                             int response_code = 200;
                             CJson user_data_ing_session_json(user_data_ing_sess->json(false));
                             std::string body(user_data_ing_session_json.serialise());
@@ -908,7 +915,14 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
                             /* An update that adds Distribution Sessions is answered once the MB-SMF and
                                MBSTF have, as a create is, so an addition they refuse is reported rather
                                than answered 200 and dropped. Review on 5G-MAG/rt-mbs-function#49. */
-                            if (user_data_ing_sess->awaitsDownstreamOutcome(request_ctx)) return true;
+                            if (user_data_ing_sess->awaitsDownstreamOutcome(request_ctx)) {
+                                user_data_ing_sess->m_pendingUpdate.reset(); // answered from its additions
+                                return true;
+                            }
+                            /* Likewise an update that only changes existing Distribution Sessions, so a change
+                               the MB-SMF or MBSTF refuses is reported rather than answered 200 and kept. Review
+                               on 5G-MAG/rt-mbs-function#49. */
+                            if (user_data_ing_sess->awaitsUpdateOutcome(request_ctx)) return true;
                             CJson user_data_ing_session_json(user_data_ing_sess->json(false));
                             std::string body(user_data_ing_session_json.serialise());
                             std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(std::string(request.uri()),
@@ -1072,7 +1086,13 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
                                 ing_session->getDistSessionState(context_data_ptr->info->getMbsDistSessState())
                         )
                    ) {
-                    ing_session->nmbstfDiscoverAndSend(ids->second, Nmb2Build::buildNmb2DistSessionPatch, nullptr, ids);
+                    if (!ing_session->nmbstfDiscoverAndSend(ids->second, Nmb2Build::buildNmb2DistSessionPatch, nullptr, ids)) {
+                        ing_session->noteUpdateOutcome(ids->second->second, false, ProblemCause::UNSPECIFIED_NF_FAILURE,
+                                                       std::nullopt);
+                    }
+                } else {
+                    // Nothing for the MBSTF to apply, so nothing will answer.
+                    ing_session->noteUpdateOutcome(ids->second->second, false, std::nullopt, std::nullopt);
                 }
             } catch (const std::out_of_range &e) {
                 std::ostringstream err;
@@ -1492,6 +1512,18 @@ void UserDataIngSession::updateContexts(ogs_pool_id_t stream_id, const std::shar
                     if (context_data->needsUpdate || context_data->stateUpdate) {
 
                         populate_mb_smf_mbs_session(context_data, context_data->MBSSession);
+                        /* A content change made by the update being answered waits for both peers. The
+                           MB-SMF is waited for only when a request went to it, or is queued; the MBSTF
+                           always, since the PATCH event below reports when it sends nothing. */
+                        if (context_data->needsUpdate && m_pendingUpdate && m_pendingUpdate->request &&
+                            request && m_pendingUpdate->request.get() == request.get()) {
+                            const std::string &key = context_data->distSessionInfoKey;
+                            m_pendingUpdate->keys.insert(key);
+                            m_pendingUpdate->awaitingMbstf.insert(key);
+                            if (context_data->MBSSession && context_data->MBSSession->resultPending()) {
+                                m_pendingUpdate->awaitingMbsmf.insert(key);
+                            }
+                        }
                         sendLocalEventPatch(context_data->distSessionInfoKey);
                     } else {
                         continue;
@@ -2140,6 +2172,7 @@ void UserDataIngSession::processUserDataIngSessionUpdate(ogs_pool_id_t stream_id
     } else {
         userServiceAnnouncement(nullptr);
     }
+    if (!m_pendingUpdate) m_pendingUpdate.emplace(PendingUpdate{.request = request, .streamId = stream_id});
     handleUserDataIngSessionUpdate(stream_id, request);
 }
 
@@ -2760,6 +2793,7 @@ bool UserDataIngSession::handlePatchUpdateResponse(ogs_sbi_xact_t *xact, const s
         context_data->needsUpdate = false;
         context_data->stateUpdate = false;
         if (dist_session) context_data->distSession = dist_session; // none with a 204
+        ing_session->noteUpdateOutcome(ids->second, false, std::nullopt, std::nullopt);
         if (ing_session->isUserServiceAnnouncementChannel(ids->second))
         {
             const std::shared_ptr<UserServiceAnnChannel> &ann_channel = App::self().context()->userServiceAnnouncementChannel();
@@ -2779,7 +2813,7 @@ bool UserDataIngSession::handlePatchUpdateResponse(ogs_sbi_xact_t *xact, const s
 }
 
 
-void UserDataIngSession::rollbackMBSTFDistSessionState(ogs_sbi_xact_t *xact)
+void UserDataIngSession::rollbackMBSTFDistSessionState(ogs_sbi_xact_t *xact, int status)
 {
     std::shared_ptr<UserDataIngDistSessId> ids = nullptr;
 
@@ -2801,6 +2835,17 @@ void UserDataIngSession::rollbackMBSTFDistSessionState(ogs_sbi_xact_t *xact)
         context_data->receivedMBSTFPatchResponse = true;
         context_data->patchUpdateSucceded = false;
         context_data->needsUpdate = false;
+        {
+            /* Reported with the MBSTF's status where it refused, so sendDownstreamRefusal() relays a 400,
+               403 or 404 as one and treats a 5xx as the inbound server error it is. */
+            CJson refusal(CJson::newObject());
+            refusal.set("detail", CJson::newString("The MBSTF refused the MBS Distribution Session update"));
+            if (status >= 400 && status <= 599) refusal.set("status", CJson::newNumber(status));
+            ing_sess->noteUpdateOutcome(ids->second, false,
+                                        (status >= 400 && status <= 599) ? ProblemCause::INBOUND_SERVER_ERROR
+                                                                          : ProblemCause::UNSPECIFIED_NF_FAILURE,
+                                        refusal);
+        }
         ing_sess->setMbstfsInDesiredState();
         if (!context_data->stateUpdate) return;
         if (ing_sess->checkIfAllMBSTFPatchResponsesReceived()) {
@@ -3161,7 +3206,11 @@ void UserDataIngSession::setMBSSessionUpdateResult(const UserDataIngDistSessId &
         std::shared_ptr<ContextData> context_data = ing_sess->getDistributionSessionInfoData(ids.second);
         if (!context_data) return;
         if (!cause.has_value()) {
-            context_data->preUpdateInfo.reset();
+            // Kept while the update waits: a refusal from the MBSTF may still undo this change.
+            if (!(ing_sess->m_pendingUpdate && ing_sess->m_pendingUpdate->keys.count(ids.second))) {
+                context_data->preUpdateInfo.reset();
+            }
+            ing_sess->noteUpdateOutcome(ids.second, true, std::nullopt, std::nullopt);
             return;
         }
 
@@ -3173,22 +3222,200 @@ void UserDataIngSession::setMBSSessionUpdateResult(const UserDataIngDistSessId &
                   ids.second.c_str(), cause->cause().c_str());
         context_data->mbsmfProblemCause = cause;
         context_data->mbsmfProblemDetailJson = problem_detail_json;
-        if (context_data->preUpdateInfo) {
-            const auto &stored = ing_sess->m_MBSUserDataIngSession->getMbsDisSessInfos();
-            auto it = stored.find(ids.second);
-            if (it != stored.end() && it->second.has_value() && it->second.value()) {
-                *it->second.value() = *context_data->preUpdateInfo;
-            }
-            if (context_data->info && (it == stored.end() || context_data->info != it->second.value())) {
-                *context_data->info = *context_data->preUpdateInfo;
-            }
-            context_data->preUpdateInfo.reset();
-            context_data->needsUpdate = true;
-            ing_sess->sendLocalEventPatch(ids.second);
-        }
+        ing_sess->restoreFromSnapshot(ids.second, context_data, false);
+        ing_sess->noteUpdateOutcome(ids.second, true, cause, problem_detail_json);
     } catch (const std::out_of_range &e) {
         ogs_error("MBS User Data Ingest Session [%s] does not exist.", ids.first.c_str());
     }
+}
+
+void UserDataIngSession::restoreFromSnapshot(const std::string &key, const std::shared_ptr<ContextData> &context_data,
+                                             bool resync_mbsmf)
+{
+    if (!context_data || !context_data->preUpdateInfo) return;
+    const auto &stored = m_MBSUserDataIngSession->getMbsDisSessInfos();
+    auto it = stored.find(key);
+    if (it != stored.end() && it->second.has_value() && it->second.value()) {
+        *it->second.value() = *context_data->preUpdateInfo;
+    }
+    if (context_data->info && (it == stored.end() || context_data->info != it->second.value())) {
+        *context_data->info = *context_data->preUpdateInfo;
+    }
+    context_data->preUpdateInfo.reset();
+    /* A peer that applied the change is sent the restored session. The MB-SMF is sent nothing when it is
+       the one that refused: the service consumer has already put its own copy back. */
+    if (resync_mbsmf && context_data->MBSSession) populate_mb_smf_mbs_session(context_data, context_data->MBSSession);
+    context_data->needsUpdate = true;
+    sendLocalEventPatch(key);
+}
+
+bool UserDataIngSession::awaitsUpdateOutcome(const std::shared_ptr<Open5GSSBIRequest> &request)
+{
+    if (!m_pendingUpdate || !request || m_pendingUpdate->request.get() != request.get()) return false;
+    if (m_pendingUpdate->keys.empty() ||
+        (m_pendingUpdate->awaitingMbsmf.empty() && m_pendingUpdate->awaitingMbstf.empty())) {
+        for (const auto &key : m_pendingUpdate->keys) {
+            std::shared_ptr<ContextData> context_data = getDistributionSessionInfoData(key);
+            if (context_data) context_data->preUpdateInfo.reset();
+        }
+        m_pendingUpdate.reset();
+        return false;
+    }
+    m_pendingUpdate->armed = true;
+    return true;
+}
+
+void UserDataIngSession::noteUpdateOutcome(const std::string &key, bool from_mbsmf,
+                                           const std::optional<fiveg_mag_reftools::ProblemCause> &cause,
+                                           const std::optional<CJson> &problem_detail_json)
+{
+    if (!m_pendingUpdate) return;
+    std::set<std::string> &waiting = from_mbsmf ? m_pendingUpdate->awaitingMbsmf : m_pendingUpdate->awaitingMbstf;
+    if (!waiting.erase(key)) return; // not this update's, or already answered
+    if (cause.has_value() && !m_pendingUpdate->failures.count(key)) {
+        m_pendingUpdate->failures.emplace(key, UpdateFailure{cause, problem_detail_json});
+    }
+    if (m_pendingUpdate->armed && m_pendingUpdate->awaitingMbsmf.empty() && m_pendingUpdate->awaitingMbstf.empty()) {
+        finishPendingUpdate();
+    }
+}
+
+void UserDataIngSession::mbstfRequestTimedOut(ogs_sbi_xact_t *xact)
+{
+    /* Only an MBSTF PATCH can be what a waiting update waits for. */
+    if (!xact || !xact->request) return;
+    const ogs_sbi_header_t &h = xact->request->h;
+    if (!h.method || ogs_strcasecmp(h.method, OGS_SBI_HTTP_METHOD_PATCH) != 0) return;
+    if (!h.service.name || std::string(h.service.name) != "nmbstf-distsession") return;
+
+    std::shared_ptr<UserDataIngDistSessId> ids;
+    {
+        std::lock_guard<decltype(s_registry_mutex)> lock(s_registry_mutex);
+        auto it = s_xactRegistry.find(xact);
+        if (it != s_xactRegistry.end()) ids = it->second;
+    }
+    if (!ids) return;
+    try {
+        locate(ids->first)->noteUpdateOutcome(ids->second, false, ProblemCause::UNSPECIFIED_NF_FAILURE, std::nullopt);
+    } catch (const std::out_of_range &) {
+    }
+}
+
+static std::string update_failure_cause(const fiveg_mag_reftools::ProblemCause *cause, const std::optional<CJson> &detail)
+{
+    // As recordDistSessionFailure() reports a create's: the MB-SMF's own cause where it kept one.
+    if (detail.has_value()) {
+        CJson cause_node = detail->getObjectItemCaseSensitive("cause");
+        if (!cause_node.isNull() && cause_node.isString()) return std::string(cause_node);
+    }
+    return cause ? cause->cause() : ProblemCause::INBOUND_SERVER_ERROR.cause();
+}
+
+void UserDataIngSession::finishPendingUpdate()
+{
+    PendingUpdate pending(std::move(*m_pendingUpdate));
+    m_pendingUpdate.reset();
+
+    const bool negotiated = mbsErrorHandlingNegotiated();
+    size_t succeeded = 0;
+    for (const auto &key : pending.keys) if (!pending.failures.count(key)) succeeded++;
+
+    /* A mixed outcome is reported rather than rejected where MBSErrorHandling was negotiated, as for a
+       create: TS 29.580 V18.8.0 clause 6.2.6.2.2, failedDistSessions, covers "the creation/update of at
+       least one of the requested/targeted MBS Distribution Session(s)". Otherwise the update failed, and
+       every change it made is undone, the accepted ones included. */
+    const bool partial = !pending.failures.empty() && negotiated && succeeded > 0;
+    for (const auto &key : pending.keys) {
+        std::shared_ptr<ContextData> context_data = getDistributionSessionInfoData(key);
+        if (!context_data) continue;
+        const bool undo = pending.failures.count(key) || (!pending.failures.empty() && !partial);
+        if (undo) {
+            restoreFromSnapshot(key, context_data, true);
+        } else {
+            context_data->preUpdateInfo.reset();
+        }
+    }
+
+    if (pending.failures.empty() || partial) {
+        Open5GSSBIStream stream;
+        try {
+            stream = std::move(Open5GSSBIStream(pending.streamId));
+        } catch (std::runtime_error &ex) {
+            return;
+        }
+        CJson body_json(json(false));
+        if (partial) {
+            auto sets = std::make_shared<reftools::mbsf::MbsDistSessFailureSets>();
+            reftools::mbsf::MbsDistSessFailureSets::CausesType causes;
+            for (const auto &[key, failure] : pending.failures) {
+                auto entry = std::make_shared<reftools::mbsf::MbsDistSessFailure>();
+                auto cause = std::make_shared<reftools::mbsf::DistSessionFailure>();
+                cause->fromString(update_failure_cause(failure.cause ? &failure.cause.value() : nullptr,
+                                                       failure.problemDetailJson));
+                entry->setCause(cause);
+                causes[key] = entry;
+            }
+            sets->setCauses(std::move(causes));
+            body_json.set("failedDistSessions", sets->toJSON(false));
+        }
+        std::string body(body_json.serialise());
+        std::optional<NfServer::InterfaceMetadata> api(g_nmbsf_userdataingsession_api_metadata);
+        std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(
+                pending.request && pending.request->uri() ? std::optional<std::string>(pending.request->uri()) : std::nullopt,
+                "application/json", generated(), hash().c_str(),
+                App::self().context()->cacheControl.MBSUserServiceMaxAge, std::nullopt, api, App::self().mbsfAppMetadata()));
+        ogs_assert(response);
+        NfServer::populateResponse(response, body, OGS_SBI_HTTP_STATUS_OK);
+        ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *response));
+        return;
+    }
+
+    /* One error. With MBSErrorHandling and every change refused for differing causes, the causes are
+       given per Distribution Session, as for a create; otherwise the first refusal is answered. */
+    std::set<std::string> distinct;
+    for (const auto &[key, failure] : pending.failures) {
+        distinct.insert(update_failure_cause(failure.cause ? &failure.cause.value() : nullptr, failure.problemDetailJson));
+    }
+    if (negotiated && distinct.size() > 1) {
+        Open5GSSBIStream stream;
+        try {
+            stream = std::move(Open5GSSBIStream(pending.streamId));
+        } catch (std::runtime_error &ex) {
+            return;
+        }
+        auto sets = std::make_shared<reftools::mbsf::MbsDistSessFailureSets>();
+        reftools::mbsf::MbsDistSessFailureSets::CausesType causes;
+        for (const auto &[key, failure] : pending.failures) {
+            auto entry = std::make_shared<reftools::mbsf::MbsDistSessFailure>();
+            auto cause = std::make_shared<reftools::mbsf::DistSessionFailure>();
+            cause->fromString(update_failure_cause(failure.cause ? &failure.cause.value() : nullptr, failure.problemDetailJson));
+            entry->setCause(cause);
+            causes[key] = entry;
+        }
+        sets->setCauses(std::move(causes));
+        CJson problem(sets->toJSON(false));
+        problem.set("title", CJson::newString("MBS Distribution Session creation/update failed"));
+        problem.set("status", CJson::newNumber(OGS_SBI_HTTP_STATUS_BAD_REQUEST));
+        problem.set("detail", CJson::newString(std::format("none of the {} targeted MBS Distribution Session(s) "
+                                                           "could be updated, and their causes differ",
+                                                           pending.failures.size())));
+        std::optional<NfServer::InterfaceMetadata> api(g_nmbsf_userdataingsession_api_metadata);
+        std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(std::nullopt, "application/problem+json",
+                                                                           std::nullopt, std::nullopt, 0, std::nullopt,
+                                                                           api, App::self().mbsfAppMetadata()));
+        NfServer::populateResponse(response, problem.serialise(), OGS_SBI_HTTP_STATUS_BAD_REQUEST);
+        ogs_assert(true == Open5GSSBIServer::sendResponse(stream, *response));
+        return;
+    }
+
+    const auto &[first_key, first] = *pending.failures.begin();
+    std::string error;
+    if (first.problemDetailJson.has_value()) {
+        CJson detail_node = first.problemDetailJson->getObjectItemCaseSensitive("detail");
+        if (!detail_node.isNull() && detail_node.isString()) error = std::string(detail_node);
+    }
+    if (error.empty()) error = std::format("MBS Distribution Session [{}] could not be updated", first_key);
+    sendDownstreamRefusal(pending.streamId, negotiated, first.cause, first.problemDetailJson, error);
 }
 
 bool UserDataIngSession::mbsErrorHandlingNegotiated() const
@@ -3549,6 +3776,27 @@ void UserDataIngSession::populateAndSendError(UserDataIngDistSessId *ids, const 
         error = print_mbs_session_error(context_data);
     }
 
+    bool negotiated = false;
+    try {
+        negotiated = locate(ids_ptr->first)->mbsErrorHandlingNegotiated();
+    } catch (const std::out_of_range &) {
+        negotiated = false;
+    }
+    sendDownstreamRefusal(context_data->streamId, negotiated, cause, problem_detail_json, error);
+}
+
+
+void UserDataIngSession::sendDownstreamRefusal(ogs_pool_id_t stream_id, bool negotiated,
+                                               const std::optional<fiveg_mag_reftools::ProblemCause> &cause,
+                                               const std::optional<CJson> &problem_detail_json, const std::string &error)
+{
+    Open5GSSBIStream stream;
+    try {
+        stream = std::move(Open5GSSBIStream(stream_id));
+    } catch (std::runtime_error &ex) {
+        return;
+    }
+
     /* Where the MB-SMF named a cause of its own, relay it rather than flatten it to a generic one.
        Table 6.2.7.3-1's MBS application errors are exactly the kind this carries, and four of the six
        are names TS 29.532 also uses, so a relay preserves them without a translation table.
@@ -3567,11 +3815,7 @@ void UserDataIngSession::populateAndSendError(UserDataIngDistSessId *ids, const 
     }
     bool relay = false;
     if (!relay_cause.empty() && relay_status >= 400 && relay_status <= 599) {
-        try {
-            relay = locate(ids_ptr->first)->mbsErrorHandlingNegotiated();
-        } catch (const std::out_of_range &) {
-            relay = false;
-        }
+        relay = negotiated;
     }
 
     /* A refusal the MB-SMF gave with no cause this API defines (UNKNOWN_TMGI, say, which is removed before
@@ -3607,7 +3851,6 @@ void UserDataIngSession::populateAndSendError(UserDataIngDistSessId *ids, const 
 
     }
 }
-
 
 void UserDataIngSession::sendDistSessionFailures(const std::shared_ptr<ContextData> &context_data)
 {

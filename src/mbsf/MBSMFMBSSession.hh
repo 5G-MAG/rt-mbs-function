@@ -114,7 +114,10 @@ public:
 
     void deleteSession();
 
-    void pushChanges();
+    /* True when a result for these changes will be reported: a request was sent, or one is queued
+       behind the request in flight. */
+    bool pushChanges();
+    bool resultPending() const { return m_changesInFlight || m_sendUpdates; };
 
     mb_smf_sc_mbs_session_t *mbsmfMBSSession() const { return m_session; };
     ogs_sockaddr_t *tunnelAddr() const { return m_session?m_session->mb_upf_udp_tunnel:nullptr; };

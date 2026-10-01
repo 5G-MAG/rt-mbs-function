@@ -404,17 +404,19 @@ MBSMFMBSSession &MBSMFMBSSession::setTunnelRequest(bool request_udp_tunnel)
     return *this;
 }
 
-void MBSMFMBSSession::pushChanges()
+bool MBSMFMBSSession::pushChanges()
 {
     if (m_changesInFlight) {
         m_sendUpdates = true;
         ogs_debug("Delaying pushing changes to MB-SMF");
-    } else {
-        if (mb_smf_sc_mbs_session_push_changes(m_session)) {
-            m_changesInFlight = true;
-            m_sendUpdates = false;
-        }
+        return true;
     }
+    if (mb_smf_sc_mbs_session_push_changes(m_session)) {
+        m_changesInFlight = true;
+        m_sendUpdates = false;
+        return true;
+    }
+    return false;
 }
 
 void MBSMFMBSSession::mbsSessionCallback(mb_smf_sc_mbs_session_t *session, int result, const OpenAPI_problem_details_t *problem_details, void *data)
@@ -440,7 +442,11 @@ void MBSMFMBSSession::mbsSessionCallback(mb_smf_sc_mbs_session_t *session, int r
     /* if we have pending changes, try to send them */
     if (mbs_session->m_sendUpdates) {
         mbs_session->m_sendUpdates = false;
-        mbs_session->pushChanges();
+        /* Queued changes that turn out to need no request would otherwise never be answered, and an
+           update waiting on their result would wait for ever: reported as applied. */
+        if (result != OGS_DONE && !mbs_session->pushChanges()) {
+            sendLocalEvent(MBSF_LOCAL_EVENT_MBS_SESSION_UPDATE_RESULT, session, OGS_OK, nullptr, mbs_session->m_id);
+        }
     }
 }
 
@@ -456,7 +462,9 @@ void MBSMFMBSSession::mbsSessionUpdateCallback(mb_smf_sc_mbs_session_t *session,
 
     if (mbs_session->m_sendUpdates) {
         mbs_session->m_sendUpdates = false;
-        mbs_session->pushChanges();
+        if (!mbs_session->pushChanges()) {
+            sendLocalEvent(MBSF_LOCAL_EVENT_MBS_SESSION_UPDATE_RESULT, session, OGS_OK, nullptr, mbs_session->m_id);
+        }
     }
 }
 
