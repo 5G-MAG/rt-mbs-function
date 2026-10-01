@@ -239,6 +239,14 @@ public:
     /* Whether a Distribution Session this request added is still waiting for its MB-SMF or MBSTF
        outcome, in which case the request is answered from that outcome rather than now. */
     bool awaitsDownstreamOutcome(const std::shared_ptr<Open5GSSBIRequest> &request) const;
+    /* Whether this request changed existing Distribution Sessions whose MB-SMF or MBSTF outcome is still
+       to come, in which case it is answered from those outcomes rather than now. */
+    bool awaitsUpdateOutcome(const std::shared_ptr<Open5GSSBIRequest> &request);
+    /* One outcome of a change to an existing Distribution Session: from the MB-SMF or from the MBSTF, a
+       refusal when cause is given. */
+    void noteUpdateOutcome(const std::string &key, bool from_mbsmf, const std::optional<fiveg_mag_reftools::ProblemCause> &cause,
+                           const std::optional<fiveg_mag_reftools::CJson> &problem_detail_json);
+    static void mbstfRequestTimedOut(ogs_sbi_xact_t *xact);
     bool resetReceivedMBSTFResponseFlags();
     bool checkIfAllMBSTFPatchResponsesReceived();
 
@@ -347,6 +355,10 @@ public:
     /** Answer a request whose requested Distribution Sessions all failed with differing causes, as MBS
      *  problem details carrying each session's cause instead of a single one. */
     void sendDistSessionFailures(const std::shared_ptr<ContextData> &context_data);
+    static void sendDownstreamRefusal(ogs_pool_id_t stream_id, bool negotiated, const std::optional<fiveg_mag_reftools::ProblemCause> &cause,
+                                      const std::optional<fiveg_mag_reftools::CJson> &problem_detail_json, const std::string &error);
+    void restoreFromSnapshot(const std::string &key, const std::shared_ptr<ContextData> &context_data, bool resync_mbsmf);
+    void finishPendingUpdate();
 
     /** Attach the MBS Service Areas the MB-SMF reduced, for an update response.
      *
@@ -416,7 +428,7 @@ public:
      */
     static void registerDistSessionEstFailure(ogs_sbi_xact_t *xact, const std::string &reason);
     static bool handlePatchUpdateResponse(ogs_sbi_xact_t *xact, const std::shared_ptr<reftools::mbsf::DistSession> &dist_session);
-    static void rollbackMBSTFDistSessionState(ogs_sbi_xact_t *xact);
+    static void rollbackMBSTFDistSessionState(ogs_sbi_xact_t *xact, int status = 0);
 
     static void sendNotificationsEvent(const std::shared_ptr<UserDataIngDistSessId> &user_data_ing_dist_sess_ids);
     static void sendMbsmfActivityStatus(const std::shared_ptr<UserDataIngDistSessId> &user_data_ing_dist_sess_ids);
@@ -473,6 +485,24 @@ private:
        what TS 29.580 requires the failure map to be keyed by. Empty whenever the outcome was not
        mixed, since the all-failed case is still answered as an error. */
     std::map<std::string, std::shared_ptr< reftools::mbsf::MbsDistSessFailure > > m_failedDistSessions;
+
+    /* A PUT or PATCH that changed existing Distribution Sessions and is answered once the MB-SMF and the
+       MBSTF have answered for them. One at a time: an update arriving while one waits is answered at once,
+       as before. */
+    struct UpdateFailure {
+        std::optional<fiveg_mag_reftools::ProblemCause> cause;
+        std::optional<fiveg_mag_reftools::CJson> problemDetailJson;
+    };
+    struct PendingUpdate {
+        std::shared_ptr<Open5GSSBIRequest> request;
+        ogs_pool_id_t streamId;
+        bool armed = false;
+        std::set<std::string> keys;
+        std::set<std::string> awaitingMbsmf;
+        std::set<std::string> awaitingMbstf;
+        std::map<std::string, UpdateFailure> failures;
+    };
+    std::optional<PendingUpdate> m_pendingUpdate;
     // Whether this session's create has been answered. Until it has, a failed MB-SMF outcome belongs
     // to the create, which is undone by deleting the session; afterwards it belongs to an update.
     bool m_createAnswered = false;

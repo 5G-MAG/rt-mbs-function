@@ -333,6 +333,8 @@ void MBSFEventHandler::dispatch(Open5GSFSM &fsm, Open5GSEvent &event)
                        pass through it untouched. */
                     UserDataIngSession::registerDistSessionEstFailure(sbi_xact,
                             "MBSTF did not answer the MBS Distribution Session creation");
+                    /* Likewise an Nmb2 update that an MBS User Data Ingest Session update is waiting on. */
+                    UserDataIngSession::mbstfRequestTimedOut(sbi_xact);
 
                     /* A consumer DELETE waits on a stream this transaction does not name:
                        assoc_stream_id still carries the stream the Distribution Session was

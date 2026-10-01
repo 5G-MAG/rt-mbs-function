@@ -300,7 +300,7 @@ bool Nmb2Handler::processEvent(Open5GSEvent &event)
                         UserDataIngSession::handlePatchUpdateResponse(sbi_xact, nullptr);
                      } else {
                          ogs_error("MBSTF Patch Update failed");
-                         UserDataIngSession::rollbackMBSTFDistSessionState(sbi_xact);
+                         UserDataIngSession::rollbackMBSTFDistSessionState(sbi_xact, message.resStatus());
                      }
                 } else {
                     ogs_error("Invalid HTTP method [%s]", method.c_str());
