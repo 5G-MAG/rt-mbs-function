@@ -286,7 +286,18 @@ bool Nmb2Handler::processEvent(Open5GSEvent &event)
                             }
                             handle_mbstf_dist_session_response(sbi_xact, response, true);
                             //UserDataIngSession::handlePatchUpdateResponse(sbi_xact);
+                        } else {
+                            /* TS 29.581 V18.6.0 table 6.1.3.3.3.1-3, row 200 OK: “Upon success, a response body containing the updated representation of Distribution Session shall be returned”
+                               Without that body nothing was handled, so the update was never resolved either
+                               way. */
+                            ogs_error("MBSTF answered the Patch Update 200 without a DistSession");
+                            UserDataIngSession::rollbackMBSTFDistSessionState(sbi_xact);
                         }
+                    } else if (message.resStatus() == OGS_SBI_HTTP_STATUS_NO_CONTENT) {
+                        /* The same table lists 204 No Content as a “Successful response”, with no
+                           representation, so the stored DistSession is kept. Treating it as a failure
+                           rolled back an update the MBSTF had applied. */
+                        UserDataIngSession::handlePatchUpdateResponse(sbi_xact, nullptr);
                      } else {
                          ogs_error("MBSTF Patch Update failed");
                          UserDataIngSession::rollbackMBSTFDistSessionState(sbi_xact);
