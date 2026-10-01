@@ -347,10 +347,16 @@ static bool handle_mbstf_dist_session_response(ogs_sbi_xact_t *xact, Open5GSSBIR
     try {
         create_rsp_data_from_mbstf = CJson::parse(response.content());
     } catch (std::exception &ex) {
-        if (!update) {
-            UserDataIngSession::registerDistSessionEstFailure(xact,
-                    std::string("MBSTF creation response is not JSON: ") + ex.what());
+        if (update) {
+            /* An update answered with a body that cannot be read is an update that failed: the
+               Distribution Session stays, as for any refused update. Deleting it here took down
+               every MBSTF session of the ingest session over one unreadable answer. */
+            ogs_error("MBSTF Patch Update response is not JSON: %s", ex.what());
+            UserDataIngSession::rollbackMBSTFDistSessionState(xact, response.status());
+            return true;
         }
+        UserDataIngSession::registerDistSessionEstFailure(xact,
+                std::string("MBSTF creation response is not JSON: ") + ex.what());
         UserDataIngSession::deleteMBSTFSession(xact);
         send_error(xact);
         return true;
@@ -368,10 +374,14 @@ static bool handle_mbstf_dist_session_response(ogs_sbi_xact_t *xact, Open5GSSBIR
             dist_session = create_rsp_data->getDistSession();
         }
     } catch (std::exception &err) {
-        if (!update) {
-            UserDataIngSession::registerDistSessionEstFailure(xact,
-                    std::string("MBSTF creation response did not parse as CreateRspData: ") + err.what());
+        if (update) {
+            // As above: a failed update, not a reason to delete the Distribution Session.
+            ogs_error("MBSTF Patch Update response did not parse as DistSession: %s", err.what());
+            UserDataIngSession::rollbackMBSTFDistSessionState(xact, response.status());
+            return true;
         }
+        UserDataIngSession::registerDistSessionEstFailure(xact,
+                std::string("MBSTF creation response did not parse as CreateRspData: ") + err.what());
         UserDataIngSession::deleteMBSTFSession(xact);
         char *error = ogs_msprintf("%s", err.what());
         ogs_error("%s", error);
