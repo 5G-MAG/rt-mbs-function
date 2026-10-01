@@ -232,6 +232,43 @@ MBSMFMBSSession &MBSMFMBSSession::setLocationDependent(bool location_dependent)
     return *this;
 }
 
+/* What an MB-SMF refusal becomes in the MBSF's own answer: a cause and, where the MB-SMF gave one, its
+   problem detail.
+
+   A cause matched in the propagation table, or the generic case that at least carries a problem_detail,
+   is a better answer than a bare INBOUND_SERVER_ERROR with none, so the bare cause is used only with no
+   problem_details at all, or when they cannot be copied.
+
+   A cause with no Nmbsf equivalent (propagationTable maps it to nothing, or does not list it) is itself
+   withheld, as the table intends, but the rest of the MB-SMF's account is kept. Discarding all of it left
+   the consumer with neither the MB-SMF's status nor its detail, only a fallback text that prints internal
+   pointer addresses.
+
+   Used for a create's refusal and for an update's, so both are reported alike. */
+static std::pair<fiveg_mag_reftools::ProblemCause, std::optional<CJson>> mbsmfRefusal(int result,
+                                                                                      const OpenAPI_problem_details_t *problem_details)
+{
+    ogs_debug("MB-SMF request failed: result %i, problem_details %s, cause [%s]", result,
+              problem_details ? "present" : "absent",
+              (problem_details && problem_details->cause) ? problem_details->cause : "");
+    if (result != OGS_ERROR || !problem_details) return {ProblemCause::INBOUND_SERVER_ERROR, std::nullopt};
+
+    CJson problem_detail(OpenAPI_problem_details_convertToJSON(const_cast<OpenAPI_problem_details_t*>(problem_details)), true);
+    if (!problem_details->cause) return {ProblemCause::INBOUND_SERVER_ERROR, problem_detail};
+
+    std::optional<fiveg_mag_reftools::ProblemCause> cause = MBSProblemCause::lookup(std::string(problem_details->cause));
+    if (cause.has_value()) return {cause.value(), problem_detail};
+
+    OpenAPI_problem_details_t *without_cause =
+        OpenAPI_problem_details_copy(nullptr, const_cast<OpenAPI_problem_details_t*>(problem_details));
+    if (!without_cause) return {ProblemCause::INBOUND_SERVER_ERROR, std::nullopt};
+    ogs_free(without_cause->cause);
+    without_cause->cause = nullptr;
+    CJson detail_only(OpenAPI_problem_details_convertToJSON(without_cause), true);
+    OpenAPI_problem_details_free(without_cause);
+    return {ProblemCause::INBOUND_SERVER_ERROR, detail_only};
+}
+
 bool MBSMFMBSSession::processEvent(Open5GSEvent &MBSMFEvent)
 {
     ogs_event_t *event = MBSMFEvent.ogsEvent();
@@ -281,63 +318,27 @@ bool MBSMFMBSSession::processEvent(Open5GSEvent &MBSMFEvent)
                             }
                         }
                         UserDataIngSession::setMBSSessionFlag(*ids);
-                    } else if (mbsf_event->result == OGS_ERROR) {
-                        // The generic fallback below runs only when nothing more specific has already answered. A cause
-                        // matched above (the registered 403 MBS_DIST_SESSION_ALREADY_CREATED, say), or the generic case
-                        // that at least carries a problem_detail, is a better answer than a bare INBOUND_SERVER_ERROR
-                        // with none; letting the fallback run as well would replace it and leave the client seeing only
-                        // the generic 502-class error whatever MB-SMF actually reported. The flag records that an answer
-                        // has been sent, so the bare call is reached only with no problem_details at all or an
-                        // unregistered cause string.
-                        bool cause_handled = false;
-                        ogs_debug("MB-SMF create failed: problem_details %s, cause [%s]",
-                                  mbsf_event->problem_details ? "present" : "absent",
-                                  (mbsf_event->problem_details && mbsf_event->problem_details->cause) ?
-                                      mbsf_event->problem_details->cause : "");
-                        if (mbsf_event->problem_details) {
-                            cJSON *problem = OpenAPI_problem_details_convertToJSON((OpenAPI_problem_details_t*)mbsf_event->problem_details);
-                            CJson problem_detail(problem, true);
-                            if (mbsf_event->problem_details->cause) {
-                                std::optional<fiveg_mag_reftools::ProblemCause> cause =
-                                            MBSProblemCause::lookup(std::string(mbsf_event->problem_details->cause));
-                                if (cause.has_value()) {
-                                    UserDataIngSession::setMBSSessionFailureFlag(*ids, cause.value(), problem_detail);
-                                    cause_handled = true;
-                                } else {
-                                    /* A cause with no Nmbsf equivalent: propagationTable maps it to nothing, or
-                                       does not list it. The cause itself is still withheld, as the table intends,
-                                       but the rest of the MB-SMF's account is kept. Falling through to the bare
-                                       call below discarded all of it, so the consumer got neither the MB-SMF's
-                                       status nor its detail, only a fallback text that prints internal pointer
-                                       addresses. */
-                                    OpenAPI_problem_details_t *without_cause =
-                                        OpenAPI_problem_details_copy(nullptr, mbsf_event->problem_details);
-                                    if (without_cause) {
-                                        ogs_free(without_cause->cause);
-                                        without_cause->cause = nullptr;
-                                        CJson detail_only(OpenAPI_problem_details_convertToJSON(without_cause), true);
-                                        OpenAPI_problem_details_free(without_cause);
-                                        UserDataIngSession::setMBSSessionFailureFlag(*ids, ProblemCause::INBOUND_SERVER_ERROR,
-                                                                                     detail_only);
-                                        cause_handled = true;
-                                    }
-                                }
-                            } else {
-                                UserDataIngSession::setMBSSessionFailureFlag(*ids, ProblemCause::INBOUND_SERVER_ERROR, problem_detail);
-                                cause_handled = true;
-                            }
-                        }
-                        if (!cause_handled) {
-                            UserDataIngSession::setMBSSessionFailureFlag(*ids, ProblemCause::INBOUND_SERVER_ERROR);
-                        }
                     } else {
-                        UserDataIngSession::setMBSSessionFailureFlag(*ids, ProblemCause::INBOUND_SERVER_ERROR);
+                        // A cause matched in the propagation table, or the MB-SMF's detail with a cause this API
+                        // does not define removed, or the generic INBOUND_SERVER_ERROR where nothing more is known;
+                        // mbsmfRefusal() gives the reasoning.
+                        const auto refusal = mbsmfRefusal(mbsf_event->result, mbsf_event->problem_details);
+                        UserDataIngSession::setMBSSessionFailureFlag(*ids, refusal.first, refusal.second);
                     }
                 }
                 break;
             case MBSF_LOCAL_EVENT_MBS_SESSION_DELETED:
                 ids = reinterpret_cast<UserDataIngDistSessId*>(event->sbi.data);
                 UserDataIngSession::setMBSSessionDeleted(*ids);
+                break;
+            case MBSF_LOCAL_EVENT_MBS_SESSION_UPDATE_RESULT:
+                ids = reinterpret_cast<UserDataIngDistSessId*>(event->sbi.data);
+                if (mbsf_event->result == OGS_OK) {
+                    UserDataIngSession::setMBSSessionUpdateResult(*ids, std::nullopt, std::nullopt);
+                } else {
+                    const auto refusal = mbsmfRefusal(mbsf_event->result, mbsf_event->problem_details);
+                    UserDataIngSession::setMBSSessionUpdateResult(*ids, refusal.first, refusal.second);
+                }
                 break;
             default:
                 ogs_warn("Unexpected local event: %s", mbsfEventGetName(event));
@@ -378,6 +379,8 @@ const char *MBSMFMBSSession::mbsfLocalGetName(LocalEvent *mbsf_event)
         return "MBSF_LOCAL_EVENT_MBS_SESSION_CREATE_RESULT";
     case MBSF_LOCAL_EVENT_MBS_SESSION_NOTIFY:
         return "MBSF_LOCAL_EVENT_MBS_SESSION_NOTIFY";
+    case MBSF_LOCAL_EVENT_MBS_SESSION_UPDATE_RESULT:
+        return "MBSF_LOCAL_EVENT_MBS_SESSION_UPDATE_RESULT";
     default:
         break;
     }
@@ -441,10 +444,29 @@ void MBSMFMBSSession::mbsSessionCallback(mb_smf_sc_mbs_session_t *session, int r
     }
 }
 
+void MBSMFMBSSession::mbsSessionUpdateCallback(mb_smf_sc_mbs_session_t *session, int result, const OpenAPI_problem_details_t *problem_details, void *data)
+{
+    MBSMFMBSSession *mbs_session = reinterpret_cast<MBSMFMBSSession*>(data);
+
+    mbs_session->m_changesInFlight = false;
+
+    ogs_debug("MB-SMF update result callback (%i)", result);
+
+    sendLocalEvent(MBSF_LOCAL_EVENT_MBS_SESSION_UPDATE_RESULT, session, result, problem_details, mbs_session->m_id);
+
+    if (mbs_session->m_sendUpdates) {
+        mbs_session->m_sendUpdates = false;
+        mbs_session->pushChanges();
+    }
+}
+
 MBSMFMBSSession &MBSMFMBSSession::setCallback(const UserDataIngDistSessId &dist_sess_id)
 {
     m_id = dist_sess_id;
     mb_smf_sc_mbs_session_set_callback(m_session, mbsSessionCallback, reinterpret_cast<void*>(this));
+    /* An update's result is not a create's. Reported through the create path, a refused update marked
+       the MBS Session as failed to be created, and the Distribution Session was taken down with it. */
+    mb_smf_sc_mbs_session_set_update_callback(m_session, mbsSessionUpdateCallback, reinterpret_cast<void*>(this));
 
     return *this;
 }

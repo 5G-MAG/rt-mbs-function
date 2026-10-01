@@ -41,12 +41,12 @@ using reftools::mbsf::Tmgi;
 using reftools::mbsf::PlmnId;
 
 /* Link seam, not test behaviour: MBSMFMBSSession.cc's own processEvent()/
- * sendLocalNotifyEvent()/mbsSessionNotifyCallback() (none of which this test calls) reach four
+ * sendLocalNotifyEvent()/mbsSessionNotifyCallback() (none of which this test calls) reach five
  * UserDataIngSession:: static methods, and the real UserDataIngSession.cc that defines them
  * needs App::self() -- a singleton this test deliberately never constructs (App::App() parses a
  * full mbsf.yaml and opens real SBI listener sockets, App.cc's own initialise(); unsuitable for
  * a unit test, and unsafe to run here while a real MBSF may be listening on those same ports).
- * Providing narrow stand-ins for exactly these four declared-but-otherwise-unreachable-from-this-
+ * Providing narrow stand-ins for exactly these five declared-but-otherwise-unreachable-from-this-
  * test methods keeps the real UserDataIngSession.cc/App.cc out of this binary's link entirely.
  * Bodies are never exercised by any path this test takes. */
 MBSF_NAMESPACE_START
@@ -54,6 +54,9 @@ bool UserDataIngSession::tmgi(mb_smf_sc_tmgi_t *, const UserDataIngDistSessId &)
 void UserDataIngSession::setMBSSessionFlag(const UserDataIngDistSessId &) {}
 void UserDataIngSession::setMBSSessionDeleted(const UserDataIngDistSessId &) {}
 void UserDataIngSession::setMBSSessionFailureFlag(const UserDataIngDistSessId &,
+        const std::optional<fiveg_mag_reftools::ProblemCause> &,
+        const std::optional<fiveg_mag_reftools::CJson> &) {}
+void UserDataIngSession::setMBSSessionUpdateResult(const UserDataIngDistSessId &,
         const std::optional<fiveg_mag_reftools::ProblemCause> &,
         const std::optional<fiveg_mag_reftools::CJson> &) {}
 MBSF_NAMESPACE_STOP

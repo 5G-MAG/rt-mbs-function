@@ -2080,6 +2080,10 @@ void UserDataIngSession::processUserDataIngSessionUpdate(ogs_pool_id_t stream_id
             // update
             if (planned.content_changed) {
                 planned.context_data->needsUpdate = true;
+                /* Kept so that an update the MB-SMF refuses can be undone. The update replaces members
+                   rather than changing the objects they point to, so a copy taken now is the session as
+                   it stood. */
+                planned.context_data->preUpdateInfo = std::make_shared<MBSDistributionSessionInfo>(*planned.stored_info);
                 planned.context_data->distributionSessionInfo->updateMBSDistributionSessionInfo(planned.update_info);
             } else if (planned.orig_update_state != planned.stored_info->getMbsDistSessState()) {
                 planned.context_data->stateUpdate = true;
@@ -3147,6 +3151,43 @@ void UserDataIngSession::setMBSSessionFailureFlag(const UserDataIngDistSessId &i
         std::ostringstream err;
         err << "MBS User Data Ingest Session [" << ids_first << "] does not exist.";
         ogs_error("%s", err.str().c_str());
+    }
+}
+
+void UserDataIngSession::setMBSSessionUpdateResult(const UserDataIngDistSessId &ids, const std::optional<fiveg_mag_reftools::ProblemCause> &cause, const std::optional<CJson> &problem_detail_json)
+{
+    try {
+        std::shared_ptr<UserDataIngSession> ing_sess = locate(ids.first);
+        std::shared_ptr<ContextData> context_data = ing_sess->getDistributionSessionInfoData(ids.second);
+        if (!context_data) return;
+        if (!cause.has_value()) {
+            context_data->preUpdateInfo.reset();
+            return;
+        }
+
+        /* The MB-SMF still holds the MBS Session as it was before this update, and the service consumer
+           has put its own copy back, so the MBSF's representation goes back too: otherwise it would
+           report, and announce, a session the MB-SMF does not have. The MBSTF was sent the updated
+           Distribution Session alongside, so it is sent the restored one. */
+        ogs_error("MB-SMF refused the update of MBS Distribution Session [%s] (%s); restoring it",
+                  ids.second.c_str(), cause->cause().c_str());
+        context_data->mbsmfProblemCause = cause;
+        context_data->mbsmfProblemDetailJson = problem_detail_json;
+        if (context_data->preUpdateInfo) {
+            const auto &stored = ing_sess->m_MBSUserDataIngSession->getMbsDisSessInfos();
+            auto it = stored.find(ids.second);
+            if (it != stored.end() && it->second.has_value() && it->second.value()) {
+                *it->second.value() = *context_data->preUpdateInfo;
+            }
+            if (context_data->info && (it == stored.end() || context_data->info != it->second.value())) {
+                *context_data->info = *context_data->preUpdateInfo;
+            }
+            context_data->preUpdateInfo.reset();
+            context_data->needsUpdate = true;
+            ing_sess->sendLocalEventPatch(ids.second);
+        }
+    } catch (const std::out_of_range &e) {
+        ogs_error("MBS User Data Ingest Session [%s] does not exist.", ids.first.c_str());
     }
 }
 
