@@ -22,6 +22,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "common.hh"
 #include "openapi/model/CJson.hh"
@@ -30,6 +31,7 @@
 MBSF_NAMESPACE_START
 
 class Open5GSSBIMessage;
+class Open5GSSBIRequest;
 class Open5GSSBIResponse;
 class Open5GSSBIStream;
 
@@ -103,7 +105,8 @@ public:
                           const std::optional<std::string> &detail = std::nullopt,
                           const std::optional<fiveg_mag_reftools::CJson> &problem_detail_json = std::nullopt,
                           const std::optional<std::map<std::string,std::string> > &invalid_params = std::nullopt,
-                          const std::optional<std::string> &problem_type = std::nullopt);
+                          const std::optional<std::string> &problem_type = std::nullopt,
+                          const std::optional<std::string> &allow_methods = std::nullopt);
 
     static bool sendError(Open5GSSBIStream &stream, const fiveg_mag_reftools::ProblemCause &cause, size_t number_of_components,
                           const Open5GSSBIMessage &message, const AppMetadata &app,
@@ -112,7 +115,26 @@ public:
                           const std::optional<std::string> &detail = std::nullopt,
                           const std::optional<fiveg_mag_reftools::CJson> &problem_detail_json = std::nullopt,
                           const std::optional<std::map<std::string,std::string> > &invalid_params = std::nullopt,
-                          const std::optional<std::string> &problem_type = std::nullopt);
+                          const std::optional<std::string> &problem_type = std::nullopt,
+                          const std::optional<std::string> &allow_methods = std::nullopt);
+
+    /** The absolute URI of a resource served by the server that received this request.
+     *
+     * TS 29.580 V18.8.0 has each create respond “including an HTTP Location header field containing
+     * the URI of the created resource”, and TS 29.500 V18.10.0 has a consumer take the apiRoot from
+     * that header for later requests through an SCP. A path on its own carries no apiRoot, so it
+     * cannot serve that purpose.
+     *
+     * The authority comes from the server the request arrived on, through its advertise address,
+     * which is what that server tells the NRF it is reachable at.
+     *
+     * \param stream     The stream the request arrived on.
+     * \param message    The request, for its service name and API version.
+     * \param components The resource path components after the API version.
+     * \return the absolute URI, or an empty string if the server cannot be identified.
+     */
+    static std::string resourceUri(Open5GSSBIStream &stream, const Open5GSSBIMessage &message,
+                                   const std::vector<std::string> &components);
 
     static std::shared_ptr<Open5GSSBIResponse> newResponse(const std::optional<std::string> &location,
                                                            const std::optional<std::string> &content_type,
@@ -124,7 +146,47 @@ public:
 
     static std::shared_ptr<Open5GSSBIResponse> populateResponse(std::shared_ptr<Open5GSSBIResponse> &response, const std::string &content, int status);
 
+    /** Refuse a request whose Content-Encoding names a coding this NF does not decode.
+     *
+     * Answers 415 with an Accept-Encoding header naming what would have been accepted, and
+     * returns true. Returns false, having sent nothing, when the request carries no content
+     * coding or names the identity coding.
+     */
+    static bool refuseUnsupportedContentCoding(Open5GSSBIRequest &request, Open5GSSBIStream &stream,
+                                               size_t number_of_components, Open5GSSBIMessage &message,
+                                               const AppMetadata &app,
+                                               const std::optional<InterfaceMetadata> &interface);
+
+    /** Refuse a PATCH whose request body is not a patch document this NF applies.
+     *
+     * Answers 415 with an Accept-Patch header naming what would have been accepted, and returns
+     * true. Returns false, having sent nothing, when the Content-Type is
+     * "application/merge-patch+json".
+     *
+     * TS 29.500 V18.10.0 clause 5.2.7.2: “If the HTTP PATCH method is rejected due to unsupported
+     * patch document, the NF shall include the Accept-Patch header field set to the value of
+     * supported patch document media types for a target resource i.e. to
+     * "application/merge-patch+json" if the NF supports "JSON Merge Patch" and to
+     * "application/json-patch+json" if the NF supports "JSON Patch".”
+     *
+     * This NF applies JSON Merge Patch and not JSON Patch, so the header names the one it applies.
+     */
+    static bool refuseUnsupportedPatchDocument(Open5GSSBIRequest &request, Open5GSSBIStream &stream,
+                                               size_t number_of_components, Open5GSSBIMessage &message,
+                                               const AppMetadata &app,
+                                               const std::optional<InterfaceMetadata> &interface);
+
     static std::map<std::string, std::string> makeInvalidParams(const std::string &param, const std::string &reason);
+
+    // TS 29.500 V18.10.0 table 5.2.7.1-1 marks HTTP 406 mandatory for GET, generically across the 5GC
+    // SBI APIs (table 5.2.7.2-1 defines no named cause for it). RFC 9110 s12.5.1: "A request without
+    // any Accept header field implies that the user agent will accept any media type in response" --
+    // only present-and-incompatible Accept values make a response unacceptable. This checks whether
+    // media_type (the single, fixed content type this NF is about to serve -- it never negotiates among
+    // several) is compatible with one of accept_header's comma-separated media ranges, ignoring any
+    // ";q=..."/other parameters (this NF has only one representation to offer, so relative preference
+    // never changes the outcome, only presence/absence of a compatible range does).
+    static bool acceptsMediaType(const std::optional<std::string> &accept_header, const std::string &media_type);
 
 private:
     static bool __sendError(Open5GSSBIStream &stream, int status, const std::optional<fiveg_mag_reftools::ProblemCause> &cause,
@@ -135,7 +197,8 @@ private:
                             const std::optional<std::string> &detail = std::nullopt,
                             const std::optional<fiveg_mag_reftools::CJson> &problem_detail_json = std::nullopt,
                             const std::optional<std::map<std::string,std::string> > &invalid_params = std::nullopt,
-                            const std::optional<std::string> &problem_type = std::nullopt);
+                            const std::optional<std::string> &problem_type = std::nullopt,
+                            const std::optional<std::string> &allow_methods = std::nullopt);
 };
 
 MBSF_NAMESPACE_STOP

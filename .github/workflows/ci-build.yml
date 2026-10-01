@@ -1,0 +1,25 @@
+name: Build check
+
+on:
+  push:
+
+jobs:
+  build:
+    name: Ubuntu ${{ matrix.ubuntu }}
+    runs-on: ubuntu-${{ matrix.ubuntu }}
+    strategy:
+      fail-fast: false
+      matrix:
+        ubuntu: ["24.04", "26.04"]
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build MBSF
+        run: >-
+          docker build --file docker/local/Dockerfile --target building
+          --build-arg UBUNTU_VERSION=${{ matrix.ubuntu }}
+          --tag mbsf-ci:${{ matrix.ubuntu }} .

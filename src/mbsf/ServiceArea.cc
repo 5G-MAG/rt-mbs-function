@@ -122,6 +122,28 @@ void ServiceArea::tais(mb_smf_sc_mbs_service_area_t *mbs_service_area) {
 }
 
 
+
+std::shared_ptr<MbsServiceArea> ServiceArea::fromServiceArea(const mb_smf_sc_mbs_service_area_t *area)
+{
+    if (!area) return nullptr;
+
+    std::shared_ptr<MbsServiceArea> result(new MbsServiceArea());
+
+    mb_smf_sc_ncgi_tai_t *ncgi_tai;
+    ogs_list_for_each(&area->ncgi_tais, ncgi_tai) {
+        std::shared_ptr<NcgiTai> entry = MBSNcgiTai::fromNcgiTai(ncgi_tai);
+        if (entry) result->addNcgiList(entry);
+    }
+
+    mb_smf_sc_tai_t *tai;
+    ogs_list_for_each(&area->tais, tai) {
+        std::shared_ptr<Tai> entry = TrackingAreaIdentity::fromTai(tai);
+        if (entry) result->addTaiList(entry);
+    }
+
+    return result;
+}
+
 MBSF_NAMESPACE_STOP
 
 /* vim:ts=8:sts=4:sw=4:expandtab:

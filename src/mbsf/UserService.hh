@@ -25,6 +25,9 @@
 
 #include <chrono>
 #include <memory>
+#include <mutex>
+#include <string>
+#include <vector>
 #include "openapi/model/MBSUserService.h"
 #include "common.hh"
 #include "UserServiceDesc.hh"
@@ -38,6 +41,7 @@ MBSF_NAMESPACE_START
 class DistributionSessionDesc;
 class Open5GSEvent;
 class UserServiceDesc;
+class UserDataIngSession;
 
 class UserService {
 public:
@@ -45,6 +49,30 @@ public:
 
     enum {
         LOCAL_REMOVE_EVENT = OGS_MAX_NUM_OF_PROTO_EVENT + 1700
+    };
+
+    /** Which MBS User Services resource a request path names.
+     *
+     * TS 29.580 defines two: the collection and an individual MBS User Service. A path with a
+     * component after the identifier names neither.
+     */
+    enum class Route {
+        Collection,   //!< /mbs-user-services
+        Individual,   //!< /mbs-user-services/{mbsUserServId}
+        NoSuchResource //!< a component after the identifier, which no resource of this API defines
+    };
+
+    /** Decide the resource from the path components after the service and version.
+     *
+     * A named rule, taking the components rather than a message, so the decision can be tested
+     * without a live SBI stream: the dispatcher that uses it needs one and the tests do not.
+     *
+     * \param resource1 the component after "mbs-user-services", or nullptr when absent.
+     * \param resource2 the component after that, or nullptr when absent.
+     */
+    static Route route(const char *resource1, const char *resource2) {
+        if (resource2) return Route::NoSuchResource;
+        return resource1 ? Route::Individual : Route::Collection;
     };
 
     UserService(fiveg_mag_reftools::CJson &json, bool as_request);
@@ -61,6 +89,15 @@ public:
 
     static const std::shared_ptr<UserService> &find(const std::string &id); // throws std::out_of_range if id does not exist
     void update(fiveg_mag_reftools::CJson &json, bool as_request);
+
+    /** Apply a merge patch to this MBS User Service.
+     *
+     * TS 29.580 V18.8.0 table 6.1.3.3.3.3-2 gives the PATCH request body as MBSUserServicePatch,
+     * and clause 6.1.2.2 requires it to be a JSON Merge Patch. Only the attributes that type
+     * defines can be modified; servType is not among them, and is not settable here for the same
+     * reason it cannot change on a PUT.
+     */
+    void modify(fiveg_mag_reftools::CJson &json, bool as_request);
     const std::string &userServiceId() const { return m_UserServiceId; };
     const std::shared_ptr<reftools::mbsf::MBSUserService> &getMBSUserService() const {return m_MBSUserService;};
     const reftools::mbsf::MBSUserService::ExtServiceIdsType &serviceIds() const {return m_MBSUserService->getExtServiceIds();};
@@ -81,12 +118,24 @@ public:
     void addUserDataIngSession(const std::shared_ptr<UserDataIngSession> &userIngSession);
     void deleteUserDataIngSession(const std::string &userIngSessionId);
     const std::shared_ptr<UserDataIngSession> &findUserDataIngSession(const std::string &id) const;
+    // MBS-5 (TS 26.517 cl.9.2) needs to enumerate every active Ingest Session of a matching
+    // UserService to assemble a complete User Service Descriptions Bundle -- m_userDataIngSessions
+    // itself stays private (callers must not mutate the map directly), this is a read-only
+    // snapshot of its values.
+    std::vector<std::shared_ptr<UserDataIngSession>> userDataIngSessions() const;
     void removeUserDataIngSession(const std::string &userIngSessionId);
     void removeAllUserDataIngSessions();
     std::list<std::shared_ptr<UserServiceDesc::serviceNameLanguageDescription>> UserServiceDescriptionDescs();
     std::list<std::shared_ptr<UserServiceDesc::serviceNameLanguageDescription>> UserServiceDescriptionNames();
 
     bool requiresUserServiceAnnouncement();
+    // Broader than requiresUserServiceAnnouncement() above (which checks VIA_MBS_DISTRIBUTION_SESSION
+    // only -- correctly, for its own callers, which gate the MBS-4-MC carousel channel specifically).
+    // This checks whether an on-disk UserServiceAnnBundle needs to exist for VIA_MBS_5 (this MBSF's
+    // own co-located MBS AF, UserServiceDiscoveryHandler) or VIA_MBS_DISTRIBUTION_SESSION (MBS-4-MC
+    // carousel). PASSED_BACK is deliberately excluded here -- see the .cc file's own comment at this
+    // function's PASSED_BACK case for why.
+    bool requiresUserServiceAnnouncementBundle();
     static bool canMbsfHandleServiceAnnouncementModes(const fiveg_mag_reftools::CJson &json, bool as_request);
     static bool checkAndSetUserServiceAnnouncementChannel(const fiveg_mag_reftools::CJson &json, bool as_request);
 

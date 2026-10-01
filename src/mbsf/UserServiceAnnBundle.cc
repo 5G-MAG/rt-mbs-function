@@ -47,6 +47,7 @@
 
 // App header includes
 #include "common.hh"
+#include "ServiceAnnouncementMediaTypes.hh"
 #include "App.hh"
 #include "Context.hh"
 #include "DistributionSessionInfo.hh"
@@ -177,7 +178,7 @@ bool UserServiceAnnBundle::writeAnnouncement()
     std::string err;
     bool rv = writeToFile(abs_directory_path.string(), user_service_announcement_file_name, json_str, err);
     if (rv) {
-        rv = writeToFile(metadata_dir.string(), user_service_announcement_file_name, "Content-Type: application/3gpp-mbs-user-service-descriptions+json;version=\"Rel17\"\r\n", err);
+        rv = writeToFile(metadata_dir.string(), user_service_announcement_file_name, "Content-Type: " USER_SERVICE_DESCRIPTIONS_MIME_TYPE "\r\n", err);
         if (rv) {
             addToServingFiles(user_service_announcement_file_name);
         } else {
@@ -202,7 +203,14 @@ bool UserServiceAnnBundle::writeServiceDescriptionProtocolDoc(const std::shared_
 
     std::filesystem::path sdp_filename{dist_session_ctx->distSessionInfoKey + ".sdp"};
 
-    std::string session_name = user_data_ing_session->mbsUserService()->getMBSUserService()->getServNameDescs().front().value()->getServName().value_or(std::string("-"));
+    // servNameDescs is required with minItems:1 (TS29580_Nmbsf_MBSUserService.yaml), so front() itself
+    // is schema-safe. Each list entry is still individually optional in the generated model, wrapped in
+    // std::optional<std::shared_ptr<...>>, and front() being present says nothing about whether
+    // front()'s own optional is empty; hence the check below.
+    const auto &serv_name_descs = user_data_ing_session->mbsUserService()->getMBSUserService()->getServNameDescs();
+    std::string session_name = (!serv_name_descs.empty() && serv_name_descs.front().has_value())
+        ? serv_name_descs.front().value()->getServName().value_or(std::string("-"))
+        : std::string("-");
 
     auto [start_time, end_time] = user_data_ing_session->activeTimeRange();
     auto timings = TimingInformation::makeTimingInformation(start_time.value_or(TimingInformation::NO_TIMESTAMP),
@@ -231,32 +239,191 @@ bool UserServiceAnnBundle::writeServiceDescriptionProtocolDoc(const std::shared_
             ogs_error("Unknown SSM address type while building SDP file %s", sdp_filename.string().c_str());
             return false;
         }
-        svc_str = "multicast";
-    } else {
-        svc_str = "broadcast";
     }
-    if (dist_session_ctx->tmgi) {
-        uint64_t tmgi_val = std::stoll(dist_session_ctx->tmgi->mbs_service_id, nullptr, 16);
-        tmgi_val = (tmgi_val << 24) + (dist_session_ctx->tmgi->plmn.mcc2 << 20) + (dist_session_ctx->tmgi->plmn.mcc1 << 16) +
-                    (dist_session_ctx->tmgi->plmn.mnc3 << 12) + (dist_session_ctx->tmgi->plmn.mcc3 << 8) +
-                    (dist_session_ctx->tmgi->plmn.mnc2 << 4) + dist_session_ctx->tmgi->plmn.mnc1;;
-        svc_str += std::format(" {}", tmgi_val);
+
+    /* Without a source address there is no conformant session description to write, so refuse here
+       with the reason rather than a few lines further on as an out_of_range from the serialiser.
+
+       TS 26.346 V18.2.0 clause 7.3.2.1: “There shall be exactly one IP sender address per MBMS download session, and thus there shall be exactly one IP source address per complete MBMS download session SDP description.”
+
+       This is reachable for a Broadcast MBS Session, which carries no SSM and so reaches this point
+       with nothing to put in the source-filter. Which address such a session should declare is not
+       decided here: it is not the SSM source, and no clause or configuration option supplies it, so
+       inventing one would be a bound resting on nothing (RULES.md rule 12). Recorded against
+       5G-MAG/rt-mbs-function#53 and raised with the maintainers; until it is answered a Broadcast
+       session with no SSM has no announcement, and now says so. */
+    if (ssm_source.empty()) {
+        /* A Broadcast MBS Session carries no SSM, so the addresses come from the same place the MBSF
+           already takes them when it tells the MBSTF what to send: the broadcastDistribution
+           configuration, used for the Nmb9 flow addresses at Nmb2Build.cc:347-354. Those are the
+           addresses the FLUTE packets will actually carry, so they are what the session description
+           has to describe; taking them from anywhere else would announce one thing and send another.
+
+           TS 26.346 V18.2.0, clause 7.3.2.1: “There shall be exactly one IP sender address per MBMS download session, and thus there shall be exactly one IP source address per complete MBMS download session SDP description.”
+
+           IPv4 only, matching what the configuration documents and what the Nmb9 path above builds. */
+        const auto &bcast_source = App::self().context()->broadcastDistributionSourceAddress();
+        const auto &bcast_dest = App::self().context()->broadcastDistributionDestinationAddress();
+        if (!bcast_source.empty() && !bcast_dest.empty()) {
+            ssm_source = bcast_source;
+            ssm_dest = bcast_dest;
+            ssm_proto = "IN IP4";
+            family = AF_INET;
+        } else {
+            ogs_error("No source address for the session description of %s: a Broadcast MBS Session "
+                      "carries no SSM, and TS 26.346 clause 7.3.2.1 requires exactly one IP source "
+                      "address. Set mbsf.broadcastDistribution's sourceAddress and destinationAddress, "
+                      "the same pair the Nmb9 flow uses. No announcement is written for this "
+                      "Distribution Session.", sdp_filename.string().c_str());
+            return false;
+        }
+    }
+
+    /* The attribute states which kind of MBS Session delivers this Distribution Session, not how
+       its content is addressed. TS 26.517 V18.6.0 clause 6.2.2.2, table 6.2.2.2-1, row broadcast:
+       "The MBS Distribution Session is delivered using a Broadcast MBS Session."
+
+       Deriving it from the presence of an SSM address pair, as this did, is a different question:
+       a Broadcast MBS Session carries SSM-addressed content perfectly well, and every Broadcast
+       session provisioned with an SSM was therefore announced to receivers as multicast. The
+       service's own type is already carried per Distribution Session for exactly this kind of
+       decision (see UserDataIngSession.cc's own BROADCAST test), so use it, and fall back to the
+       address-shape guess only where the type is unknown. */
+    if (!dist_session_ctx->userServType.empty()) {
+        svc_str = (ogs_strcasecmp(dist_session_ctx->userServType.c_str(), "BROADCAST") == 0)
+                      ? "broadcast" : "multicast";
+    } else if (svc_str.empty()) {
+        svc_str = dist_session_ctx->ssm ? "multicast" : "broadcast";
+    }
+    /* A TMGI object can exist before the MB-SMF has assigned an MBS Service ID to it: the library
+       documents mb_smf_sc_tmgi_new() as creating a TMGI that "has no mbs_service_id", and the
+       field is a char* that is then NULL. std::stoll() on that constructs a std::string from a
+       null pointer, and on an empty or non-hex string throws std::invalid_argument; either way the
+       exception leaves this bundler, leaves the SBI request handler that called it, and ends the
+       process through std::terminate(), losing every other session over one request that arrived
+       while a TMGI was still being assigned. The announcement simply omits the TMGI until there is
+       one to announce. */
+    if (dist_session_ctx->tmgi && dist_session_ctx->tmgi->mbs_service_id &&
+            *dist_session_ctx->tmgi->mbs_service_id) {
+        uint64_t tmgi_val = 0;
+        bool tmgi_parsed = true;
+        try {
+            tmgi_val = std::stoull(dist_session_ctx->tmgi->mbs_service_id, nullptr, 16);
+        } catch (const std::exception &err) {
+            ogs_error("MBS Service ID [%s] is not a hexadecimal value, omitting the TMGI from the announcement: %s",
+                      dist_session_ctx->tmgi->mbs_service_id, err.what());
+            tmgi_parsed = false;
+        }
+        if (tmgi_parsed) {
+            tmgi_val = (tmgi_val << 24) + (dist_session_ctx->tmgi->plmn.mcc2 << 20) + (dist_session_ctx->tmgi->plmn.mcc1 << 16) +
+                        (dist_session_ctx->tmgi->plmn.mnc3 << 12) + (dist_session_ctx->tmgi->plmn.mcc3 << 8) +
+                        (dist_session_ctx->tmgi->plmn.mnc2 << 4) + dist_session_ctx->tmgi->plmn.mnc1;
+            svc_str += std::format(" {}", tmgi_val);
+        }
     }
 
 
-    auto &primary_language = user_data_ing_session->mbsUserService()->mainServiceLanguage();
-    auto media = MediaDescription::makeMediaDescription("application", dist_session_ctx->ssm_port, "FLUTE/UDP", "0");
+    /* The main service language is deliberately not carried in the Session Description. TS 26.517
+       V18.6.0 clause 6.2.2.1, Restrictions: "The Service-language(s) per media (clause 7.3.2.9 of
+       [7]) shall not be used. It is assumed that the service languages are described within an
+       application manifest." Clause 7.3.2.9 of TS 26.346 is the "a=lang" attribute. */
+    /* FLUTE/UDP is what identifies the Object Distribution Method, so it is declared only for a
+       session using it. TS 26.517 V18.6.0 clause 6.2.1: "The usage of this distribution method is
+       identified in the MBS Session Description metadata unit as defined in clause 6.2.3, in
+       particular by the indication of the protocol FLUTE/UDP in combination with the MBS service
+       type." Declaring it for a Packet Distribution Session announces a method that session does not
+       use.
+
+       For the Packet Distribution Method nothing better is derivable from what is provisioned:
+       PacketDistrMethInfo carries only the operating mode, the ingest method and the ingest
+       addresses, and no transport protocol. The examples in clause 7.2.3.2 use RTP/AVP and
+       UDP/RTP/AVP, neither of which follows from any provisioned field, so the plain transport is
+       declared rather than one of them guessed. */
+    const bool object_distribution = dist_session_ctx->info && dist_session_ctx->info->getDistrMethod() &&
+                                     dist_session_ctx->info->getDistrMethod()->getValue() == DistributionMethod::VAL_OBJECT;
+    auto media = MediaDescription::makeMediaDescription("application", dist_session_ctx->ssm_port,
+                                                        object_distribution ? "FLUTE/UDP" : "UDP", "0");
     if (!ssm_dest.empty()) {
         auto conn_info = ConnectionInformation::makeConnectionInformation(ssm_dest, family);
         media->connectionInformationAdd(conn_info);
     }
     auto *bitrate = QoSReq::bitrate(dist_session_ctx->info->getMaxContBitRate());
     if (bitrate) {
-        media->bandwidthInformationAdd(*bitrate/1000); // SDP bit rates are in kilobits/s
+        /* The bandwidth line has to describe whole packets on the wire, not the content inside them.
+
+           TS 26.346 V18.2.0 clause 7.3.2.10: “The size of the packet shall be the complete packet, i.e. IP, UDP and FLUTE headers, and the data payload.”
+
+           maxContBitRate does not say whether it already counts the IP and UDP headers. TS 26.502
+           V18.6.0 clause 4.5.6 calls it a bit rate "for content", while clause 4.3.3.2 has the packet
+           scheduling subfunction pace the outgoing packet stream by it, and TS 29.571 gives the type a
+           format and no semantics. Nothing decides it, and neither Nmb10 nor Nmb9 carries the MTU the
+           conversion needs, so the adjustment rests on an operator-set option rather than on a number
+           invented here (RULES.md rule 12).
+
+           With the MTU known, a packet carries mtu - transport_header bytes of ALC, so the rate that
+           paces ALC bytes corresponds to a wire rate of rate * mtu / (mtu - transport_header). This
+           assumes packets are filled to the MTU, which understates the overhead for the smaller
+           packets (a short final symbol, a small FDT), so it is a floor on the adjustment rather than
+           the exact largest second. */
+        uint64_t as_bitrate = sdpBandwidthBitRate(*bitrate, App::self().context()->sdpBandwidthMtu,
+                                                  family == AF_INET6);
+        if (!App::self().context()->sdpBandwidthMtu) {
+            ogs_warn("mbsf.sdpBandwidthMtu is not configured, so the SDP bandwidth omits the IP and UDP "
+                     "headers that TS 26.346 clause 7.3.2.10 requires it to count");
+        } else if (as_bitrate == *bitrate) {
+            ogs_error("mbsf.sdpBandwidthMtu is not larger than the transport header; bandwidth written "
+                      "without the adjustment clause 7.3.2.10 requires");
+        }
+        /* "AS", not a bare figure. TS 26.346 V18.2.0 clause 7.3.2.10: “The maximum bit rate
+           required by this FLUTE session shall be specified using the "AS" bandwidth modifier [14]
+           on media level.”
+
+           Without the modifier the library emits "b=<value>", which is not a bandwidth line at all:
+           RFC 4566 section 5.8 gives the field as "b=<bwtype>:<bandwidth>", so a receiver either
+           rejects it or ignores it, and the session's rate goes undeclared. */
+        media->bandwidthInformationAdd(as_bitrate/1000, "AS"); // SDP bit rates are in kilobits/s
         delete bitrate;
     }
-    if (primary_language) media->mediaAttributeAdd("lang", primary_language.value());
-    media->mediaAttributeAdd("FEC", "0");
+    // “"a=FEC-declaration:" fec-ref SP fec-enc-id”, with “a=FEC-declaration:0 encoding-id=1”.
+    //
+    // The encoding ID is not free to choose. TS 29.580 V18.8.0 clause 6.2.6.2.14, table
+    // 6.2.6.2.14-1, row fecScheme: “It shall be identified using a term from the IANA: "Reliable
+    // Multicast Transport (RMT) FEC Encoding IDs and FEC Instance IDs" [20] expressed as a URN,
+    // e.g.: urn:ietf:rmt:fec:encoding:0”, so the trailing integer of that URN is the encoding ID
+    // itself and is read from the session rather than assumed. A session with no FEC
+    // configuration is Compact No-Code, encoding ID 0, which is what this announced
+    // unconditionally before: that was right only when no FEC was provisioned, and announced
+    // "no FEC" for a Raptor session, which is a statement the receiver would act on.
+    unsigned fec_encoding_id = 0;
+    bool has_fec = false;
+    if (dist_session_ctx->info) {
+        const auto &fc = dist_session_ctx->info->getFecConfig();
+        if (fc.has_value() && fc.value()) {
+            has_fec = true;
+            static const std::string urn_prefix{"urn:ietf:rmt:fec:encoding:"};
+            const std::string &scheme = fc.value()->getFecScheme();
+            if (scheme.compare(0, urn_prefix.size(), urn_prefix) == 0) {
+                const std::string id_part = scheme.substr(urn_prefix.size());
+                if (!id_part.empty() &&
+                    id_part.find_first_not_of("0123456789") == std::string::npos) {
+                    fec_encoding_id = static_cast<unsigned>(std::stoul(id_part));
+                } else {
+                    ogs_warn("fecScheme \"%s\" is not a %s<id> URN; announcing no FEC instead of "
+                             "guessing an encoding ID", scheme.c_str(), urn_prefix.c_str());
+                }
+            } else {
+                ogs_warn("fecScheme \"%s\" is not a %s<id> URN; announcing no FEC instead of "
+                         "guessing an encoding ID", scheme.c_str(), urn_prefix.c_str());
+            }
+        }
+    }
+
+    /* a=FEC is a reference to a FEC-declaration, so it cannot stand without one. TS 26.346 V18.2.0
+       clause 7.3.2.8: "This is a media-level only attribute, used as a short hand to reference one
+       of one or more FEC-declarations." Emitting it for a session with no declaration left a
+       dangling reference. */
+    const auto announced = announcedAttributes(object_distribution, has_fec);
+    if (announced.fec) media->mediaAttributeAdd("FEC", "0");
 
     if (dist_session_ctx->sdp) {
         // Update existing SDP
@@ -269,6 +436,14 @@ bool UserServiceAnnBundle::writeServiceDescriptionProtocolDoc(const std::shared_
             dist_session_ctx->sdp->mediaDescriptionsClear();
             dist_session_ctx->sdp->mediaDescriptionAdd(media);
         }
+
+        /* Session-level attributes are rebuilt on both paths rather than left as first written.
+           TS 29.580 V18.8.0 clause 5.3.2.4.2 permits every attribute of a Distribution Session
+           other than mbsSessionId, mbsDistSessionId and locationDependent to be updated while it
+           is INACTIVE, fecConfig among them, and the FEC declaration and redundancy level below
+           are derived from it. Leaving the originals in place would keep advertising a FEC scheme
+           the session no longer uses. */
+        dist_session_ctx->sdp->sessionAttributesClear();
     } else {
         // Create new SDP
         auto origin = Originator::makeOriginator(ssm_source);
@@ -276,16 +451,72 @@ bool UserServiceAnnBundle::writeServiceDescriptionProtocolDoc(const std::shared_
         dist_session_ctx->sdp = SDP::makeSDP(origin, session_name, timings);
 
         dist_session_ctx->sdp->mediaDescriptionAdd(media);
+    }
 
-        dist_session_ctx->sdp->sessionAttributeAdd("mbs-servicetype", svc_str);
-        dist_session_ctx->sdp->sessionAttributeAdd("FEC-declaration", "0 encoding-id=0");
-        if (!ssm_source.empty()) {
-            dist_session_ctx->sdp->sessionAttributeAdd("source-filter", std::format("incl {} * {}", ssm_proto, ssm_source));
+
+    dist_session_ctx->sdp->sessionAttributeAdd("mbs-servicetype", svc_str);
+
+    // TS 26.346 V18.2.0 clause 7.3.2.8 gives the shape of this attribute, and an example of it:
+    /* Declared only for a session that has FEC. TS 26.346 V18.2.0 clause 7.3.2.8: "This attribute
+       is optional to use for the download delivery method as the information will be available
+       elsewhere (e.g. FLUTE FDT Instances). If this attribute is not used, and no other FEC-OTI
+       information is signalled to the UE by other means, the UE may assume that support for FEC id
+       0 is sufficient capability to enter the session."
+
+       So omitting it says exactly what a session with no FEC configuration means, while emitting
+       "encoding-id=0" states a FEC declaration the session does not have. Raised by review on
+       5G-MAG/rt-mbs-function#52: the FEC attributes are only valid where FEC is implemented. */
+    if (announced.fecDeclaration) {
+        dist_session_ctx->sdp->sessionAttributeAdd(
+            "FEC-declaration", std::format("0 encoding-id={}", fec_encoding_id));
+    }
+
+    // The AL-FEC overhead the MBSTF was provisioned with is the receiver's only source for the
+    // level protecting these objects: the download profile forbids carrying it per object in the
+    // FDT (TS 26.346 V18.2.0 clause L.4.4 lists mbms2012:FEC-Redundancy-Level among the
+    // attributes that "shall not be carried in the FDT sent by the FLUTE sender:"), so the
+    // session description is the only route. TS 29.580 V18.8.0 clause 6.2.6.2.14 defines
+    // fecOverHead as a percentage of the unprotected data, which is the same quantity as the
+    // redundancy level, so it is emitted unchanged. Omitted when the session provisioned no FEC,
+    // since there is then no level to declare.
+    if (announced.fecRedundancyLevel && dist_session_ctx->info) {
+        const auto &fec_config = dist_session_ctx->info->getFecConfig();
+        if (fec_config.has_value() && fec_config.value()) {
+            dist_session_ctx->sdp->sessionAttributeAdd(
+                "FEC-redundancy-level",
+                std::format("0 redundancy-level={}", fec_config.value()->getFecOverHead()));
         }
+    }
+    if (!ssm_source.empty()) {
+        dist_session_ctx->sdp->sessionAttributeAdd("source-filter", std::format("incl {} * {}", ssm_proto, ssm_source));
+    }
+    /* The TSI identifies a FLUTE session, so it is declared only for one. TS 26.346 V18.2.0
+       clause 7.3.2.4: "There shall be exactly one occurrence of this descriptor in a complete FLUTE
+       SDP session description and it shall appear at session level."
+
+       A Packet Distribution Session runs no FLUTE session, so it has no TSI to declare and the
+       descriptor has no place in its description. Raised by review on
+       5G-MAG/rt-mbs-function#52. */
+    if (announced.fluteTsi) {
         dist_session_ctx->sdp->sessionAttributeAdd("flute-tsi", std::format("{}", dist_session_ctx->tsi));
     }
 
-    bool rv = writeToFile(root_dir.string(), sdp_filename.string(), std::format("{}", *dist_session_ctx->sdp), err);
+    // SessionDescriptionProtocol::operator std::string() (rt-common-shared/lib/rtsdp) throws
+    // std::out_of_range for an SDP with no valid origin and no connection information at either
+    // session or media level, which is what the code above leaves for a BROADCAST (no SSM)
+    // Distribution Session: only the SSM branch supplies an origin address or media connection info.
+    // Caught here, consistent with the early-return-on-error pattern used above for an unrecognised
+    // SSM address family, so the announcement document is not written and the caller is told; uncaught
+    // it would end the MBSF process on every BROADCAST activation using PUSH or SINGLE.
+    std::string sdp_content;
+    try {
+        sdp_content = std::format("{}", *dist_session_ctx->sdp);
+    } catch (const std::out_of_range &ex) {
+        ogs_error("Failed to serialise SDP for %s: %s", sdp_filename.string().c_str(), ex.what());
+        return false;
+    }
+
+    bool rv = writeToFile(root_dir.string(), sdp_filename.string(), sdp_content, err);
     if (rv) {
         rv = writeToFile(metadata_dir.string(), sdp_filename.string(), "Content-Type: application/sdp\r\n", err);
         if (rv) {

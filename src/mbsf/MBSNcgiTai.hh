@@ -55,6 +55,10 @@ public:
     const reftools::mbsf::NcgiTai::CellListType &getCellList() const {return m_ncgiTai->getCellList();};
 
     mb_smf_sc_ncgi_tai_t *populateNcgiTai();
+
+    // The reverse of populateNcgiTai(): build an NcgiTai model from what the
+    // mb-smf-service-consumer library parsed out of an MB-SMF response.
+    static std::shared_ptr<reftools::mbsf::NcgiTai> fromNcgiTai(const mb_smf_sc_ncgi_tai_t *ncgi_tai);
     void ncgis(mb_smf_sc_ncgi_tai_t *ncgi_tai);
 
 private:

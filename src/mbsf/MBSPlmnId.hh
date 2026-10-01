@@ -56,6 +56,14 @@ public:
 
     uint16_t mcc();
     uint16_t mnc();
+    // The MNC's actual digit count (2 or 3), taken directly from the source
+    // string rather than guessed from mnc()'s numeric value -- a 3-digit MNC
+    // under 100 (e.g. "001") is otherwise indistinguishable from a 2-digit one.
+    uint8_t mncLen() const {return static_cast<uint8_t>(getMnc().length());};
+
+    // Build a PlmnId model from a PLMN Id held in the mb-smf-service-consumer types. The
+    // reverse of mcc()/mnc()/mncLen(), used when reading back what the MB-SMF returned.
+    static std::shared_ptr<reftools::mbsf::PlmnId> fromPlmnId(const ogs_plmn_id_t &plmn_id);
 
 private:
     std::shared_ptr<reftools::mbsf::PlmnId> m_plmnId;

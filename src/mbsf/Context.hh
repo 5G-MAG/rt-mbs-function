@@ -81,6 +81,13 @@ public:
     void deleteUserDataIngSession(const std::string &userIngSessionId);
     const std::shared_ptr<UserDataIngSession> &findUserDataIngSession(const std::string &id) const;
 
+    /** Every MBS User Data Ingest Session this MBSF holds.
+     *
+     * The sessions are owned by their MBS User Services, so enumerating them means walking the
+     * index and resolving each owner. Done here so the index mutex is taken in one place.
+     */
+    std::vector<std::shared_ptr<UserDataIngSession> > allUserDataIngSessions() const;
+
     void addMbsSessionId(const UniqueMbsSessionId &mbs_session_id);
     void addMbsSessionId(bool request_tmgi, const std::shared_ptr<reftools::mbsf::MbsSessionId> &mbs_session_id,
                          const std::shared_ptr<reftools::mbsf::MbsServiceArea> &mbs_service_area,
@@ -105,6 +112,9 @@ public:
     std::shared_ptr<Open5GSSBIServer> newSbiServer(const ogs_sockaddr_t *address);
 
     bool userServiceAnnouncementConfigured();
+    bool broadcastDistributionConfigured() const {
+        return !broadcastDistribution.sourceAddress.empty() && !broadcastDistribution.destinationAddress.empty();
+    }
     int32_t incAnnChannelCounter();
     int32_t decAnnChannelCounter();
     int32_t updateAnnChannelCounter(bool new_user_service_ann_channel, bool old_user_service_ann_channel);
@@ -118,6 +128,8 @@ public:
     const std::string &userServiceAnnMbr() const { return userServiceAnnouncement.mbr;};
     unsigned int userServiceAnnSsmPort() const { return userServiceAnnouncement.ssmPort;};
     const std::string &userServiceAnnDocRoot() const { return userServiceAnnouncement.docRoot;};
+    const std::string &broadcastDistributionSourceAddress() const { return broadcastDistribution.sourceAddress;};
+    const std::string &broadcastDistributionDestinationAddress() const { return broadcastDistribution.destinationAddress;};
     std::optional<int32_t > repetitionInterval() const { return userServiceAnnouncement.announcementRepetitionTime;};
     std::optional<int32_t > keepUpdated() const { return userServiceAnnouncement.keepUpdatedInterval;};
     const std::shared_ptr<UserServiceAnnChannel> &userServiceAnnouncementChannel() const;
@@ -164,10 +176,48 @@ public:
         std::string docRoot;
     } userServiceAnnouncement;
 
+    // TS 26.502 V18.6.0 cl.4.5.6 (MBS Distribution Session parameters), Annex B.3.1: "The MBSF
+    // nominates the MBS-4-MC multicast group destination IP address and UDP ports to be used
+    // inside the Nmb9 unicast tunnel in the User plane traffic flow information." Used when a
+    // Distribution Session's own MBS Session ID carries a TMGI but no AF-supplied SSM (a genuine
+    // Broadcast session, per TS29571_CommonData.yaml's MbsSessionId anyOf[tmgi, ssm] and TS 29.580
+    // cl.5.3.2.2.2) -- there is then no AF-nominated address to derive an Nmb9 label from, and per
+    // the clause above this MBSF must nominate its own instead of leaving the label unset. Mirrors
+    // userServiceAnnouncement's own ssmSourceAddress/ssmDestinationAddress config pattern, a
+    // different, single, MBSF-internal distribution session with the same "MBSF nominates its own"
+    // shape. Port is not configured here: mirrors userServiceAnnouncement's approach of one static
+    // config value where only one such session exists, but per-Broadcast-session ContextData
+    // already draws its own port at random (see ContextData::ssm_port) for exactly the
+    // multiple-concurrent-sessions uniqueness this fixed address alone cannot provide.
+    struct {
+        std::string sourceAddress;
+        std::string destinationAddress;
+    } broadcastDistribution;
+
     std::int64_t actPeriodEstablishedStateDuration = 60;
     int32_t userServicesWithViaMbsDistSession = 0;
 
     std::optional<std::string> allowedMulticastRange;
+
+    // TS 29.500 V18.10.0 cl.5.2.7.2/table 5.2.7.1-1: 413 (Payload Too Large) is mandatory for
+    // PATCH and POST. No clause, and no MBSF documented default, names a byte limit
+    // -- unset means no limit is enforced, as before this option existed. Only partially closes
+    // the requirement even when set: the shared open5gs SBI server silently truncates bodies
+    // past its own OGS_MAX_SDU_LEN before this check (or any NF's) ever runs -- see
+    // rt-mbs-transport-function.md's own M8 entry for the full account of that residual gap.
+    std::optional<size_t> maxRequestBodySize;
+
+    // The link MTU, in bytes, that the MBS Distribution Session's packets are sent over. Used only to
+    // work out the transport overhead the SDP bandwidth line has to account for.
+    //
+    // TS 26.346 V18.2.0 clause 7.3.2.10 makes the bandwidth value the largest one-second sum of packet
+    // sizes, and fixes what a packet size means:
+    // “The size of the packet shall be the complete packet, i.e. IP, UDP and FLUTE headers, and the data payload.”
+    // The rate the MBSF holds (maxContBitRate) does not say whether it already counts those transport
+    // headers, and neither TS 29.580 nor TS 26.502 settles it, so the adjustment cannot be derived and
+    // no default is invented for it (RULES.md rule 12). Unset means the rate is written through
+    // unadjusted, which is what happened before this option existed, and a warning names the clause.
+    std::optional<size_t> sdpBandwidthMtu;
 
     ogs_sockaddr_t *notificationBindAddress;
 
@@ -178,6 +228,7 @@ private:
     void parseObjectRepairParameters(Open5GSYamlIter &iter);
     int parseNotificationConfig(const std::string &pc_key, Open5GSYamlIter &iter);
     void parseUserServiceAnnouncement(const std::string &pc_key, Open5GSYamlIter &iter);
+    void parseBroadcastDistribution(Open5GSYamlIter &iter);
     void configureMBSAF(const std::string &pc_key, Open5GSYamlIter &iter);
     std::shared_ptr<Open5GSSBIServer> getServerForAddr(const ogs_sockaddr_t *addr, int add_to_server_type);
     const std::shared_ptr<Open5GSSBIServer> &findServerForAddr(const ogs_sockaddr_t *addr) const;

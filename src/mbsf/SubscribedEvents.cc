@@ -194,6 +194,10 @@ bool SubscribedEvents::isSubscribedEventNotificationStimulatedByMbsf(std::shared
         return true;
     case Event::VAL_USER_DATA_ING_SESS_STARTED:
         return true;
+    // SESSION_TERMINATED belongs in this allow-list: anything absent falls to `default: return false`
+    // and is never delivered to a subscriber even when the underlying event fires.
+    case Event::VAL_SESSION_TERMINATED:
+        return true;
     case Event::VAL_USER_SER_AD:
         return true;
     default:
@@ -265,11 +269,18 @@ const std::pair<std::optional<SubscribedEvents::DateTime>, std::optional< std::s
     return tpForEventType(event_type);
 }
 
-SubscribedEvents &SubscribedEvents::registerEvent(EventTypeBitMask event_type)
+SubscribedEvents &SubscribedEvents::registerEvent(EventTypeBitMask event_type,
+                                                 const std::optional<std::string> &status_add_info)
 {
     auto &tp = timepointForEventType(event_type);
     tp.first.emplace(DateTime::clock::now());
-    tp.second.reset();
+    /* TS 29.580 V18.8.0 table 6.2.6.2.10-1, row statusAddInfo: "Represents additional information on
+       the reported MBS User Data Ingest Session Status event within the "statusEvent" attribute." */
+    if (status_add_info) {
+        tp.second.emplace(*status_add_info);
+    } else {
+        tp.second.reset();
+    }
    // return tp;
    return *this;
 }
@@ -300,6 +311,16 @@ SubscribedEvents &SubscribedEvents::registerEvent(std::shared_ptr<DistSessionEve
     std::shared_ptr< DistSessionEventType > distribution_session_event_type = dist_sess_event_report->getEventType();
     const std::optional<std::string > &time_stamp = dist_sess_event_report->getTimeStamp();
     SubscribedEvents::EventTypeBitMask event_type = getEventTypeBitMask(*distribution_session_event_type);
+    /* The Nmbstf event type is an open enumeration, so a peer of a later release can report a value
+       this one does not know. TS 29.500 V18.10.0 clause 6.6.2: "Unknown attributes and values shall
+       be ignored by the receiving entity." Without this the value falls through getEventTypeBitMask()
+       to NONE, for which timepointForEventType() below throws std::range_error, out of a notification
+       handler that does not catch it. */
+    if (event_type == NONE) {
+        ogs_warn("Ignoring unknown MBS Distribution Session event type [%s] reported by the MBSTF",
+                 distribution_session_event_type->getString().c_str());
+        return *this;
+    }
     auto &tp = timepointForEventType(event_type);
     if (time_stamp.has_value()) {
         tp.first.emplace(to_time_point_iso8601(time_stamp.value()));
@@ -392,11 +413,20 @@ const std::pair<std::optional<SubscribedEvents::DateTime>, std::optional<std::st
     case Event::VAL_USER_SER_AD:
         return userSerAd;
     default:
-        ogs_warn("Ignoring unknown Event: %s", event->getString().c_str());
         break;
     }
-    throw std::range_error("Bad SubscribedEvent given to SubscribedEvents::timepointForSubscribedEvent()");
-
+    /* Event is an open enumeration -- TS 29.580 V18.8.0 clause 6.2.6.3.4 gives its type a free
+       string alternative beside the sixteen named values, so a status subscription naming a value
+       from a later release is conformant, not malformed. TS 29.500 V18.10.0 clause 6.6.2:
+       "Unknown attributes and values shall be ignored by the receiving entity." isUpdated() calls
+       this unconditionally for every subscribed event on every notification pass, so a subscriber
+       naming one crashed the process here on the pass right after it subscribed. A static,
+       permanently-absent timepoint answers "not updated" the same way an event nobody has recorded
+       yet does, which is what an unrecognised value actually is: this MBSF has nothing to report
+       for it. */
+    ogs_warn("Ignoring unknown Event: %s", event->getString().c_str());
+    static const std::pair<std::optional<SubscribedEvents::DateTime>, std::optional<std::string>> no_timepoint;
+    return no_timepoint;
 }
 
 /*** private: ***/
@@ -455,14 +485,20 @@ SubscribedEvents::EventTypeBitMask SubscribedEvents::getEventTypeBitMask(DistSes
         return DATA_INGEST_FAILURE;
     case DistSessionEventType::VAL_SESSION_DEACTIVATED:
         return DIST_SESS_TERMINATED;
-    //case DistSessionEventType::VAL_SESSION_ESTABLISHED:
-    //    return DIST_SESS_STARTED;
+    // DIST_SESS_STARTING and DIST_SESS_STARTED are absent from this mapping on purpose. TS 26.502
+    // V18.6.0 table 4.6.2-1 leaves the stimulating reference point column empty for both, which that
+    // clause defines as stimulated by the MBSF itself, so neither is derived from an Nmb2 report.
+    // They are registered where the MBSF acts: where it sends the Nmb2 create, and where that create
+    // is answered.
     case DistSessionEventType::VAL_SESSION_ACTIVATED:
         return DIST_SESS_ACTIVATED;
     case DistSessionEventType::VAL_SERVICE_MANAGEMENT_FAILURE:
         return DIST_SESS_SERV_MNGT_FAILURE;
+    // TS 29.580 V18.8.0 table 6.2.6.3.4-1 row USER_DATA_ING_SESS_STARTED: "This corresponds to the
+    // “user data ingest session established” event." That is the event this Nmbstf report carries,
+    // and TS 26.502 V18.6.0 table 4.6.2-1 gives it Nmb2 as its stimulating reference point.
     case DistSessionEventType::VAL_DATA_INGEST_SESSION_ESTABLISHED:
-        return DIST_SESS_STARTING;
+        return USER_DATA_ING_SESS_STARTED;
     case DistSessionEventType::VAL_DATA_INGEST_SESSION_TERMINATED:
         return SESSION_TERMINATED;
     default:

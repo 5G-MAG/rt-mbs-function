@@ -81,9 +81,12 @@ mb_smf_sc_ncgi_t *MBSNcgi::populateNcgi() {
 
     mb_smf_sc_ncgi_t *ncgi = mb_smf_sc_ncgi_new();
 
-    mb_smf_sc_ncgi_set_plmn_id(ncgi, mcc, mnc);
+    // Use the length-aware setter: mcc()/mnc() alone lose the MNC's actual digit
+    // count (2 vs 3), which a plain numeric value under 100 cannot distinguish.
+    mb_smf_sc_ncgi_set_plmn_id_len(ncgi, mcc, mnc, mbs_plmn_id->mncLen());
     uint64_t cell_id = nrCellId();
     ncgi->nr_cell_id = static_cast<uint64_t>(cell_id) & ((1ULL << 36) - 1);
+    // Ownership passes to the NCGI, which frees it: see nid()'s own comment on the allocator.
     ncgi->nid = nid();
     return ncgi;
 
@@ -99,10 +102,38 @@ uint64_t *MBSNcgi::nid() {
     const std::optional<std::string > &nid = getNid();
     if (!nid.has_value()) return nullptr;
     uint64_t value = std::stoull(nid.value(), nullptr, 16);
-    uint64_t *result = static_cast<uint64_t*>(std::malloc(sizeof(uint64_t)));
+    // Allocated with the library's own allocator, not std::malloc: populateNcgi() hands this
+    // pointer to an mb_smf_sc_ncgi_t, which releases it with ogs_free(), and that is
+    // talloc_free() and cannot free a pointer it did not allocate.
+    uint64_t *result = static_cast<uint64_t*>(ogs_malloc(sizeof(uint64_t)));
     if (result != nullptr) {
         *result = value;
     }
+    return result;
+}
+
+
+std::shared_ptr<Ncgi> MBSNcgi::fromNcgi(const mb_smf_sc_ncgi_t *ncgi)
+{
+    if (!ncgi) return nullptr;
+
+    // NrCellId is a 9-digit and Nid an 11-digit upper-case hex string, the encoding the library
+    // writes with _uint64_to_hex_str(); both are zero-padded to their full width.
+    char cell_str[24];
+    std::snprintf(cell_str, sizeof(cell_str), "%.9llX",
+                  static_cast<unsigned long long>(ncgi->nr_cell_id & ((1ULL << 36) - 1)));
+
+    std::shared_ptr<Ncgi> result(new Ncgi());
+    result->setPlmnId(MBSPlmnId::fromPlmnId(ncgi->plmn_id));
+    result->setNrCellId(std::string(cell_str));
+
+    if (ncgi->nid) {
+        char nid_str[24];
+        std::snprintf(nid_str, sizeof(nid_str), "%.11llX",
+                      static_cast<unsigned long long>(*ncgi->nid & 0xFFFFFFFFFFFULL));
+        result->setNid(std::string(nid_str));
+    }
+
     return result;
 }
 

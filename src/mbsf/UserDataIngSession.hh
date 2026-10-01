@@ -38,6 +38,10 @@
 
 #include "openapi/model/DistSessionState.h"
 #include "openapi/model/MBSUserDataIngSession.h"
+#include "openapi/model/MbsDistSessFailure.h"
+#include "openapi/model/MbsDistSessFailureSets.h"
+#include "openapi/model/DistSessionFailure.h"
+#include "openapi/model/ReducedMbsServArea.h"
 #include "openapi/model/MBSDistributionSessionInfo.h"
 #include "common.hh"
 #include "AlwaysActive.hh"
@@ -54,6 +58,7 @@ namespace reftools::mbsf {
     class DistSession;
     class PacketDistrMethInfo;
     class Ssm;
+    class Tmgi;
 }
 
 MBSF_NAMESPACE_START
@@ -106,6 +111,9 @@ public:
         MBSSessionState MBSSessionStatus = MBSSessionState::NO;
         std::optional<fiveg_mag_reftools::ProblemCause> mbsmfProblemCause = std::nullopt;
         std::optional<fiveg_mag_reftools::CJson> mbsmfProblemDetailJson = std::nullopt;
+        // The Distribution Session as stored before the update now in flight changed it, restored if the
+        // MB-SMF refuses that update. Null when no content update is outstanding.
+        std::shared_ptr<reftools::mbsf::MBSDistributionSessionInfo> preUpdateInfo = nullptr;
         bool receivedMBSTFResponse = false;
         bool receivedMBSTFPatchResponse = false;
         bool patchUpdateSucceded = false;
@@ -118,12 +126,31 @@ public:
         std::string mbstfDistSessionId = std::string{};
         bool distSessionState = false;
         mb_smf_sc_tmgi_t *tmgi = nullptr;
+        // AF-supplied TMGI for a Broadcast Distribution Session identified by an
+        // mbsSessionId.tmgi, as distinct from the field above (the TMGI *returned* by MB-SMF
+        // after a TMGI-allocation request). TS 23.247 V18.8.0 cl.7.1.1.2 step 8 lists
+        // "[MBS Session ID]" and "[TMGI allocation request]" as separate, coexisting Create
+        // parameters; TS 29.580 V18.8.0 cl.5.3.2.2.2 confirms the same at this northbound API.
+        // Carried from parse time (UserDataIngSession.cc's mbsSessionId branch) to
+        // createMbsSession(), which calls MBSMFMBSSession::setTmgi() with it instead of
+        // setTmgiRequest(true) -- the two are mutually exclusive by the vendored
+        // mb-smf-service-consumer library's own contract (mbs-session.h's own documented
+        // contract for mb_smf_sc_mbs_session_set_tmgi()).
+        std::shared_ptr<reftools::mbsf::Tmgi> afSuppliedTmgi = nullptr;
         std::string mbstfNotificationUrl = std::string{};
         uint64_t tsi;
         reftools::mbsf::DistSessionState last_requested_state;
         reftools::mbsf::DistSessionState last_reported_state;
         std::shared_ptr<reftools::mbsf::DistSession> distSession = nullptr;
         std::shared_ptr<LIBRTSDP_NAMESPACE_NAME(SDP)> sdp = nullptr;
+        // Captured here, at construction time, rather than looked up later inside the static
+        // createMbsSession() through locate(ingSessionId). This is an instance method of the owning
+        // UserDataIngSession, so it can call mbsUserService() directly; the later lookup would race
+        // against this object's own registration into the id->instance map and lose, since the
+        // ContextData is built and createMbsSession() invoked on it before the constructing
+        // UserDataIngSession finishes registering itself, leaving the value silently defaulted to
+        // MULTICAST. See createMbsSession().
+        std::string userServType = std::string{};
     };
 
     UserDataIngSession(fiveg_mag_reftools::CJson &json, bool as_request);
@@ -159,7 +186,6 @@ public:
     const std::shared_ptr<UserServiceAnnBundle> getUserServiceAnnBundler() const { return m_userServiceAnnBundle;};
     const bool isUserServiceAnnBundleAvailable() const { return m_userServiceAnnBundleAvailable;};
     const bool isIncludedInCarouselObjectManifest() const { return m_includedInCarouselObjectManifest;};
-    const bool userSerAdNotificationSent() const {return m_userSerAdNotificationSent;};
     ogs_sbi_xact_t *nmbstfDiscoverOnly(const std::shared_ptr<ContextData> &data);
     ogs_sbi_xact_t *nmbstfDiscoverAndSend(const std::shared_ptr<UserDataIngDistSessId> &ids, ogs_sbi_build_f build, void *context, void *data);
     UserDataIngSession &setNFInstance(ogs_sbi_service_type_e service_type, ogs_sbi_nf_instance_t *nf_instance);
@@ -176,7 +202,8 @@ public:
     bool startTimer();
     const reftools::mbsf::DistSessionState &getDistSessionState(const std::optional<std::shared_ptr<reftools::mbsf::DistSessionState> > &user_state) const;
 
-    void processUserDataIngSessionUpdate(ogs_pool_id_t stream_id, const std::shared_ptr<Open5GSSBIRequest> &request, fiveg_mag_reftools::CJson &json);
+    void processUserDataIngSessionUpdate(ogs_pool_id_t stream_id, const std::shared_ptr<Open5GSSBIRequest> &request, fiveg_mag_reftools::CJson &json,
+                                          const std::list<std::string> &nulled_dist_sess_keys = {});
     void processDistributionSessionInfo(ogs_pool_id_t stream_id, const std::shared_ptr<Open5GSSBIRequest> &request);
     void handleUserDataIngSessionUpdate(ogs_pool_id_t stream_id, const std::shared_ptr<Open5GSSBIRequest> &request);
     void updateMbstfRemovedDistSession();
@@ -191,7 +218,12 @@ public:
     void removeContextData(const std::shared_ptr<ContextData> &context_data);
 
     void sendMbstfRequests();
-    void sendMbstfDelRequests(const std::optional<std::string>& key = std::nullopt);
+    /** Ask the MBSTF to delete this session's Distribution Sessions.
+     *
+     * \return how many delete requests were issued. Zero means there was nothing left registered
+     *         to tear down, so a caller waiting for completion would wait for ever.
+     */
+    std::size_t sendMbstfDelRequests(const std::optional<std::string>& key = std::nullopt);
 
     void sendMbstfPatchRollbackRequests();
 
@@ -204,6 +236,17 @@ public:
     bool checkIfAllMBSSessionCreated();
     bool checkIfAllMBSSessionDeletionsReceived();
     bool checkIfAllMBSTFResponsesReceived();
+    /* Whether a Distribution Session this request added is still waiting for its MB-SMF or MBSTF
+       outcome, in which case the request is answered from that outcome rather than now. */
+    bool awaitsDownstreamOutcome(const std::shared_ptr<Open5GSSBIRequest> &request) const;
+    /* Whether this request changed existing Distribution Sessions whose MB-SMF or MBSTF outcome is still
+       to come, in which case it is answered from those outcomes rather than now. */
+    bool awaitsUpdateOutcome(const std::shared_ptr<Open5GSSBIRequest> &request);
+    /* One outcome of a change to an existing Distribution Session: from the MB-SMF or from the MBSTF, a
+       refusal when cause is given. */
+    void noteUpdateOutcome(const std::string &key, bool from_mbsmf, const std::optional<fiveg_mag_reftools::ProblemCause> &cause,
+                           const std::optional<fiveg_mag_reftools::CJson> &problem_detail_json);
+    static void mbstfRequestTimedOut(ogs_sbi_xact_t *xact);
     bool resetReceivedMBSTFResponseFlags();
     bool checkIfAllMBSTFPatchResponsesReceived();
 
@@ -278,10 +321,65 @@ public:
     static std::shared_ptr<ContextData> getContextData(const std::shared_ptr<UserDataIngDistSessId> &ids);
 
     bool checkIfAllMBSSessionResponsesReceived();
-    void handleFailedMBSSession();
+    /** Decide the answer once every MB-SMF response for a request is in and at least one failed.
+     *  Returns true when the whole MBS User Data Ingest Session is to be rolled back by deleting it,
+     *  which the caller does, since it holds a reference that keeps this object alive meanwhile. */
+    bool handleFailedMBSSession();
+
+    /** Whether the MBSErrorHandling feature was negotiated for this MBS User Data Ingest Session.
+     *
+     * TS 29.580 V18.8.0 table 6.2.8-1 gives it feature number 3, so bit 3 of the negotiated bitmask.
+     * Only the last hex character can matter: the API defines no feature above 4.
+     */
+    bool mbsErrorHandlingNegotiated() const;
+
+    /** Whether the MBSEventsExt feature was negotiated for this MBS User Data Ingest Session.
+     *
+     * TS 29.580 V18.8.0 table 6.2.8-1 gives it feature number 2, so bit 2 of the negotiated bitmask.
+     * The events table 6.2.6.3.4-1 marks with that applicability may only be reported where it was.
+     */
+    bool mbsEventsExtNegotiated() const;
+
+    /** Record a Distribution Session the MB-SMF rejected, for reporting alongside the ones that
+     *  succeeded. Keyed by the map key the consumer used in "mbsDisSessInfos". */
+    void recordDistSessionFailure(const std::string &dist_session_info_key,
+                                  const std::shared_ptr<ContextData> &context_data);
+
+    /** Record a Distribution Session this MBSF refused itself, before anything was sent to the MB-SMF,
+     *  with the DistSessionFailure cause it is refused for. Keyed as the overload above. */
+    void recordDistSessionFailure(const std::string &dist_session_info_key, const std::string &cause);
+
+    /** Attach the recorded failures to the representation about to be returned, if any. */
+    void attachFailedDistSessions();
+
+    /** Answer a request whose requested Distribution Sessions all failed with differing causes, as MBS
+     *  problem details carrying each session's cause instead of a single one. */
+    void sendDistSessionFailures(const std::shared_ptr<ContextData> &context_data);
+    static void sendDownstreamRefusal(ogs_pool_id_t stream_id, bool negotiated, const std::optional<fiveg_mag_reftools::ProblemCause> &cause,
+                                      const std::optional<fiveg_mag_reftools::CJson> &problem_detail_json, const std::string &error);
+    void restoreFromSnapshot(const std::string &key, const std::shared_ptr<ContextData> &context_data, bool resync_mbsmf);
+    void finishPendingUpdate();
+
+    /** Attach the MBS Service Areas the MB-SMF reduced, for an update response.
+     *
+     * A no-op where no session had its area reduced, which is every session the MB-SMF accepted whole.
+     */
+    void attachReducedServiceAreas();
     void setMbstfsInDesiredState();
     void checkDesiredState();
     void pendingDeleteResponse(ogs_pool_id_t stream_id);
+
+    /** Answer, with an error, every consumer DELETE parked on a failed transaction.
+     *
+     * The stream a DELETE is waiting on is not the transaction's assoc_stream_id. That field
+     * carries the stream the Distribution Session was created on, which has been closed since,
+     * so a generic failure path looking there finds nothing and answers nobody. The streams
+     * actually waiting are the ones pendingDeleteResponse() parked.
+     *
+     * @return true if any consumer was answered.
+     */
+    static bool failPendingDeleteRequests(ogs_sbi_xact_t *xact, const fiveg_mag_reftools::ProblemCause &cause,
+                                          const char *reason);
     void pushNotificationsEvent() const;
 
     bool checkIfAllMBSDistributionSessionsEstablishedOrActive();
@@ -291,7 +389,7 @@ public:
     bool userDataIngSessionForServiceAnnChannel(const std::shared_ptr<UserDataIngDistSessId> &ids);
     bool isUserServiceAnnouncementChannel(const std::string &distribution_session_info_key);
     void userServiceAnnChannelDistributionSessionInfo();
-    const std::list<std::string> &getUserServiceAnnBundleFilesList() const;
+    std::list<std::string> getUserServiceAnnBundleFilesList() const;
     void setDistSessionState(const std::shared_ptr<reftools::mbsf::DistSessionState> &state);
     void configureUserServiceAnnouncementBundler();
     void userServiceAnnBundled();
@@ -300,7 +398,12 @@ public:
     std::shared_ptr<CarouselObject> getCarouselObject() const;
     void resetCarouselObject();
     void forEachObjectLocator(std::function<void(const std::string &)> fn) const;
-    void userSerAdNotificationSent(bool notification_sent) const;
+    /** Have every status subscription on this session report the User Service Announcement again.
+     *
+     * Called where the announcement is (re)configured. The state itself lives on each subscription,
+     * because each consumer that subscribed to USER_SER_AD is owed the announcement.
+     */
+    void resetUserSerAdReported() const;
 
     ActivePeriodsBase::TimeRange activeTimeRange() const { return m_activePeriods?m_activePeriods->activeTimeRange():ActivePeriodsBase::TimeRange{std::nullopt, std::nullopt}; };
 
@@ -310,11 +413,22 @@ public:
     static void currentDistSessionState(const UserDataIngDistSessId &ids);
 
     static void setMBSSessionFailureFlag(const UserDataIngDistSessId &ids, const std::optional<fiveg_mag_reftools::ProblemCause> &cause = std::nullopt, const std::optional<fiveg_mag_reftools::CJson> &problem_detail_json = std::nullopt);
+    /* The MB-SMF's answer to an update of an existing MBS Session: no cause for success, otherwise the
+       cause and detail its refusal is reported with. */
+    static void setMBSSessionUpdateResult(const UserDataIngDistSessId &ids, const std::optional<fiveg_mag_reftools::ProblemCause> &cause, const std::optional<fiveg_mag_reftools::CJson> &problem_detail_json);
     static void populateAndSendError(UserDataIngDistSessId *ids, const std::optional<fiveg_mag_reftools::ProblemCause> &cause = std::nullopt,
                     const std::optional<fiveg_mag_reftools::CJson> &problem_detail_json = std::nullopt);
     static void deleteMBSTFSession(ogs_sbi_xact_t *xact);
+
+    /** Record that establishing the MBS Distribution Session at the MBSTF failed, for the
+     *  Distribution Session the given Nmb2 transaction belongs to.
+     *
+     *  TS 26.502 V18.6.0 table 4.6.2-1 leaves this event's stimulating reference point column empty,
+     *  so it is the MBSF's own; the reason is carried in the notification's statusAddInfo.
+     */
+    static void registerDistSessionEstFailure(ogs_sbi_xact_t *xact, const std::string &reason);
     static bool handlePatchUpdateResponse(ogs_sbi_xact_t *xact, const std::shared_ptr<reftools::mbsf::DistSession> &dist_session);
-    static void rollbackMBSTFDistSessionState(ogs_sbi_xact_t *xact);
+    static void rollbackMBSTFDistSessionState(ogs_sbi_xact_t *xact, int status = 0);
 
     static void sendNotificationsEvent(const std::shared_ptr<UserDataIngDistSessId> &user_data_ing_dist_sess_ids);
     static void sendMbsmfActivityStatus(const std::shared_ptr<UserDataIngDistSessId> &user_data_ing_dist_sess_ids);
@@ -361,11 +475,37 @@ private:
     std::shared_ptr<CarouselObject> m_carouselObject;
     bool m_userServiceAnnBundleAvailable;
     bool m_includedInCarouselObjectManifest;
-    mutable bool m_userSerAdNotificationSent;
     //std::shared_ptr<ObjManifest> m_carouselObjectManifest;
 
     //key: Dist Session Infos present in this User Data Ingest Session
     std::map<std::string, std::shared_ptr< ContextData >> m_distributionSessionInfos;
+
+    /* Distribution Sessions the MB-SMF rejected while others succeeded, held until the response that
+       reports them is built. Keyed by the map key the consumer used in "mbsDisSessInfos", which is
+       what TS 29.580 requires the failure map to be keyed by. Empty whenever the outcome was not
+       mixed, since the all-failed case is still answered as an error. */
+    std::map<std::string, std::shared_ptr< reftools::mbsf::MbsDistSessFailure > > m_failedDistSessions;
+
+    /* A PUT or PATCH that changed existing Distribution Sessions and is answered once the MB-SMF and the
+       MBSTF have answered for them. One at a time: an update arriving while one waits is answered at once,
+       as before. */
+    struct UpdateFailure {
+        std::optional<fiveg_mag_reftools::ProblemCause> cause;
+        std::optional<fiveg_mag_reftools::CJson> problemDetailJson;
+    };
+    struct PendingUpdate {
+        std::shared_ptr<Open5GSSBIRequest> request;
+        ogs_pool_id_t streamId;
+        bool armed = false;
+        std::set<std::string> keys;
+        std::set<std::string> awaitingMbsmf;
+        std::set<std::string> awaitingMbstf;
+        std::map<std::string, UpdateFailure> failures;
+    };
+    std::optional<PendingUpdate> m_pendingUpdate;
+    // Whether this session's create has been answered. Until it has, a failed MB-SMF outcome belongs
+    // to the create, which is undone by deleting the session; afterwards it belongs to an update.
+    bool m_createAnswered = false;
 
     std::list<ogs_pool_id_t> m_deleteRequests;
 
