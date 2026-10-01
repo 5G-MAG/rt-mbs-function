@@ -46,7 +46,7 @@ using reftools::mbsf::NcgiTai;
 using reftools::mbsf::Ncgi;
 using reftools::mbsf::Tai;
 
-/* Link seam, not test behaviour: see test_mbsmf_tmgi.cc's own comment on these four
+/* Link seam, not test behaviour: see test_mbsmf_tmgi.cc's own comment on these five
  * UserDataIngSession:: static methods. MBSMFMBSSession.cc reaches them from paths this test
  * never takes, and the real UserDataIngSession.cc needs App::self(). */
 MBSF_NAMESPACE_START
@@ -54,6 +54,9 @@ bool UserDataIngSession::tmgi(mb_smf_sc_tmgi_t *, const UserDataIngDistSessId &)
 void UserDataIngSession::setMBSSessionFlag(const UserDataIngDistSessId &) {}
 void UserDataIngSession::setMBSSessionDeleted(const UserDataIngDistSessId &) {}
 void UserDataIngSession::setMBSSessionFailureFlag(const UserDataIngDistSessId &,
+        const std::optional<fiveg_mag_reftools::ProblemCause> &,
+        const std::optional<fiveg_mag_reftools::CJson> &) {}
+void UserDataIngSession::setMBSSessionUpdateResult(const UserDataIngDistSessId &,
         const std::optional<fiveg_mag_reftools::ProblemCause> &,
         const std::optional<fiveg_mag_reftools::CJson> &) {}
 MBSF_NAMESPACE_STOP

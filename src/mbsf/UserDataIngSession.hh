@@ -111,6 +111,9 @@ public:
         MBSSessionState MBSSessionStatus = MBSSessionState::NO;
         std::optional<fiveg_mag_reftools::ProblemCause> mbsmfProblemCause = std::nullopt;
         std::optional<fiveg_mag_reftools::CJson> mbsmfProblemDetailJson = std::nullopt;
+        // The Distribution Session as stored before the update now in flight changed it, restored if the
+        // MB-SMF refuses that update. Null when no content update is outstanding.
+        std::shared_ptr<reftools::mbsf::MBSDistributionSessionInfo> preUpdateInfo = nullptr;
         bool receivedMBSTFResponse = false;
         bool receivedMBSTFPatchResponse = false;
         bool patchUpdateSucceded = false;
@@ -398,6 +401,9 @@ public:
     static void currentDistSessionState(const UserDataIngDistSessId &ids);
 
     static void setMBSSessionFailureFlag(const UserDataIngDistSessId &ids, const std::optional<fiveg_mag_reftools::ProblemCause> &cause = std::nullopt, const std::optional<fiveg_mag_reftools::CJson> &problem_detail_json = std::nullopt);
+    /* The MB-SMF's answer to an update of an existing MBS Session: no cause for success, otherwise the
+       cause and detail its refusal is reported with. */
+    static void setMBSSessionUpdateResult(const UserDataIngDistSessId &ids, const std::optional<fiveg_mag_reftools::ProblemCause> &cause, const std::optional<fiveg_mag_reftools::CJson> &problem_detail_json);
     static void populateAndSendError(UserDataIngDistSessId *ids, const std::optional<fiveg_mag_reftools::ProblemCause> &cause = std::nullopt,
                     const std::optional<fiveg_mag_reftools::CJson> &problem_detail_json = std::nullopt);
     static void deleteMBSTFSession(ogs_sbi_xact_t *xact);

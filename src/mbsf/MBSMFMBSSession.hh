@@ -65,6 +65,7 @@ public:
         MBSF_LOCAL_EVENT_MBS_SESSION_CREATE_RESULT,
         MBSF_LOCAL_EVENT_MBS_SESSION_DELETED,
         MBSF_LOCAL_EVENT_MBS_SESSION_NOTIFY,
+        MBSF_LOCAL_EVENT_MBS_SESSION_UPDATE_RESULT,
         MBSF_LOCAL_EVENT_MAX
     };
 
@@ -126,6 +127,7 @@ public:
 
 private:
     static void mbsSessionCallback(mb_smf_sc_mbs_session_t *session, int result, const OpenAPI_problem_details_s*  problem_details, void *data);
+    static void mbsSessionUpdateCallback(mb_smf_sc_mbs_session_t *session, int result, const OpenAPI_problem_details_s*  problem_details, void *data);
     static void mbsSessionNotifyCallback(const mb_smf_sc_mbs_status_notification_result_t *notification, void *data);
     static void sendLocalEvent(LocalEventId event_id, mb_smf_sc_mbs_session_t *session, int result, const OpenAPI_problem_details_t *problem_details, const UserDataIngDistSessId &ids);
     static void sendLocalNotifyEvent(LocalEventId event_id, const mb_smf_sc_mbs_status_notification_result_t *notification, void *data);
