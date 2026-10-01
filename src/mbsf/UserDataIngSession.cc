@@ -2755,7 +2755,7 @@ bool UserDataIngSession::handlePatchUpdateResponse(ogs_sbi_xact_t *xact, const s
         context_data->patchUpdateSucceded = true;
         context_data->needsUpdate = false;
         context_data->stateUpdate = false;
-        context_data->distSession = dist_session;
+        if (dist_session) context_data->distSession = dist_session; // none with a 204
         if (ing_session->isUserServiceAnnouncementChannel(ids->second))
         {
             const std::shared_ptr<UserServiceAnnChannel> &ann_channel = App::self().context()->userServiceAnnouncementChannel();
