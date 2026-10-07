@@ -338,11 +338,16 @@ bool UserServiceAnnBundle::writeServiceDescriptionProtocolDoc(const std::shared_
        PacketDistrMethInfo carries only the operating mode, the ingest method and the ingest
        addresses, and no transport protocol. The examples in clause 7.2.3.2 use RTP/AVP and
        UDP/RTP/AVP, neither of which follows from any provisioned field, so the plain transport is
-       declared rather than one of them guessed. */
+       declared rather than one of them guessed.
+
+       That transport is "udp" (RFC 8866 section 8.2.3: “"udp" indicates direct use of UDP.”), and its
+       format must then be a media subtype: RFC 8866 section 8.2.3, “For the "udp" protocol, the allowed <fmt> values are media subtypes from the IANA Media Types registry.” With nothing provisioned to
+       say what the packets carry, application/octet-stream is the one that claims nothing about them. */
     const bool object_distribution = dist_session_ctx->info && dist_session_ctx->info->getDistrMethod() &&
                                      dist_session_ctx->info->getDistrMethod()->getValue() == DistributionMethod::VAL_OBJECT;
     auto media = MediaDescription::makeMediaDescription("application", dist_session_ctx->ssm_port,
-                                                        object_distribution ? "FLUTE/UDP" : "UDP", "0");
+                                                        object_distribution ? "FLUTE/UDP" : "udp",
+                                                        object_distribution ? "0" : "octet-stream");
     if (!ssm_dest.empty()) {
         auto conn_info = ConnectionInformation::makeConnectionInformation(ssm_dest, family);
         media->connectionInformationAdd(conn_info);
