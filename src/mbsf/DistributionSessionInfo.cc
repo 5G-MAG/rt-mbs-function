@@ -99,6 +99,8 @@ using reftools::mbsf::Ssm;
 
 MBSF_NAMESPACE_START
 
+static void refuseFecConfigOnPacketSession(const std::shared_ptr<MBSDistributionSessionInfo> &info);
+
 DistributionSessionInfo::DistributionSessionInfo(CJson &json, bool as_request)
     :m_mbsDistributionSessionInfo(new MBSDistributionSessionInfo(json, as_request))
     ,m_eventSubscriptions()
@@ -246,6 +248,8 @@ std::shared_ptr<MBSDistributionSessionInfo> &DistributionSessionInfo::updateMBSD
     }
 
     if (is_inactive) {
+        refuseFecConfigOnPacketSession(new_mbs_dist_session_infos);
+
         // ----- Max Continuous Bit Rate -----
         m_mbsDistributionSessionInfo->setMaxContBitRate(std::move(new_mbs_dist_session_infos->getMaxContBitRate()));
 
@@ -651,6 +655,22 @@ std::shared_ptr<DistributionSessionDesc> DistributionSessionInfo::populateDistri
     return distribution_session_desc;
 }
 
+/* The MBSTF applies no FEC to a Packet Distribution Session (PacketForwardOnlyController::setPacketFEC() is
+ * empty, 5G-MAG/rt-mbs-transport-function#77), so a fecConfig on one is refused rather than accepted and not
+ * honoured; the maintainers agreed on 5G-MAG/rt-mbs-transport-function#77. No clause governs this: it is a
+ * limit of this implementation, lifted once the MBSTF protects packet streams.
+ */
+static void refuseFecConfigOnPacketSession(const std::shared_ptr<MBSDistributionSessionInfo> &info)
+{
+    const auto &method = info->getDistrMethod();
+    const auto &fec_config = info->getFecConfig();
+    if (method && method->getValue() == DistributionMethod::VAL_PACKET && fec_config.has_value() && fec_config.value()) {
+        throw ModelException("fecConfig is not supported when distrMethod is PACKET: the MBSTF applies no FEC to packets",
+                             "MBSDistributionSessionInfo", "fecConfig",
+                             fiveg_mag_reftools::ProblemCause::MANDATORY_IE_INCORRECT);
+    }
+}
+
 void DistributionSessionInfo::validate() const
 {
     /* TS 29.580 V18.8.0 clause 6.2.6.2.3, type MBSDistributionSessionInfo, attribute objDistrInfo: “This attribute shall be present only when the "distrMethod" attribute value is set to "OBJECT".”
@@ -724,6 +744,7 @@ void DistributionSessionInfo::validate() const
                                  "MBSDistributionSessionInfo", "objDistrInfo",
                                  fiveg_mag_reftools::ProblemCause::MANDATORY_IE_INCORRECT);
         }
+        refuseFecConfigOnPacketSession(m_mbsDistributionSessionInfo);
         break;
     default:
         break;
