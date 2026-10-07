@@ -22,7 +22,7 @@
         "objAcqIds": [
           "pc_hd_abr_v2_http.mpd"
         ],
-        "objDistUri": "http://localhost:8081/"
+        "objDistrUri": "http://localhost:8081/"
       },
       "tgtServAreas": {
 	 "taiList": [

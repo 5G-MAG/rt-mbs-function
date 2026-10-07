@@ -20,7 +20,7 @@
         "objAcqMethod": "PULL",
         "objIngUri": "http://media-origin-server:8080/",
         "objAcqIds": ["pc_hd_abr_v2_http.mpd"],
-        "objDistUri": "http://localhost:8081/"
+        "objDistrUri": "http://localhost:8081/"
       },
       "associatedSessionId": {
 	"sourceIpAddr": {"ipv4Addr": "127.0.0.11"},

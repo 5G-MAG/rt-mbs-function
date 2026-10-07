@@ -13,7 +13,7 @@
         }
       },
       "fecConfig": {
-        "fecScheme": "RaptorQ",
+        "fecScheme": "urn:ietf:rmt:fec:encoding:1",
 	"fecOverHead": 20
       },
       "mbsDistSessState": "INACTIVE",
@@ -24,7 +24,7 @@
         "objAcqMethod": "PULL",
         "objIngUri": "http://media-origin-server:8080/",
         "objAcqIds": ["pc_hd_abr_v2_http.mpd"],
-        "objDistUri": "http://localhost:8081/"
+        "objDistrUri": "http://localhost:8081/"
       }
     }
   }
