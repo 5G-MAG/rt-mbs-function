@@ -115,10 +115,7 @@ public:
     std::shared_ptr<AvailabilityInfo> populateAvailabilityInfo();
     std::optional<std::list<std::shared_ptr<AvailabilityInfo>>> availabilityInfos();
     std::optional<std::list<std::shared_ptr<ApplicationServiceDesc>>> applicationServiceDescriptions();
-    /* announcement_base: the URL of the User Service Descriptions Bundle this Distribution Session is
-       announced in, when known; the Session Description locator is made absolute against it. */
-    std::shared_ptr<DistributionSessionDesc> populateDistributionSessionDesc(const std::string &user_data_ing_session_id, const std::string &distribution_session_info_key,
-                                                                             const std::optional<std::string> &announcement_base = std::nullopt);
+    std::shared_ptr<DistributionSessionDesc> populateDistributionSessionDesc(const std::string &user_data_ing_session_id, const std::string &distribution_session_info_key);
     std::optional<std::shared_ptr<ObjRepairParameters>> populateObjRepairParameters(const std::string &user_data_ing_session_id, const std::string &distribution_session_info_key);
     std::optional<std::string> objectAcqIdsContentType(const std::string &url);
 
