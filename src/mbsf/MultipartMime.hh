@@ -49,7 +49,9 @@ public:
     MultipartMime &operator=(const MultipartMime &other) = delete;
     MultipartMime &operator=(MultipartMime &&other) = delete;
 
-    void addFile(const std::filesystem::path &rootdir, const std::filesystem::path &filename, const std::optional<std::string> &disposition_type = std::nullopt);
+    // content_location names the part; when absent it is filename, relative to the entity's base URI.
+    void addFile(const std::filesystem::path &rootdir, const std::filesystem::path &filename, const std::optional<std::string> &disposition_type = std::nullopt,
+                 const std::optional<std::string> &content_location = std::nullopt);
 
     // Lower-level primitive addFile() itself now delegates to: adds one part built entirely
     // in memory (e.g. a freshly-serialised JSON document, RFC 2387's own root body part, which

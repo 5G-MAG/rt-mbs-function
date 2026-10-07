@@ -21,6 +21,7 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <tuple>
 #include <vector>
 
 #include "ogs-core.h"
@@ -187,7 +188,8 @@ HTTPResponse UserServiceDiscoveryHandler::buildBundleResponse(
     bool any_content = false;
     // Collected during the pass below, attached to `bundle` only afterward -- see the comment
     // at the bottom of this function for why the root part must be added first.
-    std::vector<std::pair<std::filesystem::path, std::string>> pending_files;
+    // (session directory, file name, Content-Location for the part)
+    std::vector<std::tuple<std::filesystem::path, std::string, std::optional<std::string>>> pending_files;
 
     for (const auto &svc : matches) {
         // A UserService may have more than one active Ingest Session (e.g. more than one
@@ -212,9 +214,19 @@ HTTPResponse UserServiceDiscoveryHandler::buildBundleResponse(
             // UserServiceDescriptions root part this handler builds itself, below.
             std::filesystem::path session_dir =
                 std::filesystem::path(App::self().context()->userServiceAnnDocRoot()) / session->userDataIngSessionId();
+            /* This entity is retrieved at the MBS-5 URL and may combine several sessions, so a
+               file name alone would neither resolve to the absolute sessionDescriptionLocator the
+               description carries nor stay unique across sessions. Each part is named by that
+               absolute URL instead, which TS 26.517 V18.6.0 clause 5.3.1A permits: "The value of
+               this header may be an absolute URI". */
+            std::optional<std::string> base;
+            session->forEachObjectLocator([&base](const std::string &locator) {
+                base = locator.ends_with('/') ? locator : locator + "/";
+            });
             for (const auto &filename : session->getUserServiceAnnBundleFilesList()) {
                 if (filename == "announcement.json") continue;
-                pending_files.emplace_back(session_dir, filename);
+                pending_files.emplace_back(session_dir, filename,
+                                           base ? std::optional<std::string>(*base + filename) : std::nullopt);
             }
             break;
         }
@@ -248,9 +260,9 @@ HTTPResponse UserServiceDiscoveryHandler::buildBundleResponse(
        are added keeps the tag strong and stable. */
     std::vector<char> tag_input(root_body);
 
-    for (const auto &[session_dir, filename] : pending_files) {
+    for (const auto &[session_dir, filename, content_location] : pending_files) {
         try {
-            bundle.addFile(session_dir, filename);
+            bundle.addFile(session_dir, filename, std::nullopt, content_location);
             std::ifstream part(session_dir / filename, std::ios::binary);
             if (part) {
                 tag_input.insert(tag_input.end(), filename.begin(), filename.end());
@@ -277,7 +289,7 @@ HTTPResponse UserServiceDiscoveryHandler::buildBundleResponse(
        modification time is the newest of those, which is what changes when any part of the
        representation changes. */
     std::optional<std::chrono::system_clock::time_point> newest;
-    for (const auto &[session_dir, filename] : pending_files) {
+    for (const auto &[session_dir, filename, content_location] : pending_files) {
         std::error_code ec;
         auto when = std::filesystem::last_write_time(session_dir / filename, ec);
         if (ec) continue;

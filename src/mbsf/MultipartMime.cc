@@ -83,10 +83,11 @@ MultipartMime::MultipartMime(MultipartMime::MultipartType typ, const std::option
     __insertFooterSep();
 }
 
-void MultipartMime::addFile(const std::filesystem::path &rootdir, const std::filesystem::path &filename, const std::optional<std::string> &disposition_type)
+void MultipartMime::addFile(const std::filesystem::path &rootdir, const std::filesystem::path &filename, const std::optional<std::string> &disposition_type,
+                            const std::optional<std::string> &content_location)
 {
     DocrootFile infile(rootdir / filename);
-    addPart(infile.body(), infile.headers(), disposition_type, filename.string());
+    addPart(infile.body(), infile.headers(), disposition_type, content_location.value_or(filename.string()));
 }
 
 void MultipartMime::addPart(const std::vector<char> &body, const std::map<std::string, std::string> &headers,

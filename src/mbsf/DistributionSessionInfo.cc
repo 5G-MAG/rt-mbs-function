@@ -641,11 +641,23 @@ std::optional<std::shared_ptr<ObjRepairParameters>> DistributionSessionInfo::pop
 }
 
 
-std::shared_ptr<DistributionSessionDesc> DistributionSessionInfo::populateDistributionSessionDesc(const std::string &user_data_ing_session_id, const std::string &distribution_session_info_key)
+std::shared_ptr<DistributionSessionDesc> DistributionSessionInfo::populateDistributionSessionDesc(const std::string &user_data_ing_session_id, const std::string &distribution_session_info_key,
+                                                                                                  const std::optional<std::string> &announcement_base)
 {
     if (!m_mbsDistributionSessionInfo) return nullptr;
 
-    std::string session_description_locator = /*user_data_ing_session_id + "/" +*/ distribution_session_info_key + ".sdp";
+    /* TS 26.517 V18.6.0 table 5.2.4-1 gives sessionDescriptionLocator the type AbsoluteUrl. The
+       Session Description is a body part of the bundle with the relative Content-Location
+       "<key>.sdp" (clause 5.3.1A: "it may be expressed as a path that can be resolved relative to
+       the base URI of the enclosing body part"), so its absolute URL is that path resolved against
+       the bundle's own URL, which is a directory per User Data Ingest Session; that also makes it
+       unique across services. Without a known bundle URL the locator stays relative. */
+    std::string session_description_locator = distribution_session_info_key + ".sdp";
+    if (announcement_base && !announcement_base->empty()) {
+        std::string base = *announcement_base;
+        if (base.back() != '/') base += '/';
+        session_description_locator = base + session_description_locator;
+    }
 
     std::shared_ptr<DistributionSessionDesc> distribution_session_desc(new DistributionSessionDesc(m_mbsDistributionSessionInfo->getDistrMethod(), session_description_locator, applicationServiceDescriptions(), populateObjRepairParameters(user_data_ing_session_id, distribution_session_info_key), availabilityInfos()));
     return distribution_session_desc;

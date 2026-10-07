@@ -4126,10 +4126,12 @@ bool UserDataIngSession::failPendingDeleteRequests(ogs_sbi_xact_t *xact, const P
 std::list<std::shared_ptr<DistributionSessionDesc>> UserDataIngSession::distributionSessionDescs()
 {
     std::list<std::shared_ptr<DistributionSessionDesc>> distribution_session_descs = std::list<std::shared_ptr<DistributionSessionDesc>>();
+    /* The bundle's own URL: the locator of the announcement carousel object that carries it. */
+    const std::optional<std::string> announcement_base = announcementBundleUrl();
     std::lock_guard<decltype(m_distSessInfosMutex)::element_type> lock(*m_distSessInfosMutex);
     for (const auto &dist_sess_info : m_distributionSessionInfos) {
         if (!dist_sess_info.second->distributionSessionInfo) continue;
-        std::shared_ptr< DistributionSessionDesc > distribution_session_desc = dist_sess_info.second->distributionSessionInfo->populateDistributionSessionDesc( m_UserDataIngSessionId, dist_sess_info.first);
+        std::shared_ptr< DistributionSessionDesc > distribution_session_desc = dist_sess_info.second->distributionSessionInfo->populateDistributionSessionDesc( m_UserDataIngSessionId, dist_sess_info.first, announcement_base);
         distribution_session_descs.push_back(std::move(distribution_session_desc));
     }
     return distribution_session_descs;
@@ -4275,45 +4277,63 @@ bool UserDataIngSession::isUserServiceAnnouncementChannel(const std::string &dis
     return false;
 }
 
+/* The announcement server address this MBSF serves the User Service Descriptions Bundle on for the
+   given NF (the announcement channel's MBSTF): the first of the NF's addresses, IPv6 then IPv4, that
+   one of the announcement servers can reach. */
+static std::optional<std::string> user_serv_ann_server_addr_for(const std::shared_ptr<Open5GSSBINFInstance> &nf_instance)
+{
+    const auto try_addrs = [](ogs_sockaddr_t **addrs, int count) -> std::optional<std::string> {
+        for (int i = 0; i < count; i++) {
+            if (!addrs[i]) continue;
+            reftools::common::httpxpp::SockAddr remote_mbstf_sock_addr(addrs[i]->sa);
+            try {
+                const reftools::common::httpxpp::SockAddr &svr_sock_addr = App::self().context()->findUserServAnnServerAddrForRemote(remote_mbstf_sock_addr);
+                return std::format("{}", svr_sock_addr);
+            } catch (std::out_of_range &ex) {
+                // go onto next address if we couldn't find a server port that will serve the NF address
+            }
+        }
+        return std::nullopt;
+    };
+    if (int n = nf_instance->numberOfIPv6()) {
+        if (auto addr = try_addrs(nf_instance->Ipv6(), n)) return addr;
+    }
+    if (int n = nf_instance->numberOfIPv4()) {
+        if (auto addr = try_addrs(nf_instance->Ipv4(), n)) return addr;
+    }
+    return std::nullopt;
+}
+
 void UserDataIngSession::populateCarouselObject(const std::shared_ptr<Open5GSSBINFInstance> &nf_instance)
 {
     // Find first address available and use that for the carousel object
+    auto addr = user_serv_ann_server_addr_for(nf_instance);
+    if (addr) populateObjectCarousel(*addr);
+}
 
-    int number_of_ipv6 = nf_instance->numberOfIPv6();
-    if (number_of_ipv6) {
-        ogs_sockaddr_t **addrs_v6 = nf_instance->Ipv6();
-        for (int i = 0; i < number_of_ipv6; i++) {
-            if (addrs_v6[i]) {
-                ogs_sockaddr_t *addr_v6 = addrs_v6[i];
-                reftools::common::httpxpp::SockAddr remote_mbstf_sock_addr(addr_v6->sa);
-                try {
-                    const reftools::common::httpxpp::SockAddr &svr_sock_addr =  App::self().context()->findUserServAnnServerAddrForRemote(remote_mbstf_sock_addr);
-                    populateObjectCarousel(std::format("{}", svr_sock_addr));
-                    return;
-                } catch (std::out_of_range &ex) {
-                    // go onto next address if we couldn't find a server port that will serve the NF address
-                }
-            }
-        }
+std::optional<std::string> UserDataIngSession::announcementBundleUrl() const
+{
+    {
+        std::lock_guard<decltype(m_carouselObjectMutex)::element_type> lock(*m_carouselObjectMutex);
+        if (m_carouselObject) return m_carouselObject->object()->getLocator();
     }
-
-    int number_of_ipv4 = nf_instance->numberOfIPv4();
-    if (number_of_ipv4) {
-        ogs_sockaddr_t **addrs = nf_instance->Ipv4();
-        for (int i = 0; i < number_of_ipv4; i++) {
-            if (addrs[i]) {
-                ogs_sockaddr_t *addr = addrs[i];
-                reftools::common::httpxpp::SockAddr remote_mbstf_sock_addr(addr->sa);
-                try {
-                    const reftools::common::httpxpp::SockAddr &svr_sock_addr = App::self().context()->findUserServAnnServerAddrForRemote(remote_mbstf_sock_addr);
-                    populateObjectCarousel(std::format("{}", svr_sock_addr));
-                    return;
-                } catch (std::out_of_range &ex) {
-                    // go onto next address if we couldn't find a server port that will serve the NF address
-                }
-            }
-        }
+    /* Not carouselled yet: the URL the carousel object will have, from the same announcement
+       channel MBSTF that userServiceAnnBundled() uses. */
+    const std::shared_ptr<UserServiceAnnChannel> &ann_channel = App::self().context()->userServiceAnnouncementChannel();
+    if (!ann_channel) return std::nullopt;
+    const std::shared_ptr<UserDataIngSession> &ann_session = ann_channel->annChannelUserDataIngSession();
+    if (!ann_session) return std::nullopt;
+    auto context_data = ann_session->getDistributionSessionInfoData(ann_channel->key());
+    if (!context_data || context_data->mbstfNFInstanceId.empty()) return std::nullopt;
+    std::shared_ptr<Open5GSSBINFInstance> nf_instance;
+    try {
+        nf_instance.reset(new Open5GSSBINFInstance(context_data->mbstfNFInstanceId, false));
+    } catch (const std::runtime_error &ex) {
+        return std::nullopt;
     }
+    auto addr = user_serv_ann_server_addr_for(nf_instance);
+    if (!addr) return std::nullopt;
+    return std::format("http://{}/x-5gmag-service-announcements/v1/user-data-ingest-session/{}", *addr, m_UserDataIngSessionId);
 }
 
 void UserDataIngSession::populateObjectCarousel(const std::string &user_serv_ann_server_addr)

@@ -398,6 +398,8 @@ public:
     std::shared_ptr<CarouselObject> getCarouselObject() const;
     void resetCarouselObject();
     void forEachObjectLocator(std::function<void(const std::string &)> fn) const;
+    // The URL the User Service Descriptions Bundle for this session is carouselled under, if known.
+    std::optional<std::string> announcementBundleUrl() const;
     /** Have every status subscription on this session report the User Service Announcement again.
      *
      * Called where the announcement is (re)configured. The state itself lives on each subscription,
