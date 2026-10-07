@@ -13,6 +13,9 @@
  */
 
 #include <optional>
+#include <string>
+#include <utility>
+#include <vector>
 #include <memory>
 #include <list>
 #include <condition_variable>
@@ -74,17 +77,114 @@ public:
      * session." a=FEC only references a declaration, so it cannot stand without one: the same
      * clause calls it "a short hand to reference one of one or more FEC-declarations".
      *
-     * The FEC attributes do not depend on the distribution method: a Packet Distribution Session
-     * may carry FEC, and clause 7.3.2.8's attributes are not scoped to download delivery.
+     * The FEC attributes are not tied to download delivery, so a Packet Distribution Session may carry
+     * them, but only if its stream is FEC protected; the MBSTF does not protect one yet, so a packet
+     * session announces none (packetFecSupported).
      */
     static AnnouncedAttributes announcedAttributes(bool object_distribution, bool has_fec) {
+        // FEC is announced only where the session actually gets it: Object Distribution, or a Packet
+        // Distribution Session once the MBSTF implements packet FEC (packetFecSupported).
+        const bool fec = has_fec && (object_distribution || packetFecSupported);
         return AnnouncedAttributes{
             .fluteTsi = object_distribution,
-            .fec = has_fec,
-            .fecDeclaration = has_fec,
-            .fecRedundancyLevel = has_fec
+            .fec = fec,
+            .fecDeclaration = fec,
+            .fecRedundancyLevel = fec
         };
     };
+
+    /** The transport and content description of one media line of a Packet Distribution Session. */
+    struct PacketMedia {
+        std::string media;                                                      //!< m= <media>
+        std::string proto;                                                      //!< m= <proto>
+        std::string fmt;                                                        //!< m= <fmt> list, space separated
+        std::vector<std::pair<std::string, std::optional<std::string>>> attributes; //!< a= lines of the media
+    };
+
+    /** Whether the MBSTF applies FEC to a Packet Distribution Session.
+     *
+     * It does not yet (PacketController's setPacketFEC() is a stub), so a packet session is never
+     * announced as FEC-protected, whatever fecConfig it carries: the announcement says what the
+     * MBSTF sends. Review on 5G-MAG/rt-mbs-function#52: "the FEC attributes are only valid if the
+     * PACKET stream implements FEC and should be omitted otherwise". When it does, the media line
+     * becomes FEC/UDP for the source flow and a UDP/FEC repair flow joins it (RFC 6364 section 4.1).
+     */
+    static constexpr bool packetFecSupported = false;
+
+    /** Read the media line of a Packet Distribution Session from the Codec-Data the Application
+     *  Provider supplied for one media component (mbsMediaInfo.codecs).
+     *
+     * TS 29.514 V18.12.0 table 5.6.3.2-1: CodecData is “Refer to clause 5.3.7 of 3GPP TS 29.214 [20] for encoding.”, and
+     * TS 29.214 V18.4.0 clause 5.3.7 encodes it as the word "uplink" or "downlink" and the word "offer", "answer" or
+     * "description", each on a line of its own, then “SDP line(s) in ASCII encoding separated by new-line characters”,
+     * the first being an "m" line followed by that media's "a" and "b" lines.
+     *
+     * Only the "m" line's media, protocol and formats and the "a" lines are taken over. The port is that of the
+     * distribution session, where the MBSTF sends, so the one in the Codec-Data is ignored, as are its "b" lines:
+     * the session's bandwidth is announced from maxContBitRate. The direction-only "a" lines say nothing about a
+     * multicast stream and are dropped.
+     *
+     * Of several entries, a "downlink" one is preferred, being the SDP the network sends to the UE.
+     * Returns nothing when no entry has a usable "m" line.
+     */
+    static std::optional<PacketMedia> packetMediaFromCodecData(const std::vector<std::string> &codec_data) {
+        const std::string *chosen = nullptr;
+        for (const auto &entry : codec_data) {
+            if (entry.rfind("downlink", 0) == 0) { chosen = &entry; break; }
+            if (!chosen) chosen = &entry;
+        }
+        if (!chosen) return std::nullopt;
+
+        std::vector<std::string> lines;
+        {
+            std::string line;
+            for (char c : *chosen) {
+                if (c == '\n' || c == '\r') {
+                    if (!line.empty()) lines.push_back(line);
+                    line.clear();
+                } else {
+                    line += c;
+                }
+            }
+            if (!line.empty()) lines.push_back(line);
+        }
+        // The first two lines are the direction and the offer/answer/description word.
+        if (lines.size() < 3) return std::nullopt;
+
+        PacketMedia result;
+        bool have_m = false;
+        for (size_t i = 2; i < lines.size(); i++) {
+            const std::string &l = lines[i];
+            if (!have_m) {
+                if (l.rfind("m=", 0) != 0) return std::nullopt;
+                // m=<media> <port> <proto> <fmt> ...
+                std::vector<std::string> tok;
+                size_t pos = 2;
+                while (pos < l.size()) {
+                    size_t sp = l.find(' ', pos);
+                    if (sp == std::string::npos) sp = l.size();
+                    if (sp > pos) tok.push_back(l.substr(pos, sp - pos));
+                    pos = sp + 1;
+                }
+                if (tok.size() < 4) return std::nullopt;
+                result.media = tok[0];
+                result.proto = tok[2];
+                for (size_t k = 3; k < tok.size(); k++) {
+                    if (k > 3) result.fmt += ' ';
+                    result.fmt += tok[k];
+                }
+                have_m = true;
+            } else if (l.rfind("a=", 0) == 0) {
+                const std::string a = l.substr(2);
+                if (a == "sendrecv" || a == "recvonly" || a == "sendonly" || a == "inactive") continue;
+                const size_t colon = a.find(':');
+                if (colon == std::string::npos) result.attributes.emplace_back(a, std::nullopt);
+                else result.attributes.emplace_back(a.substr(0, colon), a.substr(colon + 1));
+            }
+        }
+        if (!have_m) return std::nullopt;
+        return result;
+    }
 
     static uint64_t sdpBandwidthBitRate(uint64_t content_bit_rate, const std::optional<size_t> &mtu, bool ipv6) {
         if (!mtu) return content_bit_rate;

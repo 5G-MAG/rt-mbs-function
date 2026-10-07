@@ -33,6 +33,7 @@
 #include <memory>
 #include <random>
 #include <stdexcept>
+#include <algorithm>
 #include <string>
 #include <system_error>
 #include <cstdint>
@@ -334,61 +335,18 @@ bool UserServiceAnnBundle::writeServiceDescriptionProtocolDoc(const std::shared_
        type." Declaring it for a Packet Distribution Session announces a method that session does not
        use.
 
-       For the Packet Distribution Method nothing better is derivable from what is provisioned:
-       PacketDistrMethInfo carries only the operating mode, the ingest method and the ingest
-       addresses, and no transport protocol. The examples in clause 7.2.3.2 use RTP/AVP and
-       UDP/RTP/AVP, neither of which follows from any provisioned field, so the plain transport is
-       declared rather than one of them guessed.
+       A Packet Distribution Session is described by what the Application Provider provisioned: each
+       media component of mbsServInfo whose codecs give an "m" line is announced with that line's media,
+       protocol and formats (TS 26.517 V18.6.0 clause 7.2.3.1 bases its Session Description on TS 26.346
+       clauses 8.3 and 8B.3, where RTP/AVP and the payload types identify an RTP stream). PacketDistrMethInfo
+       itself carries no transport protocol, so a session with nothing described falls back to the plain
+       transport instead of a guessed RTP profile.
 
        That transport is "udp" (RFC 8866 section 8.2.3: “"udp" indicates direct use of UDP.”), and its
        format must then be a media subtype: RFC 8866 section 8.2.3, “For the "udp" protocol, the allowed <fmt> values are media subtypes from the IANA Media Types registry.” With nothing provisioned to
        say what the packets carry, application/octet-stream is the one that claims nothing about them. */
     const bool object_distribution = dist_session_ctx->info && dist_session_ctx->info->getDistrMethod() &&
                                      dist_session_ctx->info->getDistrMethod()->getValue() == DistributionMethod::VAL_OBJECT;
-    auto media = MediaDescription::makeMediaDescription("application", dist_session_ctx->ssm_port,
-                                                        object_distribution ? "FLUTE/UDP" : "udp",
-                                                        object_distribution ? "0" : "octet-stream");
-    if (!ssm_dest.empty()) {
-        auto conn_info = ConnectionInformation::makeConnectionInformation(ssm_dest, family);
-        media->connectionInformationAdd(conn_info);
-    }
-    auto *bitrate = QoSReq::bitrate(dist_session_ctx->info->getMaxContBitRate());
-    if (bitrate) {
-        /* The bandwidth line has to describe whole packets on the wire, not the content inside them.
-
-           TS 26.346 V18.2.0 clause 7.3.2.10: “The size of the packet shall be the complete packet, i.e. IP, UDP and FLUTE headers, and the data payload.”
-
-           maxContBitRate does not say whether it already counts the IP and UDP headers. TS 26.502
-           V18.6.0 clause 4.5.6 calls it a bit rate "for content", while clause 4.3.3.2 has the packet
-           scheduling subfunction pace the outgoing packet stream by it, and TS 29.571 gives the type a
-           format and no semantics. Nothing decides it, and neither Nmb10 nor Nmb9 carries the MTU the
-           conversion needs, so the adjustment rests on an operator-set option rather than on a number
-           invented here (RULES.md rule 12).
-
-           With the MTU known, a packet carries mtu - transport_header bytes of ALC, so the rate that
-           paces ALC bytes corresponds to a wire rate of rate * mtu / (mtu - transport_header). This
-           assumes packets are filled to the MTU, which understates the overhead for the smaller
-           packets (a short final symbol, a small FDT), so it is a floor on the adjustment rather than
-           the exact largest second. */
-        uint64_t as_bitrate = sdpBandwidthBitRate(*bitrate, App::self().context()->sdpBandwidthMtu,
-                                                  family == AF_INET6);
-        if (!App::self().context()->sdpBandwidthMtu) {
-            ogs_warn("mbsf.sdpBandwidthMtu is not configured, so the SDP bandwidth omits the IP and UDP "
-                     "headers that TS 26.346 clause 7.3.2.10 requires it to count");
-        } else if (as_bitrate == *bitrate) {
-            ogs_error("mbsf.sdpBandwidthMtu is not larger than the transport header; bandwidth written "
-                      "without the adjustment clause 7.3.2.10 requires");
-        }
-        /* "AS", not a bare figure. TS 26.346 V18.2.0 clause 7.3.2.10: “The maximum bit rate
-           required by this FLUTE session shall be specified using the "AS" bandwidth modifier [14]
-           on media level.”
-
-           Without the modifier the library emits "b=<value>", which is not a bandwidth line at all:
-           RFC 4566 section 5.8 gives the field as "b=<bwtype>:<bandwidth>", so a receiver either
-           rejects it or ignores it, and the session's rate goes undeclared. */
-        media->bandwidthInformationAdd(as_bitrate/1000, "AS"); // SDP bit rates are in kilobits/s
-        delete bitrate;
-    }
     // “"a=FEC-declaration:" fec-ref SP fec-enc-id”, with “a=FEC-declaration:0 encoding-id=1”.
     //
     // The encoding ID is not free to choose. TS 29.580 V18.8.0 clause 6.2.6.2.14, table
@@ -423,12 +381,105 @@ bool UserServiceAnnBundle::writeServiceDescriptionProtocolDoc(const std::shared_
         }
     }
 
-    /* a=FEC is a reference to a FEC-declaration, so it cannot stand without one. TS 26.346 V18.2.0
-       clause 7.3.2.8: "This is a media-level only attribute, used as a short hand to reference one
-       of one or more FEC-declarations." Emitting it for a session with no declaration left a
-       dangling reference. */
     const auto announced = announcedAttributes(object_distribution, has_fec);
-    if (announced.fec) media->mediaAttributeAdd("FEC", "0");
+
+    /* Builds one media line of the session: the transport and content description, the connection
+       address, the bandwidth and the FEC reference. A Packet Distribution Session announces one per
+       media component the Application Provider described, an Object Distribution Session or a packet
+       one with nothing described announces one. */
+    using MediaAttributes = std::vector<std::pair<std::string, std::optional<std::string>>>;
+    auto build_media = [&](const std::string &media_type, const std::string &proto, const std::string &fmt,
+                           const MediaAttributes &extra_attributes) {
+        auto media = MediaDescription::makeMediaDescription(media_type, dist_session_ctx->ssm_port, proto, fmt);
+        if (!ssm_dest.empty()) {
+            auto conn_info = ConnectionInformation::makeConnectionInformation(ssm_dest, family);
+            media->connectionInformationAdd(conn_info);
+        }
+        auto *bitrate = QoSReq::bitrate(dist_session_ctx->info->getMaxContBitRate());
+        if (bitrate) {
+            /* The bandwidth line has to describe whole packets on the wire, not the content inside them.
+
+               TS 26.346 V18.2.0 clause 7.3.2.10: “The size of the packet shall be the complete packet, i.e. IP, UDP and FLUTE headers, and the data payload.”
+
+               maxContBitRate does not say whether it already counts the IP and UDP headers. TS 26.502
+               V18.6.0 clause 4.5.6 calls it a bit rate "for content", while clause 4.3.3.2 has the packet
+               scheduling subfunction pace the outgoing packet stream by it, and TS 29.571 gives the type a
+               format and no semantics. Nothing decides it, and neither Nmb10 nor Nmb9 carries the MTU the
+               conversion needs, so the adjustment rests on an operator-set option rather than on a number
+               invented here (RULES.md rule 12).
+
+               With the MTU known, a packet carries mtu - transport_header bytes of ALC, so the rate that
+               paces ALC bytes corresponds to a wire rate of rate * mtu / (mtu - transport_header). This
+               assumes packets are filled to the MTU, which understates the overhead for the smaller
+               packets (a short final symbol, a small FDT), so it is a floor on the adjustment rather than
+               the exact largest second. */
+            uint64_t as_bitrate = sdpBandwidthBitRate(*bitrate, App::self().context()->sdpBandwidthMtu,
+                                                      family == AF_INET6);
+            if (!App::self().context()->sdpBandwidthMtu) {
+                ogs_warn("mbsf.sdpBandwidthMtu is not configured, so the SDP bandwidth omits the IP and UDP "
+                         "headers that TS 26.346 clause 7.3.2.10 requires it to count");
+            } else if (as_bitrate == *bitrate) {
+                ogs_error("mbsf.sdpBandwidthMtu is not larger than the transport header; bandwidth written "
+                          "without the adjustment clause 7.3.2.10 requires");
+            }
+            /* "AS", not a bare figure. TS 26.346 V18.2.0 clause 7.3.2.10: “The maximum bit rate
+               required by this FLUTE session shall be specified using the "AS" bandwidth modifier [14]
+               on media level.”
+
+               Without the modifier the library emits "b=<value>", which is not a bandwidth line at all:
+               RFC 4566 section 5.8 gives the field as "b=<bwtype>:<bandwidth>", so a receiver either
+               rejects it or ignores it, and the session's rate goes undeclared. */
+            media->bandwidthInformationAdd(as_bitrate/1000, "AS"); // SDP bit rates are in kilobits/s
+            delete bitrate;
+        }
+
+        /* a=FEC is a reference to a FEC-declaration, so it cannot stand without one. TS 26.346 V18.2.0
+           clause 7.3.2.8: "This is a media-level only attribute, used as a short hand to reference one
+           of one or more FEC-declarations." Emitting it for a session with no declaration left a
+           dangling reference. */
+        if (announced.fec) media->mediaAttributeAdd("FEC", "0");
+        for (const auto &attribute : extra_attributes) media->mediaAttributeAdd(attribute.first, attribute.second);
+        return media;
+    };
+
+    std::vector<std::shared_ptr<MediaDescription>> medias;
+    if (!object_distribution && dist_session_ctx->info) {
+        /* TS 29.580 V18.8.0 table 6.2.6.2.3-1 mbsServInfo carries the media components the Application
+           Provider describes; each one's codecs say what its packets carry (see packetMediaFromCodecData). */
+        const auto &serv_info = dist_session_ctx->info->getMbsServInfo();
+        if (serv_info.has_value() && serv_info.value()) {
+            /* In the order of mbsMedCompNum, the component's own number, not that of the map's key, which
+               the Application Provider chooses freely. */
+            std::vector<std::pair<std::string, reftools::mbsf::MbsMediaCompRm *>> ordered;
+            for (const auto &comp : serv_info.value()->getMbsMediaComps()) {
+                if (comp.second.has_value() && comp.second.value())
+                    ordered.emplace_back(comp.first, comp.second.value().get());
+            }
+            std::stable_sort(ordered.begin(), ordered.end(), [](const auto &a, const auto &b) {
+                return a.second->getMbsMedCompNum() < b.second->getMbsMedCompNum();
+            });
+            for (const auto &comp : ordered) {
+                const auto &media_info = comp.second->getMbsMediaInfo();
+                if (!media_info.has_value() || !media_info.value()) continue;
+                const auto &codecs = media_info.value()->getCodecs();
+                if (!codecs.has_value()) continue;
+                std::vector<std::string> codec_data;
+                for (const auto &c : codecs.value()) if (c.has_value()) codec_data.push_back(c.value());
+                const auto packet_media = packetMediaFromCodecData(codec_data);
+                if (!packet_media) {
+                    ogs_warn("mbsServInfo component [%s]: no usable media line in its codecs, not announced",
+                             comp.first.c_str());
+                    continue;
+                }
+                medias.push_back(build_media(packet_media->media, packet_media->proto, packet_media->fmt,
+                                             packet_media->attributes));
+            }
+        }
+    }
+    if (medias.empty()) {
+        medias.push_back(build_media("application", object_distribution ? "FLUTE/UDP" : "udp",
+                                     object_distribution ? "0" : "octet-stream", {}));
+    }
 
     if (dist_session_ctx->sdp) {
         // Update existing SDP
@@ -437,9 +488,18 @@ bool UserServiceAnnBundle::writeServiceDescriptionProtocolDoc(const std::shared_
             dist_session_ctx->sdp->timingInformationsClear();
             dist_session_ctx->sdp->timingInformationAdd(timings);
         }
-        if (*dist_session_ctx->sdp->mediaDescriptions().front() != *media) {
+        const auto existing_medias = dist_session_ctx->sdp->mediaDescriptions();
+        bool media_changed = existing_medias.size() != medias.size();
+        if (!media_changed) {
+            auto existing = existing_medias.begin();
+            for (const auto &m : medias) {
+                if (**existing != *m) { media_changed = true; break; }
+                ++existing;
+            }
+        }
+        if (media_changed) {
             dist_session_ctx->sdp->mediaDescriptionsClear();
-            dist_session_ctx->sdp->mediaDescriptionAdd(media);
+            for (const auto &m : medias) dist_session_ctx->sdp->mediaDescriptionAdd(m);
         }
 
         /* Session-level attributes are rebuilt on both paths rather than left as first written.
@@ -455,7 +515,7 @@ bool UserServiceAnnBundle::writeServiceDescriptionProtocolDoc(const std::shared_
 
         dist_session_ctx->sdp = SDP::makeSDP(origin, session_name, timings);
 
-        dist_session_ctx->sdp->mediaDescriptionAdd(media);
+        for (const auto &m : medias) dist_session_ctx->sdp->mediaDescriptionAdd(m);
     }
 
 

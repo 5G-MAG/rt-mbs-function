@@ -66,12 +66,14 @@ int main(void)
     check(!packet_no_fec.fec && !packet_no_fec.fecDeclaration && !packet_no_fec.fecRedundancyLevel,
           "a Packet Distribution Session with no FEC announces no FEC attributes");
 
-    /* FEC is not tied to the distribution method: a packet stream may implement it. */
+    /* A packet stream is FEC protected only if the MBSTF protects it, which it does not yet: announcing
+       FEC for it would claim a protection the stream does not have. */
     const auto packet_fec = UserServiceAnnBundle::announcedAttributes(false, true);
     check(!packet_fec.fluteTsi,
           "a Packet Distribution Session with FEC still does not announce a=flute-tsi");
-    check(packet_fec.fec && packet_fec.fecDeclaration && packet_fec.fecRedundancyLevel,
-          "a Packet Distribution Session with FEC announces the FEC attributes");
+    check(UserServiceAnnBundle::packetFecSupported ||
+              (!packet_fec.fec && !packet_fec.fecDeclaration && !packet_fec.fecRedundancyLevel),
+          "a Packet Distribution Session announces no FEC attributes while the MBSTF applies no packet FEC");
 
     /* a=FEC references a declaration, so the two are never announced apart. */
     bool reference_always_has_declaration = true;
@@ -83,6 +85,36 @@ int main(void)
     }
     check(reference_always_has_declaration,
           "a=FEC is never announced without the a=FEC-declaration it references");
+
+    /* The media line of a Packet Distribution Session comes from the Codec-Data of TS 29.214 clause 5.3.7. */
+    {
+        const auto rtp = UserServiceAnnBundle::packetMediaFromCodecData(
+            {"downlink\noffer\nm=video 4002 RTP/AVP 96\na=rtpmap:96 H264/90000\n"
+             "a=fmtp:96 profile-level-id=42A01E; packetization-mode=1\na=recvonly\nb=AS:77\n"});
+        check(rtp && rtp->media == "video" && rtp->proto == "RTP/AVP" && rtp->fmt == "96",
+              "an RTP codec description gives its media, protocol and payload type");
+        check(rtp && rtp->attributes.size() == 2 && rtp->attributes[0].first == "rtpmap" &&
+                  rtp->attributes[0].second == "96 H264/90000" && rtp->attributes[1].first == "fmtp",
+              "its rtpmap and fmtp lines are kept, its recvonly and b= lines are not");
+
+        const auto uplink_and_downlink = UserServiceAnnBundle::packetMediaFromCodecData(
+            {"uplink\nanswer\nm=audio 5000 RTP/AVP 97\n", "downlink\ndescription\nm=video 4002 RTP/AVP 96\n"});
+        check(uplink_and_downlink && uplink_and_downlink->media == "video",
+              "a downlink entry is preferred over an uplink one");
+
+        const auto crlf = UserServiceAnnBundle::packetMediaFromCodecData(
+            {"downlink\r\noffer\r\nm=audio 4004 RTP/AVP 98 99\r\na=rtpmap:98 AMR/8000\r\n"});
+        check(crlf && crlf->fmt == "98 99" && crlf->attributes.size() == 1,
+              "CRLF line ends and several payload types are read");
+
+        check(!UserServiceAnnBundle::packetMediaFromCodecData({}), "no codec entry gives no media line");
+        check(!UserServiceAnnBundle::packetMediaFromCodecData({"downlink\noffer\n"}),
+              "a codec entry without an m line gives no media line");
+        check(!UserServiceAnnBundle::packetMediaFromCodecData({"downlink\noffer\na=rtpmap:96 H264/90000\n"}),
+              "a codec entry whose first SDP line is not an m line gives no media line");
+        check(!UserServiceAnnBundle::packetMediaFromCodecData({"downlink\noffer\nm=video 4002\n"}),
+              "a truncated m line gives no media line");
+    }
 
     printf("Test: SdpAnnouncedAttributes Pass: %d Fail: %d\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;

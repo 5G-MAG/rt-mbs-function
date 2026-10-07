@@ -1,0 +1,42 @@
+{
+  "mbsUserServId": "9270e1ec-d6b0-41f0-ab03-092f07a49d0c",
+  "mbsDisSessInfos": {
+    "AP_MBS_SESSION_1": {
+      "mbsDistSessState": "INACTIVE",
+      "maxContBitRate": "10 Mbps",
+      "distrMethod": "PACKET",
+      "pckDistrInfo": {
+        "operatingMode": "PACKET_FORWARD_ONLY",
+        "pckIngMethod": "UNICAST",
+        "ingEndpointAddrs": {
+          "afEgressTunAddr": {
+            "ipv4Addr": "127.0.0.1",
+            "portNumber": 5004
+          }
+        }
+      },
+      "mbsServInfo": {
+        "mbsMediaComps": {
+          "video": {
+            "mbsMedCompNum": 1,
+            "mbsMediaInfo": {
+              "mbsMedType": "VIDEO",
+              "codecs": [
+                "downlink\noffer\nm=video 4002 RTP/AVP 96\na=rtpmap:96 H264/90000\na=fmtp:96 profile-level-id=42A01E; packetization-mode=1"
+              ]
+            }
+          },
+          "audio": {
+            "mbsMedCompNum": 2,
+            "mbsMediaInfo": {
+              "mbsMedType": "AUDIO",
+              "codecs": [
+                "downlink\noffer\nm=audio 4004 RTP/AVP 97\na=rtpmap:97 MPEG4-GENERIC/48000/2"
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}
