@@ -4488,12 +4488,13 @@ void UserDataIngSession::userServiceAnnBundled()
         return;
     }
 
+    pushNotificationsEvent();
+
     std::lock_guard<decltype(m_carouselObjectMutex)::element_type> lock(*m_carouselObjectMutex);
     if (m_carouselObject) {
         //m_carouselObjectManifest.reset(new ObjManifest(objects, object_locators));
         userServiceAnnBundleAvailable(true);
         ann_channel->addUserDataIngSession(weak_from_this().lock());
-        pushNotificationsEvent();
     } else {
         ogs_debug("No Objects for carousel object manifest");
     }
