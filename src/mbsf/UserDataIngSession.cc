@@ -1947,10 +1947,15 @@ void UserDataIngSession::processUserDataIngSessionUpdate(ogs_pool_id_t stream_id
                     // way to learn its change was discarded. This matches how the structurally identical obligation on
                     // the sibling MBSUserService resource is enforced, TS 29.580 clause 5.2.2.4.2, "Only the 'servType'
                     // attribute shall not be updated", which UserService::update() rejects outright.
+                    //
+                    // Only a value the request carries can change one of them. mbsDistSessionId is assigned by the
+                    // MBSF and, per TS 29.580 V18.8.0 Table 6.2.6.2.3-1, “This attribute shall only be present in the response to an MBS User Data Ingest Session creation request or a subsequent MBS User Data Ingest Session update/modification request.”
+                    // A TMGI the MB-SMF allocated is likewise added to mbsSessionId by the MBSF (NOTE 1 of the same
+                    // table). A request that leaves either out, as a conformant AF does, has changed nothing.
                     {
                         const auto &new_dist_sess_id = update_info->getMbsDistSessionId();
                         const auto &old_dist_sess_id = info->getMbsDistSessionId();
-                        if (new_dist_sess_id != old_dist_sess_id) {
+                        if (new_dist_sess_id.has_value() && new_dist_sess_id != old_dist_sess_id) {
                             throw ModelException("mbsDistSessionId cannot be changed once provisioned",
                                     "MBSDistributionSessionInfo", "mbsDistSessionId",
                                     fiveg_mag_reftools::ProblemCause::MANDATORY_IE_INCORRECT);
@@ -1959,9 +1964,22 @@ void UserDataIngSession::processUserDataIngSessionUpdate(ogs_pool_id_t stream_id
                     {
                         const auto &new_mbs_sess_id = update_info->getMbsSessionId();
                         const auto &old_mbs_sess_id = info->getMbsSessionId();
-                        bool mbs_sess_id_differs = new_mbs_sess_id.has_value() != old_mbs_sess_id.has_value() ||
-                                (new_mbs_sess_id.has_value() && new_mbs_sess_id.value() != old_mbs_sess_id.value() &&
-                                 *(new_mbs_sess_id.value()) != *(old_mbs_sess_id.value()));
+                        bool mbs_sess_id_differs = false;
+                        if (new_mbs_sess_id.has_value() && new_mbs_sess_id.value()) {
+                            const auto &req = *new_mbs_sess_id.value();
+                            const MbsSessionId *stored = (old_mbs_sess_id.has_value() && old_mbs_sess_id.value()) ?
+                                                         old_mbs_sess_id.value().get() : nullptr;
+                            // Each part the request supplies must match the stored part.
+                            auto part_differs = [](const auto &req_part, const auto *stored_part) {
+                                if (!req_part.has_value() || !req_part.value()) return false;
+                                return !stored_part || !stored_part->has_value() || !stored_part->value() ||
+                                       *req_part.value() != *stored_part->value();
+                            };
+                            mbs_sess_id_differs = !stored ||
+                                    part_differs(req.getTmgi(), &stored->getTmgi()) ||
+                                    part_differs(req.getSsm(), &stored->getSsm()) ||
+                                    (req.getNid().has_value() && req.getNid() != stored->getNid());
+                        }
                         if (mbs_sess_id_differs) {
                             throw ModelException("mbsSessionId cannot be changed once provisioned",
                                     "MBSDistributionSessionInfo", "mbsSessionId",
