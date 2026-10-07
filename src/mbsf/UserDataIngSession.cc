@@ -3909,12 +3909,18 @@ bool UserDataIngSession::tmgi(mb_smf_sc_tmgi_t *tmgi, const UserDataIngDistSessI
         mgi->setMbsServiceId(std::string(tmgi->mbs_service_id));
         mgi->setPlmnId(plmn_id);
 
+        /* TS 29.580 V18.8.0 clause 6.2.6.2.3, mbsSessionId NOTE 1: “If this attribute is absent, TMGI allocation shall be performed by the MBSF and this attribute may be present in the HTTP POST response to the corresponding MBS User Data Ingest session creation request and contain the allocated TMGI value.”
+           The same note requires it, if available, in the PUT/PATCH response, so an absent mbsSessionId
+           is created to carry the TMGI rather than the TMGI being dropped. */
         std::optional<std::shared_ptr< MbsSessionId > > mbs_sess_id = context_data->info->getMbsSessionId();
-        if (mbs_sess_id.has_value()) {
-            std::shared_ptr< MbsSessionId > sess_id = mbs_sess_id.value();
+        if (mbs_sess_id.has_value() && mbs_sess_id.value()) {
+            mbs_sess_id.value()->setTmgi(mgi);
+        } else {
+            std::shared_ptr< MbsSessionId > sess_id(new MbsSessionId());
             sess_id->setTmgi(mgi);
-            tmgi_set = true;
+            context_data->info->setMbsSessionId(sess_id);
         }
+        tmgi_set = true;
     }
 
     //ogs_info(" TMGI [%s], SERVICE ID [%s], PLMN [%s], MCC [%s], MNC [%s]", tmgi_repr, tmgi->mbs_service_id, ogs_plmn_id_to_string(&tmgi->plmn, buf), ogs_plmn_id_mcc_string(&tmgi->plmn), ogs_plmn_id_mnc_string(&tmgi->plmn));
