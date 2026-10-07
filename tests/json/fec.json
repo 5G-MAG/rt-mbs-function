@@ -2,16 +2,6 @@
   "mbsUserServId": "078dfdf6-d694-41f0-8bbf-7da70d33dfc9",
   "mbsDisSessInfos": {
     "AP_MBS_SESSION_1": {
-      "mbsSessionId": {
-        "ssm": {
-          "sourceIpAddr": {
-            "ipv4Addr": "127.0.0.5"
-          },
-          "destIpAddr": {
-            "ipv4Addr": "232.10.0.5"
-          }
-        }
-      },
       "fecConfig": {
         "fecScheme": "urn:ietf:rmt:fec:encoding:1",
 	"fecOverHead": 20

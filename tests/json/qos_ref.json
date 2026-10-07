@@ -2,16 +2,6 @@
   "mbsUserServId": "37dccd66-d06d-41f0-819c-e10958827897",
   "mbsDisSessInfos": {
     "AP_MBS_SESSION_1": {
-      "mbsSessionId": {
-        "ssm": {
-          "sourceIpAddr": {
-            "ipv4Addr": "127.0.0.5"
-          },
-          "destIpAddr": {
-            "ipv4Addr": "232.10.0.5"
-          }
-        }
-      },
       "maxContBitRate": "10 Mbps",
       "distrMethod": "OBJECT",
       "objDistrInfo": {
