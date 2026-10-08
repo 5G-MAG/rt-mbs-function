@@ -56,7 +56,10 @@ public:
     operator bool() const { return !!m_ogsClient; };
 
 private:
-    ogs_sbi_client_t *m_ogsClient;
+    ogs_sbi_client_t *m_ogsClient = nullptr;
+    /* Set for a client this object created, which it removes again. A client wrapped from elsewhere
+       (the constructor taking an ogs_sbi_client_t) belongs to its creator. */
+    bool m_ownsClient = false;
 };
 
 MBSF_NAMESPACE_STOP
