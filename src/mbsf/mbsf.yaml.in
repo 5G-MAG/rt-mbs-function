@@ -65,13 +65,13 @@ mbsf:
     sourceAddress: 127.0.0.68
     destinationAddress: 232.0.0.2
 
-  # The NR frequencies a Broadcast MBS Distribution Session is transmitted on. TS 26.517 V18.6.0 table 5.2.9-1 makes
-  # nrParameters of AvailabilityInformation mandatory for a Broadcast session. Clause 5.2.9 has, as NOTE 2:
+  # The NR frequencies a Broadcast MBS Distribution Session is transmitted on. TS 26.517 V18.6.0 table 5.2.9-1 gives
+  # nrParameters of AvailabilityInformation presence M, which CR0021r1 made conditional (5G-MAG/Standards#220). Clause 5.2.9 has, as NOTE 2:
   # “The radio frequencies may be obtained by interrogating the OAM using the value of the mbsFSAId property as a lookup key.”
   # No OAM interface is defined for the MBSF, so they are listed here; this key is this implementation's own
   # configuration, not a specified interface. An entry may name an mbsFSAId; an entry without one is the default for a
-  # session that names none, or none that is listed. A Broadcast session that names tgtServAreas or mbsFSAId and has no
-  # entry is refused. Set these to the cell the gNB serves, for example:
+  # session that names none, or none that is listed. A Broadcast session with no matching entry is announced
+  # without nrParameters and a warning is logged. Set these to the cell the gNB serves, for example:
   #nrParameters:
   #  - freqBandIndicator: 3
   #    aRFCNValue: 368500

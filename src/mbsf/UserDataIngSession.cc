@@ -4810,18 +4810,6 @@ static bool validate_state_setting_options(const std::shared_ptr<UserDataIngSess
                     invalid_params[std::format("mbsDisSessInfos.{}.{}", dist_sess_id, attr_name)] = reason;
                 }
 
-                /* TS 26.517 V18.6.0 table 5.2.9-1 makes nrParameters of AvailabilityInformation mandatory for a Broadcast
-                   MBS Distribution Session, and the MBSF announces AvailabilityInformation for a session that names
-                   tgtServAreas or mbsFSAId. Its values come from mbsf.nrParameters, so a session that would be announced
-                   without any is refused instead of announced with a mandatory property missing (RULES.md rule 12:
-                   no placeholder frequency). */
-                if (serv_type == "BROADCAST" && (info->getTgtServAreas().has_value() || info->getMbsFSAId().has_value()) &&
-                    App::self().context()->nrFrequenciesFor(info->getMbsFSAId()).empty()) {
-                    invalid_params[std::format("mbsDisSessInfos.{}.{}", dist_sess_id,
-                                               info->getMbsFSAId().has_value() ? "mbsFSAId" : "tgtServAreas")] =
-                        "no NR frequency is configured for this Broadcast MBS Distribution Session (mbsf.nrParameters)";
-                }
-
                 // TS 29.580 V18.8.0 table 5.6.2.8-1, pckIngMethod row: "When the "operatingMode"
                 // attribute is set to "PACKET_FORWARD_ONLY", only the value "UNICAST" is applicable
                 // for this attribute."

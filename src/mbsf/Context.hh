@@ -219,8 +219,8 @@ public:
     // unadjusted, which is what happened before this option existed, and a warning names the clause.
     std::optional<size_t> sdpBandwidthMtu;
 
-    /* The NR frequencies a Broadcast MBS Distribution Session is transmitted on. TS 26.517 V18.6.0 table 5.2.9-1 makes
-     * nrParameters of AvailabilityInformation mandatory for a Broadcast session.
+    /* The NR frequencies a Broadcast MBS Distribution Session is transmitted on. TS 26.517 V18.6.0 table 5.2.9-1 gives
+     * nrParameters of AvailabilityInformation presence M, which CR0021r1 made conditional (5G-MAG/Standards#220).
      * TS 26.517 V18.6.0 clause 5.2.9, NOTE 2: “The radio frequencies may be obtained by interrogating the OAM using the value of the mbsFSAId property as a lookup key.”
      * No OAM interface is defined for the MBSF, so the operator lists them in mbsf.nrParameters, which is this
      * implementation's own configuration and not a specified interface. An entry without an mbsFSAId is the default

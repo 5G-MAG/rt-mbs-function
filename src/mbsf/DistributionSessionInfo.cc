@@ -541,11 +541,18 @@ std::shared_ptr<AvailabilityInfo> DistributionSessionInfo::populateAvailabilityI
     if (!tgt_serv_areas.has_value() && !mbs_fSa_id.has_value()) return nullptr;
     std::shared_ptr<AvailabilityInfo> availability_info(new AvailabilityInfo(tgt_serv_areas, mbs_fSa_id));
     if (broadcast_service) {
-        // TS 26.517 V18.6.0 table 5.2.9-1, nrParameters: “(Broadcast MBS Distribution Session only.)” and mandatory
-        // there; the values come from mbsf.nrParameters (see Context.hh). A session with none configured is refused
-        // when it is provisioned, so an empty list here is only a session that predates the configuration.
-        for (const auto &freq : App::self().context()->nrFrequenciesFor(mbs_fSa_id)) {
+        // TS 26.517 V18.6.0 table 5.2.9-1 gives nrParameters “(Broadcast MBS Distribution Session only.)”. Its values come
+        // from mbsf.nrParameters (see Context.hh). The table's presence column says M while CR0021r1 made the property
+        // conditional (5G-MAG/Standards#220), and the OpenAPI of clause A.2.1 has it optional, so a session with no
+        // configured entry is announced without it and the operator is told, rather than refused.
+        const auto frequencies = App::self().context()->nrFrequenciesFor(mbs_fSa_id);
+        for (const auto &freq : frequencies) {
             availability_info->addNrParameters(freq.freqBandIndicator, freq.aRFCNValue);
+        }
+        if (frequencies.empty()) {
+            ogs_warn("No NR frequency is configured (mbsf.nrParameters) for a Broadcast MBS Distribution Session with mbsFSAId \"%s\": "
+                     "its AvailabilityInformation is announced without nrParameters",
+                     mbs_fSa_id ? mbs_fSa_id->c_str() : "(none)");
         }
     }
     return availability_info;
