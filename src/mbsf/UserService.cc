@@ -982,21 +982,11 @@ void UserService::addUserDataIngSession(const std::shared_ptr<UserDataIngSession
     std::shared_ptr<UserDataIngSession> map_session(session);
     std::lock_guard<std::recursive_mutex> lock(*m_userDataIngSessMutex);
     m_userDataIngSessions.insert(std::make_pair<std::string, std::shared_ptr<UserDataIngSession> >(std::string(map_session->userDataIngSessionId()), std::move(map_session)));
-    for (auto &[dist_sess_id, dist_sess_info] : mbs_user_data_ing_session->getMbsDisSessInfos()) {
-        if (dist_sess_info) {
-            auto info = dist_sess_info.value();
-            if (info) {
-                const auto &mbs_session_id = info->getMbsSessionId();
-                if (mbs_session_id) {
-                    const auto &mbs_service_area = info->getTgtServAreas();
-                    const auto &ext_mbs_service_area = info->getExtTgtServAreas();
-                    App::self().context()->addMbsSessionId(!!mbs_session_id.value()->getSsm(), mbs_session_id.value(),
-                                    mbs_service_area?mbs_service_area.value():std::shared_ptr<MbsServiceArea>(),
-                                    ext_mbs_service_area?ext_mbs_service_area.value():std::shared_ptr<ExternalMbsServiceArea>());
-                }
-            }
-        }
-    }
+    /* The MBS Session IDs of the session's Distribution Sessions are not registered here. Each is registered
+       by UserDataIngSession::addToDistributionSessionInfos() when its Distribution Session is built, and
+       released with it. Registering them all on attachment held an ID for a Distribution Session that was
+       never built, which nothing released, so correcting a refused request and sending it again was refused
+       as "already used". */
 }
 
 void UserService::deleteUserDataIngSession(const std::string &userIngSessionId)
