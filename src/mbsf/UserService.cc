@@ -1019,6 +1019,7 @@ void UserService::removeUserDataIngSession(const std::string &userIngSessionId)
     std::lock_guard<std::recursive_mutex> lock(*m_userDataIngSessMutex);
     auto it = m_userDataIngSessions.find(userIngSessionId);
     if (it != m_userDataIngSessions.end()) {
+        it->second->requestRemoval();
         it->second->sendMbstfDelRequests();
     } else {
         throw std::out_of_range("MBSF: User Ingest Session to be removed is not found");
@@ -1034,8 +1035,15 @@ void UserService::removeAllUserDataIngSessions()
             m_postDeleteEvent.reset();
         }
     } else {
+        /* A session with nothing registered to tear down will never report a completion, so it is removed
+           here, after the loop because removing it changes the map being walked. */
+        std::vector<std::string> nothing_to_tear_down;
         for (auto &[user_data_ing_sess_id, user_data_ing_sess] : m_userDataIngSessions) {
-            user_data_ing_sess->sendMbstfDelRequests();
+            user_data_ing_sess->requestRemoval();
+            if (user_data_ing_sess->sendMbstfDelRequests() == 0) nothing_to_tear_down.push_back(user_data_ing_sess_id);
+        }
+        for (const auto &id : nothing_to_tear_down) {
+            App::self().context()->deleteUserDataIngSession(id);
         }
     }
 }

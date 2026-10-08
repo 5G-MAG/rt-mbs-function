@@ -3142,8 +3142,10 @@ void UserDataIngSession::setMBSSessionDeleted(const UserDataIngDistSessId &ids)
             /* Whether a consumer asked for this Ingest Session to go away, as opposed to one of its
                MBS Distribution Sessions being torn down and rebuilt while the Ingest Session stays.
                m_deleteRequests holds the streams waiting for the 204 of a DELETE, so it is empty
-               for an update-driven teardown. Captured before the loop below clears it. */
-            const bool ingest_session_deletion_requested = !ing_sess->m_deleteRequests.empty();
+               for an update-driven teardown, and m_removalRequested is set when the parent MBS User
+               Service is removing the Ingest Session, which has no stream of its own waiting.
+               Captured before the loop below clears it. */
+            const bool ingest_session_deletion_requested = !ing_sess->m_deleteRequests.empty() || ing_sess->m_removalRequested;
             for (auto id : ing_sess->m_deleteRequests) {
                 Open5GSSBIStream stream(id);
                 std::shared_ptr<Open5GSSBIResponse> response(NfServer::newResponse(std::nullopt, std::nullopt, std::nullopt, std::nullopt, 0, std::nullopt, g_nmbsf_userdataingsession_api_metadata, app_meta));

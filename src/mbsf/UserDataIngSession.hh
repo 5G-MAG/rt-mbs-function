@@ -225,6 +225,9 @@ public:
      */
     std::size_t sendMbstfDelRequests(const std::optional<std::string>& key = std::nullopt);
 
+    /** Mark the whole Ingest Session as being removed on behalf of its parent MBS User Service. */
+    void requestRemoval() { m_removalRequested = true; }
+
     void sendMbstfPatchRollbackRequests();
 
     void sendLocalEvent(OgsExtendedEventId event_id, void *data);
@@ -506,6 +509,12 @@ private:
     // Whether this session's create has been answered. Until it has, a failed MB-SMF outcome belongs
     // to the create, which is undone by deleting the session; afterwards it belongs to an update.
     bool m_createAnswered = false;
+
+    // Whether the whole Ingest Session is being removed by its parent MBS User Service, as opposed to a consumer's
+    // DELETE of it (which queues its stream in m_deleteRequests) or one of its Distribution Sessions being torn
+    // down and rebuilt by an update. The removal of the last session is what releases the parent's pending
+    // response, so it has to be recognised when no stream is waiting.
+    bool m_removalRequested = false;
 
     std::list<ogs_pool_id_t> m_deleteRequests;
 
