@@ -25,6 +25,7 @@
 
 #include "openapi/model/AvailabilityInformation.h"
 #include "openapi/model/MbsServiceArea.h"
+#include "openapi/model/NrParameterSet.h"
 #include "common.hh"
 
 namespace fiveg_mag_reftools {
@@ -54,6 +55,7 @@ public:
     fiveg_mag_reftools::CJson json(bool as_request) const;
 
     AvailabilityInfo &addServiceArea(const std::shared_ptr< ServiceArea > &service_area);
+    AvailabilityInfo &addNrParameters(int32_t freq_band_indicator, int32_t arfcn_value);
 
     const std::shared_ptr<reftools::mbsf::AvailabilityInformation> &availabilityInformation() const {return m_availabilityInformation;};
     const reftools::mbsf::AvailabilityInformation::MbsServiceAreasType &mbsServiceAreas() const {return m_availabilityInformation->getMbsServiceAreas();};

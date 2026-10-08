@@ -112,10 +112,10 @@ public:
     const bool dataIngestSessionEstablished() const { return m_dataIngestSessionEstablished; };
     const bool dataIngestSessionTerminated() const { return m_dataIngestSessionTerminated; };
 
-    std::shared_ptr<AvailabilityInfo> populateAvailabilityInfo();
-    std::optional<std::list<std::shared_ptr<AvailabilityInfo>>> availabilityInfos();
+    std::shared_ptr<AvailabilityInfo> populateAvailabilityInfo(bool broadcast_service);
+    std::optional<std::list<std::shared_ptr<AvailabilityInfo>>> availabilityInfos(bool broadcast_service);
     std::optional<std::list<std::shared_ptr<ApplicationServiceDesc>>> applicationServiceDescriptions();
-    std::shared_ptr<DistributionSessionDesc> populateDistributionSessionDesc(const std::string &user_data_ing_session_id, const std::string &distribution_session_info_key);
+    std::shared_ptr<DistributionSessionDesc> populateDistributionSessionDesc(const std::string &user_data_ing_session_id, const std::string &distribution_session_info_key, bool broadcast_service = false);
     std::optional<std::shared_ptr<ObjRepairParameters>> populateObjRepairParameters(const std::string &user_data_ing_session_id, const std::string &distribution_session_info_key);
     std::optional<std::string> objectAcqIdsContentType(const std::string &url);
 

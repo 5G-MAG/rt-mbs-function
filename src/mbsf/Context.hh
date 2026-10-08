@@ -219,6 +219,20 @@ public:
     // unadjusted, which is what happened before this option existed, and a warning names the clause.
     std::optional<size_t> sdpBandwidthMtu;
 
+    /* The NR frequencies a Broadcast MBS Distribution Session is transmitted on. TS 26.517 V18.6.0 table 5.2.9-1 makes
+     * nrParameters of AvailabilityInformation mandatory for a Broadcast session.
+     * TS 26.517 V18.6.0 clause 5.2.9, NOTE 2: “The radio frequencies may be obtained by interrogating the OAM using the value of the mbsFSAId property as a lookup key.”
+     * No OAM interface is defined for the MBSF, so the operator lists them in mbsf.nrParameters, which is this
+     * implementation's own configuration and not a specified interface. An entry without an mbsFSAId is the default
+     * for a session that names none, or none that is listed. */
+    struct NrFrequency {
+        std::optional<std::string> mbsFSAId;
+        int32_t freqBandIndicator;
+        int32_t aRFCNValue;
+    };
+    const std::vector<NrFrequency> &nrFrequencies() const { return m_nrFrequencies; }
+    std::vector<NrFrequency> nrFrequenciesFor(const std::optional<std::string> &mbs_fsa_id) const;
+
     ogs_sockaddr_t *notificationBindAddress;
 
 private:
@@ -229,6 +243,8 @@ private:
     int parseNotificationConfig(const std::string &pc_key, Open5GSYamlIter &iter);
     void parseUserServiceAnnouncement(const std::string &pc_key, Open5GSYamlIter &iter);
     void parseBroadcastDistribution(Open5GSYamlIter &iter);
+    void parseNrParameters(Open5GSYamlIter &iter);
+    std::vector<NrFrequency> m_nrFrequencies;
     void configureMBSAF(const std::string &pc_key, Open5GSYamlIter &iter);
     std::shared_ptr<Open5GSSBIServer> getServerForAddr(const ogs_sockaddr_t *addr, int add_to_server_type);
     const std::shared_ptr<Open5GSSBIServer> &findServerForAddr(const ogs_sockaddr_t *addr) const;

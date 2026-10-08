@@ -4150,10 +4150,11 @@ bool UserDataIngSession::failPendingDeleteRequests(ogs_sbi_xact_t *xact, const P
 std::list<std::shared_ptr<DistributionSessionDesc>> UserDataIngSession::distributionSessionDescs()
 {
     std::list<std::shared_ptr<DistributionSessionDesc>> distribution_session_descs = std::list<std::shared_ptr<DistributionSessionDesc>>();
+    const bool broadcast_service = mbsUserService() && mbsUserService()->getMBSUserServiceType() == "BROADCAST";
     std::lock_guard<decltype(m_distSessInfosMutex)::element_type> lock(*m_distSessInfosMutex);
     for (const auto &dist_sess_info : m_distributionSessionInfos) {
         if (!dist_sess_info.second->distributionSessionInfo) continue;
-        std::shared_ptr< DistributionSessionDesc > distribution_session_desc = dist_sess_info.second->distributionSessionInfo->populateDistributionSessionDesc( m_UserDataIngSessionId, dist_sess_info.first);
+        std::shared_ptr< DistributionSessionDesc > distribution_session_desc = dist_sess_info.second->distributionSessionInfo->populateDistributionSessionDesc( m_UserDataIngSessionId, dist_sess_info.first, broadcast_service);
         distribution_session_descs.push_back(std::move(distribution_session_desc));
     }
     return distribution_session_descs;
@@ -4807,6 +4808,18 @@ static bool validate_state_setting_options(const std::shared_ptr<UserDataIngSess
                                                   serv_type_session_id.value()->getSsm().has_value();
                 for (const auto &[attr_name, reason] : servTypeViolations(serv_type, serv_type_attrs)) {
                     invalid_params[std::format("mbsDisSessInfos.{}.{}", dist_sess_id, attr_name)] = reason;
+                }
+
+                /* TS 26.517 V18.6.0 table 5.2.9-1 makes nrParameters of AvailabilityInformation mandatory for a Broadcast
+                   MBS Distribution Session, and the MBSF announces AvailabilityInformation for a session that names
+                   tgtServAreas or mbsFSAId. Its values come from mbsf.nrParameters, so a session that would be announced
+                   without any is refused instead of announced with a mandatory property missing (RULES.md rule 12:
+                   no placeholder frequency). */
+                if (serv_type == "BROADCAST" && (info->getTgtServAreas().has_value() || info->getMbsFSAId().has_value()) &&
+                    App::self().context()->nrFrequenciesFor(info->getMbsFSAId()).empty()) {
+                    invalid_params[std::format("mbsDisSessInfos.{}.{}", dist_sess_id,
+                                               info->getMbsFSAId().has_value() ? "mbsFSAId" : "tgtServAreas")] =
+                        "no NR frequency is configured for this Broadcast MBS Distribution Session (mbsf.nrParameters)";
                 }
 
                 // TS 29.580 V18.8.0 table 5.6.2.8-1, pckIngMethod row: "When the "operatingMode"

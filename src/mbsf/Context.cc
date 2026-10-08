@@ -274,6 +274,21 @@ bool Context::parseConfig()
                     if (idx != sdp_bandwidth_mtu.size()) {
                         throw std::out_of_range("Bad configuration value at mbsf.sdpBandwidthMtu");
                     }
+                } else if (mbsf_key == "nrParameters") {
+                    Open5GSYamlIter nr_array(mbsf_iter);
+                    do {
+                        if (nr_array.type() == YAML_MAPPING_NODE) {
+                            parseNrParameters(nr_array);
+                        } else if (nr_array.type() == YAML_SEQUENCE_NODE) {
+                            if (!nr_array.next()) break;
+                            Open5GSYamlIter nr_iter(nr_array);
+                            parseNrParameters(nr_iter);
+                        } else if (nr_array.type() == YAML_SCALAR_NODE) {
+                            break;
+                        } else {
+                            throw std::out_of_range("Bad configuration node at mbsf.nrParameters");
+                        }
+                    } while (nr_array.type() == YAML_SEQUENCE_NODE);
                 } else if (mbsf_key == "allowedMulticastRange" ) {
                     allowedMulticastRange = std::string(mbsf_iter.value());
                 } else if (mbsf_key == "broadcastDistribution") {
@@ -532,6 +547,53 @@ void Context::parseBroadcastDistribution(Open5GSYamlIter &iter) {
             broadcastDistribution.destinationAddress = std::string(iter.value());
         }
     }
+}
+
+void Context::parseNrParameters(Open5GSYamlIter &iter) {
+    NrFrequency entry;
+    bool have_band = false, have_arfcn = false;
+    auto to_int = [](const std::string &key, const std::string &val) {
+        size_t idx = 0;
+        unsigned long v = std::stoul(val, &idx);
+        if (idx != val.size() || v > static_cast<unsigned long>(INT32_MAX)) {
+            throw std::out_of_range(std::format("Bad configuration value at mbsf.nrParameters.{}", key));
+        }
+        return static_cast<int32_t>(v);
+    };
+    while (iter.next()) {
+        std::string key(iter.key());
+        std::string val(iter.value());
+        if (key == "mbsFSAId") {
+            entry.mbsFSAId = val;
+        } else if (key == "freqBandIndicator") {
+            entry.freqBandIndicator = to_int(key, val);
+            have_band = true;
+        } else if (key == "aRFCNValue") {
+            entry.aRFCNValue = to_int(key, val);
+            have_arfcn = true;
+        } else {
+            ogs_warn("Unknown key `mbsf.nrParameters.%s` in configuration", key.c_str());
+        }
+    }
+    if (!have_band || !have_arfcn) {
+        throw std::out_of_range("mbsf.nrParameters entries need both freqBandIndicator and aRFCNValue");
+    }
+    m_nrFrequencies.push_back(entry);
+}
+
+std::vector<Context::NrFrequency> Context::nrFrequenciesFor(const std::optional<std::string> &mbs_fsa_id) const {
+    std::vector<NrFrequency> found;
+    if (mbs_fsa_id) {
+        for (const auto &e : m_nrFrequencies) {
+            if (e.mbsFSAId && *e.mbsFSAId == *mbs_fsa_id) found.push_back(e);
+        }
+    }
+    if (found.empty()) {
+        for (const auto &e : m_nrFrequencies) {
+            if (!e.mbsFSAId) found.push_back(e);
+        }
+    }
+    return found;
 }
 
 void Context::parseUserServiceAnnouncement(const std::string &pc_key, Open5GSYamlIter &iter) {

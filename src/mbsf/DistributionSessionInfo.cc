@@ -532,21 +532,30 @@ void DistributionSessionInfo::setState(std::shared_ptr< DistSessionState > dist_
     m_mbsDistributionSessionInfo->setMbsDistSessState(std::move(dist_session_state));
 }
 
-std::shared_ptr<AvailabilityInfo> DistributionSessionInfo::populateAvailabilityInfo()
+std::shared_ptr<AvailabilityInfo> DistributionSessionInfo::populateAvailabilityInfo(bool broadcast_service)
 {
     if (!m_mbsDistributionSessionInfo) return nullptr;
 
     const std::optional<std::shared_ptr< reftools::mbsf::MbsServiceArea > > &tgt_serv_areas = m_mbsDistributionSessionInfo->getTgtServAreas();
     const  std::optional<std::string > &mbs_fSa_id = m_mbsDistributionSessionInfo->getMbsFSAId();
     if (!tgt_serv_areas.has_value() && !mbs_fSa_id.has_value()) return nullptr;
-    return std::shared_ptr<AvailabilityInfo>(new AvailabilityInfo(tgt_serv_areas, mbs_fSa_id));
+    std::shared_ptr<AvailabilityInfo> availability_info(new AvailabilityInfo(tgt_serv_areas, mbs_fSa_id));
+    if (broadcast_service) {
+        // TS 26.517 V18.6.0 table 5.2.9-1, nrParameters: “(Broadcast MBS Distribution Session only.)” and mandatory
+        // there; the values come from mbsf.nrParameters (see Context.hh). A session with none configured is refused
+        // when it is provisioned, so an empty list here is only a session that predates the configuration.
+        for (const auto &freq : App::self().context()->nrFrequenciesFor(mbs_fSa_id)) {
+            availability_info->addNrParameters(freq.freqBandIndicator, freq.aRFCNValue);
+        }
+    }
+    return availability_info;
 }
 
-std::optional<std::list<std::shared_ptr<AvailabilityInfo>>> DistributionSessionInfo::availabilityInfos()
+std::optional<std::list<std::shared_ptr<AvailabilityInfo>>> DistributionSessionInfo::availabilityInfos(bool broadcast_service)
 {
     if (!m_mbsDistributionSessionInfo) return std::nullopt;
     std::optional<std::list<std::shared_ptr<AvailabilityInfo>>> availability_infos = std::nullopt;
-    std::shared_ptr<AvailabilityInfo> availability_info = populateAvailabilityInfo();
+    std::shared_ptr<AvailabilityInfo> availability_info = populateAvailabilityInfo(broadcast_service);
     if (availability_info) {
         availability_infos = std::list<std::shared_ptr<AvailabilityInfo>>{availability_info};
     }
@@ -641,13 +650,13 @@ std::optional<std::shared_ptr<ObjRepairParameters>> DistributionSessionInfo::pop
 }
 
 
-std::shared_ptr<DistributionSessionDesc> DistributionSessionInfo::populateDistributionSessionDesc(const std::string &user_data_ing_session_id, const std::string &distribution_session_info_key)
+std::shared_ptr<DistributionSessionDesc> DistributionSessionInfo::populateDistributionSessionDesc(const std::string &user_data_ing_session_id, const std::string &distribution_session_info_key, bool broadcast_service)
 {
     if (!m_mbsDistributionSessionInfo) return nullptr;
 
     std::string session_description_locator = /*user_data_ing_session_id + "/" +*/ distribution_session_info_key + ".sdp";
 
-    std::shared_ptr<DistributionSessionDesc> distribution_session_desc(new DistributionSessionDesc(m_mbsDistributionSessionInfo->getDistrMethod(), session_description_locator, applicationServiceDescriptions(), populateObjRepairParameters(user_data_ing_session_id, distribution_session_info_key), availabilityInfos()));
+    std::shared_ptr<DistributionSessionDesc> distribution_session_desc(new DistributionSessionDesc(m_mbsDistributionSessionInfo->getDistrMethod(), session_description_locator, applicationServiceDescriptions(), populateObjRepairParameters(user_data_ing_session_id, distribution_session_info_key), availabilityInfos(broadcast_service)));
     return distribution_session_desc;
 }
 

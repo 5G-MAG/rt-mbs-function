@@ -84,6 +84,15 @@ AvailabilityInfo::~AvailabilityInfo()
 {
 }
 
+AvailabilityInfo &AvailabilityInfo::addNrParameters(int32_t freq_band_indicator, int32_t arfcn_value)
+{
+    std::shared_ptr<reftools::mbsf::NrParameterSet> nr_parameter_set(new reftools::mbsf::NrParameterSet());
+    nr_parameter_set->setFreqBandIndicator(freq_band_indicator);
+    nr_parameter_set->setARFCNValue(arfcn_value);
+    m_availabilityInformation->addNrParameters(nr_parameter_set);
+    return *this;
+}
+
 AvailabilityInfo &AvailabilityInfo::setMbsServiceAreas(const std::list<std::shared_ptr< ServiceArea > > &service_areas)
 {
     for(const auto &service_area: service_areas) {
