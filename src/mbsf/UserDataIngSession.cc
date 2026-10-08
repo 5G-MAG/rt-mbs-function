@@ -2279,7 +2279,7 @@ bool UserDataIngSession::processDistSession(const std::shared_ptr<DistSession> &
         }
 
         if (ing_sess->checkIfAllMBSTFResponsesReceived()) {
-            ing_sess->sendNmbsfMbsUserDataIngestResponse(ids);
+            ing_sess->finishMbstfCreate(ids);
         }
     } catch (const std::out_of_range &e) {
         std::ostringstream err;
@@ -2288,6 +2288,90 @@ bool UserDataIngSession::processDistSession(const std::shared_ptr<DistSession> &
     }
 
     return true;
+}
+
+void UserDataIngSession::finishMbstfCreate(const std::shared_ptr<UserDataIngDistSessId> &ids)
+{
+    std::lock_guard<decltype(m_distSessInfosMutex)::element_type> lock(*m_distSessInfosMutex);
+
+    std::shared_ptr<ContextData> answered = getContextData(ids);
+    std::vector<std::string> failed_keys;
+    std::shared_ptr<UserDataIngDistSessId> succeeded_ids;
+    if (answered) {
+        /* Only the sessions this request asked for: those sharing its stream. */
+        for (const auto &[key, context_data] : m_distributionSessionInfos) {
+            if (!context_data || context_data->streamId != answered->streamId) continue;
+            if (context_data->mbstfCreateFailed) failed_keys.push_back(key);
+            else if (!succeeded_ids) succeeded_ids.reset(new UserDataIngDistSessId(context_data->ingSessionId, key));
+        }
+    }
+
+    if (failed_keys.empty() || !succeeded_ids) {
+        sendNmbsfMbsUserDataIngestResponse(ids);
+        return;
+    }
+
+    /* A mixed outcome is reported, not rejected, and the sessions that were created stay created.
+       TS 29.580 V18.8.0 clause 6.2.6.2.2, failedDistSessions: see attachFailedDistSessions(). */
+    for (const auto &key : failed_keys) {
+        std::shared_ptr<ContextData> failed = getDistributionSessionInfoData(key);
+        if (!failed) continue;
+        recordDistSessionFailure(key, failed);
+        removeFromRegistry(failed->mbstfDistSessionId);
+        removeDistributionSessionInfo(key);
+        m_MBSUserDataIngSession->removeMbsDisSessInfos(key);
+    }
+    ogs_info("%zu MBS Distribution Session(s) failed at the MBSTF and the rest were created; reporting the failures "
+             "in failedDistSessions", failed_keys.size());
+    sendNmbsfMbsUserDataIngestResponse(succeeded_ids);
+}
+
+bool UserDataIngSession::handleMbstfCreateFailure(ogs_sbi_xact_t *xact, const std::string &reason)
+{
+    registerDistSessionEstFailure(xact, reason);
+
+    std::shared_ptr<UserDataIngDistSessId> ids = nullptr;
+    {
+        std::lock_guard<decltype(s_registry_mutex)> lock(s_registry_mutex);
+        auto it = s_xactRegistry.find(xact);
+        if (it != s_xactRegistry.end()) ids = it->second;
+    }
+    if (!ids) return true;
+
+    try {
+        std::shared_ptr<UserDataIngSession> ing_sess = locate(ids->first);
+        std::shared_ptr<ContextData> context_data = ing_sess->getDistributionSessionInfoData(ids->second);
+        /* Without MBSErrorHandling the consumer cannot be told which sessions failed, so it gets one error
+           and nothing is kept, as before. */
+        if (!context_data || ing_sess->isUserServiceAnnouncementChannel(ids->second) ||
+                !ing_sess->mbsErrorHandlingNegotiated()) {
+            deleteMBSTFSession(xact);
+            return true;
+        }
+        context_data->mbstfCreateFailed = true;
+        context_data->receivedMBSTFResponse = true;
+        context_data->mbsmfProblemCause = ProblemCause::INBOUND_SERVER_ERROR;
+        if (!ing_sess->checkIfAllMBSTFResponsesReceived()) return false;
+
+        /* The last answer is this failure. If any session was created the request is answered with the
+           failures reported; if none was, the one error is the answer. */
+        bool any_created = false;
+        {
+            std::lock_guard<decltype(ing_sess->m_distSessInfosMutex)::element_type> lock(*ing_sess->m_distSessInfosMutex);
+            for (const auto &[key, other] : ing_sess->m_distributionSessionInfos) {
+                if (other && other->streamId == context_data->streamId && !other->mbstfCreateFailed) any_created = true;
+            }
+        }
+        if (any_created) {
+            ing_sess->finishMbstfCreate(ids);
+            return false;
+        }
+        deleteMBSTFSession(xact);
+        return true;
+    } catch (const std::out_of_range &e) {
+        ogs_error("MBS User Data Ingest Session [%s] does not exist.", ids->first.c_str());
+        return true;
+    }
 }
 
 std::shared_ptr< UserDataIngSession::ContextData > UserDataIngSession::setDistSessionId(const std::shared_ptr<UserDataIngSession::ContextData> &context_data, const std::string &dist_session_id)

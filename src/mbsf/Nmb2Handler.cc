@@ -223,22 +223,20 @@ bool Nmb2Handler::processEvent(Open5GSEvent &event)
                             handle_mbstf_dist_session_response(sbi_xact, response, false);
                         } else {
                             ogs_error("Received invalid content-type from MBSTF");
-                            UserDataIngSession::registerDistSessionEstFailure(sbi_xact,
-                                    "MBSTF returned no usable representation of the MBS Distribution Session");
-                            UserDataIngSession::deleteMBSTFSession(sbi_xact);
-                            send_error(sbi_xact);
+                            if (UserDataIngSession::handleMbstfCreateFailure(sbi_xact,
+                                    "MBSTF returned no usable representation of the MBS Distribution Session")) {
+                                send_error(sbi_xact);
+                            }
                          }
 
                     } else {
                         ogs_error("HTTP response error [%d]", message.resStatus());
-                        {
-                            std::ostringstream reason;
-                            reason << "MBSTF answered the MBS Distribution Session creation with status "
-                                   << message.resStatus();
-                            UserDataIngSession::registerDistSessionEstFailure(sbi_xact, reason.str());
+                        std::ostringstream reason;
+                        reason << "MBSTF answered the MBS Distribution Session creation with status "
+                               << message.resStatus();
+                        if (UserDataIngSession::handleMbstfCreateFailure(sbi_xact, reason.str())) {
+                            send_error(sbi_xact);
                         }
-                        UserDataIngSession::deleteMBSTFSession(sbi_xact);
-                        send_error(sbi_xact);
 
                     }
 
@@ -355,10 +353,10 @@ static bool handle_mbstf_dist_session_response(ogs_sbi_xact_t *xact, Open5GSSBIR
             UserDataIngSession::rollbackMBSTFDistSessionState(xact, response.status());
             return true;
         }
-        UserDataIngSession::registerDistSessionEstFailure(xact,
-                std::string("MBSTF creation response is not JSON: ") + ex.what());
-        UserDataIngSession::deleteMBSTFSession(xact);
-        send_error(xact);
+        if (UserDataIngSession::handleMbstfCreateFailure(xact,
+                std::string("MBSTF creation response is not JSON: ") + ex.what())) {
+            send_error(xact);
+        }
         return true;
     }
     /* The two responses have different shapes, and parsing one as the other fails.
@@ -380,12 +378,12 @@ static bool handle_mbstf_dist_session_response(ogs_sbi_xact_t *xact, Open5GSSBIR
             UserDataIngSession::rollbackMBSTFDistSessionState(xact, response.status());
             return true;
         }
-        UserDataIngSession::registerDistSessionEstFailure(xact,
-                std::string("MBSTF creation response did not parse as CreateRspData: ") + err.what());
-        UserDataIngSession::deleteMBSTFSession(xact);
         char *error = ogs_msprintf("%s", err.what());
         ogs_error("%s", error);
-        send_error(xact);
+        if (UserDataIngSession::handleMbstfCreateFailure(xact,
+                std::string("MBSTF creation response did not parse as CreateRspData: ") + err.what())) {
+            send_error(xact);
+        }
         ogs_free(error);
         return true;
     }

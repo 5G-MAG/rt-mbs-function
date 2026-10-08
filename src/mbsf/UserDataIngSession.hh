@@ -115,6 +115,9 @@ public:
         // MB-SMF refuses that update. Null when no content update is outstanding.
         std::shared_ptr<reftools::mbsf::MBSDistributionSessionInfo> preUpdateInfo = nullptr;
         bool receivedMBSTFResponse = false;
+        // The MBSTF refused or failed the creation of this Distribution Session (receivedMBSTFResponse is then also set,
+        // as the answer is in).
+        bool mbstfCreateFailed = false;
         bool receivedMBSTFPatchResponse = false;
         bool patchUpdateSucceded = false;
         bool stateUpdate = false;
@@ -430,6 +433,17 @@ public:
      *  so it is the MBSF's own; the reason is carried in the notification's statusAddInfo.
      */
     static void registerDistSessionEstFailure(ogs_sbi_xact_t *xact, const std::string &reason);
+
+    /** The MBSTF did not create a Distribution Session. Where MBSErrorHandling was negotiated, the failure
+     *  is held until the MBSTF has answered for every session of the request, and a mixed outcome is then
+     *  answered with the failedDistSessions of the Ingest Session; otherwise, or when every session failed,
+     *  the Ingest Session's MBSTF sessions are deleted.
+     *  @return true if the caller must now answer the request with one error, false if the request is
+     *          still waiting for other sessions or has already been answered. */
+    static bool handleMbstfCreateFailure(ogs_sbi_xact_t *xact, const std::string &reason);
+
+    /** Every MBSTF creation answer is in: answer the request, reporting the sessions the MBSTF failed. */
+    void finishMbstfCreate(const std::shared_ptr<UserDataIngDistSessId> &ids);
     static bool handlePatchUpdateResponse(ogs_sbi_xact_t *xact, const std::shared_ptr<reftools::mbsf::DistSession> &dist_session);
     static void rollbackMBSTFDistSessionState(ogs_sbi_xact_t *xact, int status = 0);
 
