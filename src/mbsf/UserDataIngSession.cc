@@ -2640,8 +2640,9 @@ bool UserDataIngSession::sendNmbsfMbsUserDataIngestResponse(const std::shared_pt
     return true;
 }
 
-bool UserDataIngSession::handleMbstfDiscover(ogs_sbi_nf_instance_t *nf_instance, ogs_sbi_xact_t *xact)
+bool UserDataIngSession::handleMbstfDiscover(ogs_sbi_nf_instance_t *nf_instance, ogs_sbi_xact_t *xact, bool &request_sent)
 {
+    request_sent = false;
     if (!nf_instance) {
         handle_failed_mbstf_nf_instance_discover(xact);
         return false;
@@ -2681,6 +2682,26 @@ bool UserDataIngSession::handleMbstfDiscover(ogs_sbi_nf_instance_t *nf_instance,
     }
 
     if (context_data->mbstfNFInstanceId.empty()) context_data->mbstfNFInstanceId = std::string(nf_instance->id);
+
+    if (xact->request) {
+        /* A discover-and-send transaction holds the request that was waiting for this instance. Sent
+           here, as every Open5GS NF sends it once its discovery returns; without this the request was
+           dropped with the transaction and nothing ever answered its stream. The registry entry stays
+           for the response, as it does when the instance was already known. */
+        const ogs_pool_id_t stream_id = xact->assoc_stream_id;
+        if (!ogs_sbi_send_request_to_nf_instance(nf_instance, xact)) {
+            /* The transaction is gone. */
+            removeFromRegistry(xact);
+            if (ogs_sbi_stream_find_by_id(stream_id)) {
+                Open5GSSBIStream stream(stream_id);
+                ogs_assert(true == Open5GSSBIServer::sendError(stream, std::nullopt, ProblemCause::UNSPECIFIED_NF_FAILURE,
+                                                               "The request could not be sent to the MBSTF"));
+            }
+            return false;
+        }
+        request_sent = true;
+        return true;
+    }
     removeFromRegistry(xact);
 
     return true;

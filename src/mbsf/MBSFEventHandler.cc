@@ -44,7 +44,7 @@ using fiveg_mag_reftools::ProblemCause;
 
 MBSF_NAMESPACE_START
 
-static void mbsf_nnrf_handle_nf_discover(ogs_sbi_xact_t *xact, ogs_sbi_message_t *recvmsg);
+static bool mbsf_nnrf_handle_nf_discover(ogs_sbi_xact_t *xact, ogs_sbi_message_t *recvmsg);
 
 void MBSFEventHandler::dispatch(Open5GSFSM &fsm, Open5GSEvent &event)
 {
@@ -189,11 +189,12 @@ void MBSFEventHandler::dispatch(Open5GSFSM &fsm, Open5GSEvent &event)
                           break;
                     }
                     std::string method(message.method());
+                    bool request_in_flight = false;
                     if (method == OGS_SBI_HTTP_METHOD_GET) {
                         if (message.resStatus() == OGS_SBI_HTTP_STATUS_OK)
                         {
 
-                            mbsf_nnrf_handle_nf_discover(sbi_xact, message.ogsSBIMessage());
+                            request_in_flight = mbsf_nnrf_handle_nf_discover(sbi_xact, message.ogsSBIMessage());
                         } else {
                             ogs_error("HTTP response error [%d]", message.resStatus());
                         }
@@ -203,7 +204,8 @@ void MBSFEventHandler::dispatch(Open5GSFSM &fsm, Open5GSEvent &event)
                           ogs_assert_if_reached();
                     }
 
-                    if (sbi_xact) UserDataIngSession::removeXact(sbi_xact);
+                    /* A request sent to the instance just discovered keeps its transaction for the response. */
+                    if (sbi_xact && !request_in_flight) UserDataIngSession::removeXact(sbi_xact);
                     sbi_xact = NULL;
                 }
 
@@ -388,7 +390,7 @@ void MBSFEventHandler::dispatch(Open5GSFSM &fsm, Open5GSEvent &event)
     }
 }
 
-static void mbsf_nnrf_handle_nf_discover(ogs_sbi_xact_t *xact, ogs_sbi_message_t *recvmsg)
+static bool mbsf_nnrf_handle_nf_discover(ogs_sbi_xact_t *xact, ogs_sbi_message_t *recvmsg)
 {
     ogs_sbi_nf_instance_t *nf_instance = NULL;
     ogs_sbi_object_t *sbi_object = NULL;
@@ -416,7 +418,7 @@ static void mbsf_nnrf_handle_nf_discover(ogs_sbi_xact_t *xact, ogs_sbi_message_t
     SearchResult = recvmsg->SearchResult;
     if (!SearchResult) {
         ogs_error("No SearchResult");
-        return;
+        return false;
     }
 
     ogs_nnrf_disc_handle_nf_discover_search_result(SearchResult);
@@ -429,7 +431,9 @@ static void mbsf_nnrf_handle_nf_discover(ogs_sbi_xact_t *xact, ogs_sbi_message_t
                     OpenAPI_nf_type_ToString(requester_nf_type));
         //return;
     }
-    ogs_expect(true == UserDataIngSession::handleMbstfDiscover(nf_instance, xact));
+    bool request_sent = false;
+    ogs_expect(true == UserDataIngSession::handleMbstfDiscover(nf_instance, xact, request_sent));
+    return request_sent;
 }
 
 MBSF_NAMESPACE_STOP

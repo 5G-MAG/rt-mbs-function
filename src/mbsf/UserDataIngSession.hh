@@ -316,7 +316,7 @@ public:
     static void setMBSSessionDeleted(const UserDataIngDistSessId &ids);
     static void setMBSTFDistSessionDeletedFlag(const std::string &dist_session_id);
     static bool processEvent(Open5GSEvent &event);
-    static bool handleMbstfDiscover(ogs_sbi_nf_instance_t *nf_instance, ogs_sbi_xact_t *xact);
+    static bool handleMbstfDiscover(ogs_sbi_nf_instance_t *nf_instance, ogs_sbi_xact_t *xact, bool &request_sent);
     static bool createMbsSession(const std::shared_ptr<ContextData> &context_data);
 
     static bool processDistSession(const std::shared_ptr<reftools::mbsf::DistSession> &dist_session);
