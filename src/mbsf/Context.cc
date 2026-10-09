@@ -62,6 +62,7 @@
 #include "openapi/model/MbsSessionId.h"
 
 #include "Context.hh"
+#include "UserServiceDiscoveryHttp.hh"
 
 using reftools::mbsf::ExternalMbsServiceArea;
 using reftools::mbsf::MbsServiceArea;
@@ -145,7 +146,7 @@ static std::string url_escape(const std::string &unescaped);
 
 Context::Context()
     :servers()
-    ,cacheControl({60, 60, 60})
+    ,cacheControl({60, 60, 60, 60})
     ,capacity({100,100})
     ,allowedMulticastRange()
     ,maxRequestBodySize(std::nullopt)
@@ -496,23 +497,40 @@ bool Context::haveMbsSessionId(bool request_tmgi, const std::shared_ptr<MbsSessi
 }
 
 void Context::parseCacheControl(Open5GSYamlIter &iter) {
+    /* The resources whose own max-age the configuration did not give take the default one, so that
+       setting defaultMaxAge alone sets them all. A value that is not a whole number of seconds from 0 to
+       2147483647 (see discovery::parseMaxAgeSeconds()) is reported and treated as not given: the resource then
+       takes defaultMaxAge, and defaultMaxAge itself keeps the built-in value. */
+    bool user_service_set = false, ingest_session_set = false, user_service_description_set = false;
     while (iter.next()) {
         std::string cc_key(iter.key());
         std::string cc_val(iter.value());
-        try {
-            if (cc_key == "defaultMaxAge") {
-                cacheControl.defaultMaxAge = std::stol(cc_val);
-            } else if (cc_key == "mbsUserServiceMaxAge") {
-                cacheControl.MBSUserServiceMaxAge = std::stol(cc_val);
-            } else if (cc_key == "mbsUserDataIngestSessionMaxAge") {
-                cacheControl.MBSUserDataIngestSessionMaxAge = std::stol(cc_val);
-            }
-        } catch (std::out_of_range &ex) {
-            ogs_error("Cache control value for %s of \"%s\" is too big for integer storage.", cc_key.c_str(), cc_val.c_str());
-        } catch (std::invalid_argument &ex) {
-            ogs_error("Cache control value for %s of \"%s\" is not understood as an integer.", cc_key.c_str(), cc_val.c_str());
+        unsigned int *target = nullptr;
+        bool *set_flag = nullptr;
+        if (cc_key == "defaultMaxAge") {
+            target = &cacheControl.defaultMaxAge;
+        } else if (cc_key == "mbsUserServiceMaxAge") {
+            target = &cacheControl.MBSUserServiceMaxAge;
+            set_flag = &user_service_set;
+        } else if (cc_key == "mbsUserDataIngestSessionMaxAge") {
+            target = &cacheControl.MBSUserDataIngestSessionMaxAge;
+            set_flag = &ingest_session_set;
+        } else if (cc_key == "userServiceDescriptionMaxAge") {
+            target = &cacheControl.UserServiceDescriptionMaxAge;
+            set_flag = &user_service_description_set;
+        } else {
+            continue;
+        }
+        if (discovery::parseMaxAgeSeconds(cc_val, *target)) {
+            if (set_flag) *set_flag = true;
+        } else {
+            ogs_error("Cache control value for %s of \"%s\" is not a whole number of seconds from 0 to 2147483647; treated as not given.",
+                      cc_key.c_str(), cc_val.c_str());
         }
     }
+    if (!user_service_set) cacheControl.MBSUserServiceMaxAge = cacheControl.defaultMaxAge;
+    if (!ingest_session_set) cacheControl.MBSUserDataIngestSessionMaxAge = cacheControl.defaultMaxAge;
+    if (!user_service_description_set) cacheControl.UserServiceDescriptionMaxAge = cacheControl.defaultMaxAge;
 }
 
 void Context::parseObjectRepairParameters(Open5GSYamlIter &iter) {
