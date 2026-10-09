@@ -29,6 +29,7 @@
 #include <any>
 #include <chrono>
 #include <functional>
+#include <atomic>
 #include <memory>
 #include <tuple>
 #include <mutex>
@@ -90,6 +91,10 @@ public:
 
     //Pair containing Distribution Session ID sent to the MBSTF and the above UserDataIngDistSessId
     using SessionIdContainer = std::pair<std::string, std::shared_ptr< UserDataIngDistSessId >>;
+    struct StateRequest {
+        std::string ingSessionId;
+        reftools::mbsf::DistSessionState::Enum state;
+    };
 
     enum class MBSSessionState {
         NO = 0,       // no session
@@ -176,7 +181,8 @@ public:
         MBSF_LOCAL_SEND_MBSTF_DELETE_SESSION,
         MBSF_LOCAL_SEND_MBSTF_PATCH_ROLLBACK,
         MBSF_LOCAL_SEND_MBSTF_PATCH_BUILD,
-        MBSF_LOCAL_SEND_MBSTF_CAROUSE_OBJECT_MANIFEST_BUILD
+        MBSF_LOCAL_SEND_MBSTF_CAROUSE_OBJECT_MANIFEST_BUILD,
+        MBSF_LOCAL_SET_DIST_SESSION_STATE
     };
 
     const std::string &userDataIngSessionId() const { return m_UserDataIngSessionId; };
@@ -397,6 +403,11 @@ public:
     void userServiceAnnChannelDistributionSessionInfo();
     std::list<std::string> getUserServiceAnnBundleFilesList() const;
     void setDistSessionState(const std::shared_ptr<reftools::mbsf::DistSessionState> &state);
+    /** Ask for setDistSessionState() to be run on the event loop thread. setDistSessionState() sends the MB-SMF and
+     *  MBSTF updates through the Open5GS SBI clients, which only that thread may use, so a worker thread requests
+     *  the change with this instead of making it. Only the latest request waits: while one is pending another is
+     *  not queued, and a caller that still needs a different state asks again. */
+    void requestDistSessionState(const std::shared_ptr<reftools::mbsf::DistSessionState> &state);
     void configureUserServiceAnnouncementBundler();
     void userServiceAnnBundled();
     const reftools::mbsf::DistSessionState &stateOfDistSession(const std::string &key);
@@ -529,6 +540,9 @@ private:
     // down and rebuilt by an update. The removal of the last session is what releases the parent's pending
     // response, so it has to be recognised when no stream is waiting.
     bool m_removalRequested = false;
+
+    // A requestDistSessionState() event is queued and has not been run yet.
+    std::atomic_bool m_stateRequestPending{false};
 
     std::list<ogs_pool_id_t> m_deleteRequests;
 

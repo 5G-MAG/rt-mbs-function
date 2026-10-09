@@ -1104,6 +1104,22 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
 
         }
 
+        case MBSF_LOCAL_SET_DIST_SESSION_STATE:
+        {
+            StateRequest *request = reinterpret_cast<StateRequest*>(event.sbiData());
+            try {
+                std::shared_ptr<UserDataIngSession> ing_session = locate(request->ingSessionId);
+                ing_session->m_stateRequestPending = false;
+                std::shared_ptr<reftools::mbsf::DistSessionState> state(new reftools::mbsf::DistSessionState());
+                *state = request->state;
+                ing_session->setDistSessionState(state);
+            } catch (const std::out_of_range &e) {
+                ogs_debug("MBS User Data Ingest Session [%s] no longer exists, state request dropped",
+                          request->ingSessionId.c_str());
+            }
+            delete request;
+            return true;
+        }
         case MBSF_LOCAL_SEND_MBSTF_DELETE_SESSION:
         {
             SessionIdContainer *ids = reinterpret_cast<SessionIdContainer*>(event.sbiData());
@@ -3095,6 +3111,12 @@ std::size_t UserDataIngSession::sendMbstfDelRequests(const std::optional<std::st
     return issued;
 }
 
+void UserDataIngSession::requestDistSessionState(const std::shared_ptr<reftools::mbsf::DistSessionState> &state)
+{
+    if (!state || m_stateRequestPending.exchange(true)) return;
+    sendLocalEvent(MBSF_LOCAL_SET_DIST_SESSION_STATE, new StateRequest{m_UserDataIngSessionId, state->getValue()});
+}
+
 void UserDataIngSession::sendLocalEventPatch(const std::optional<std::string>& key)
 {
     std::lock_guard<decltype(s_registry_mutex)> lock(s_registry_mutex);
@@ -3170,6 +3192,8 @@ const char *UserDataIngSession::localEventGetName( ogs_event_t *event)
             return "MBSF_LOCAL_SEND_MBSTF_REQ_BUILD";
         case MBSF_LOCAL_SEND_MBSTF_PATCH_ROLLBACK:
             return "MBSF_LOCAL_SEND_MBSTF_PATCH_ROLLBACK";
+        case MBSF_LOCAL_SET_DIST_SESSION_STATE:
+            return "MBSF_LOCAL_SET_DIST_SESSION_STATE";
         default:
             return ogs_event_get_name(event);
     }

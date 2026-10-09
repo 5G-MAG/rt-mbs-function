@@ -203,7 +203,7 @@ void UserServiceAnnChannel::workerLoop()
                 ogs_debug("Request ACTIVE state for USAC MBSTF Dist Session (%s != ACTIVE)", m_userServiceAnnChannelDataIngSession->stateOfDistSession(USER_SERVICE_ANN_CHANNEL).getString().c_str());
                 std::shared_ptr<DistSessionState> state(new DistSessionState());
                 *state = DistSessionState::VAL_ACTIVE;
-                m_userServiceAnnChannelDataIngSession->setDistSessionState(state);
+                m_userServiceAnnChannelDataIngSession->requestDistSessionState(state);
             }
 
             if (m_userServiceAnnChannelDataIngSession->lastReportedState(USER_SERVICE_ANN_CHANNEL) != DistSessionState::VAL_ACTIVE) {
@@ -223,7 +223,7 @@ void UserServiceAnnChannel::workerLoop()
                 ogs_debug("Request INACTIVE state for USAC MBSTF Dist Session (%s != INACTIVE)", m_userServiceAnnChannelDataIngSession->stateOfDistSession(USER_SERVICE_ANN_CHANNEL).getString().c_str());
                 std::shared_ptr<DistSessionState> state(new DistSessionState());
                 *state = DistSessionState::VAL_INACTIVE;
-                m_userServiceAnnChannelDataIngSession->setDistSessionState(state);
+                m_userServiceAnnChannelDataIngSession->requestDistSessionState(state);
             }
 
             // wait for channel to activate again
