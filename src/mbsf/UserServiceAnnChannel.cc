@@ -80,14 +80,6 @@ using reftools::mbsf::ObjectManifest;
 
 MBSF_NAMESPACE_START
 
-namespace {
-    struct RequestData {
-        ~RequestData() {};
-        const UserServiceAnnChannel *channel;
-        std::shared_ptr<Open5GSSBIRequest> request;
-    };
-}
-
 
 UserServiceAnnChannel::UserServiceAnnChannel()
         :m_userDataIngSessions()
@@ -399,46 +391,11 @@ bool UserServiceAnnChannel::processEvent(Open5GSEvent &event)
 
 bool UserServiceAnnChannel::processClientResponse(const Open5GSEvent &event)
 {
-    switch (event.id()) {
-    case OGS_EVENT_SBI_CLIENT:
-    {
-        const void *raw = event.sbiData();
-        if (!raw) {
-            break;
-        }
-
-        uintptr_t p = reinterpret_cast<uintptr_t>(raw);
-        bool looks_like_pointer = (p > 0x1000) && (p % alignof(RequestData) == 0);
-
-        if (looks_like_pointer) {
-            RequestData *req_data = reinterpret_cast<RequestData*>(const_cast<void*>(raw));
-            if (req_data && req_data->channel == this) {
-
-                ogs_debug("Client carousel request [%p] and channel [%p]", req_data, req_data->channel);
-                if (event.sbiState() == OGS_OK) {
-                    auto resp = event.sbiResponse(true);
-                    ogs_debug("Got %i carousel response to %s", resp.status(), req_data->request->uri());
-                } else {
-                    ogs_debug("Problem sending Object Manifest(s) to %s", req_data->request->uri());
-                }
-
-                req_data->request->setOwner(true);
-                req_data->request.reset();
-                delete req_data;
-
-                return true;
-            } else {
-                ogs_debug("Response is not for the announcement channel");
-            }
-            break;
-        }
-
-
-        break;
-    }
-    default:
-        break;
-    }
+    /* No SBI client response is addressed to the announcement channel: the carousel object manifest is posted
+       with a blocking Curl (sendCarouselObjectManifest()), not through the SBI client, so there is nothing here to
+       match. This used to read the event's data as a pointer to a request record and dereference it when the value
+       looked like an aligned pointer, but no such record was ever created, and an unrelated response carrying an
+       aligned integer above 0x1000 (a pool id) made it read from an invalid address and end the process. */
     return false;
 }
 
