@@ -26,10 +26,14 @@ mbsf:
     - addr: 127.0.0.67
       port: 7777
 
+  # The max-age, in seconds, of the Cache-Control header of the answers (TS 26.517 V18.6.0 clause 8.2.3.4).
+  # defaultMaxAge applies to every resource that has no value of its own below, 60 where it is not set.
   serverResponseCacheControl:
     - defaultMaxAge: 60
       mbsUserServiceMaxAge: 60
       mbsUserDataIngestSessionMaxAge: 60
+      # The User Service Description retrieval API at reference point MBS5. Not set here, so defaultMaxAge applies.
+      #userServiceDescriptionMaxAge: 60
 
   # NOTE: rt-mbs-function does not implement a real MBS-5 (TS 26.517 cl.9.2) discovery API or any
   # MBS-4-MC bootstrap signalling, so a client has no protocol-level way to learn where the
