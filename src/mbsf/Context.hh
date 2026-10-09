@@ -111,6 +111,9 @@ public:
     const std::shared_ptr<UserDataIngSession::UserDataIngDistSessId> &findDistSessIdFromUrl(const std::string &notif_url) const;
     std::shared_ptr<Open5GSSBIServer> newSbiServer(const ogs_sockaddr_t *address);
 
+    /** The one notification listener that takes an ephemeral port, shared by every Distribution Session. */
+    std::shared_ptr<Open5GSSBIServer> ephemeralNotificationServer(const ogs_sockaddr_t *address);
+
     bool userServiceAnnouncementConfigured();
     bool broadcastDistributionConfigured() const {
         return !broadcastDistribution.sourceAddress.empty() && !broadcastDistribution.destinationAddress.empty();
@@ -263,6 +266,8 @@ private:
 
     std::shared_ptr<std::recursive_mutex> m_notifServerMapMutex;
     std::map<std::string, std::shared_ptr<UserDataIngSession::UserDataIngDistSessId> > m_notifServerMap;
+    std::shared_ptr<Open5GSSBIServer> m_ephemeralNotificationServer;
+    std::mutex m_ephemeralNotificationServerMutex;
 
     std::shared_ptr<std::recursive_mutex> m_userServiceAnnChannelMutex;
     std::shared_ptr<UserServiceAnnChannel> m_userServiceAnnChannel;

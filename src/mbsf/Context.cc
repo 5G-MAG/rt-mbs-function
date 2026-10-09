@@ -971,7 +971,7 @@ std::string Context::assignNotificationServer(const std::shared_ptr<UserDataIngS
     header.serviceName("notify");
     header.apiVersion("v1");
 
-    std::shared_ptr<Open5GSSBIServer> notification_server(getServerForAddr(notif_address, MBS_NOTIFICATION_LISTENER));
+    std::shared_ptr<Open5GSSBIServer> notification_server(ephemeralNotificationServer(notif_address));
     header.resourceComponent(0, url_escape(dist_session_id->first).c_str());
     header.resourceComponent(1, url_escape(dist_session_id->second).c_str());
 
@@ -987,6 +987,24 @@ void Context::freeNotificationServer(const std::string &notif_url)
 {
     auto it = m_notifServerMap.find(notif_url);
     if (it != m_notifServerMap.end()) m_notifServerMap.erase(it);
+}
+
+std::shared_ptr<Open5GSSBIServer> Context::ephemeralNotificationServer(const ogs_sockaddr_t *address)
+{
+    /* An address with port 0 asks for an ephemeral port, and the server that gets one records the port it was given
+       as its own address. findServerForAddr() therefore never finds it again for the same request, so every call
+       created another server, drawn from a pool of fixed size (max.peer) and never given back: the MBSF aborted in
+       ogs_sbi_server_add() after about 60 Distribution Sessions. The notification URLs carry the session
+       identifiers in their path, so one listener serves them all. */
+    const bool ephemeral = (address->ogs_sa_family == AF_INET && address->sin.sin_port == 0) ||
+                           (address->ogs_sa_family == AF_INET6 && address->sin6.sin6_port == 0);
+    if (!ephemeral) return getServerForAddr(address, MBS_NOTIFICATION_LISTENER);
+
+    std::lock_guard<std::mutex> lock(m_ephemeralNotificationServerMutex);
+    if (!m_ephemeralNotificationServer) {
+        m_ephemeralNotificationServer = getServerForAddr(address, MBS_NOTIFICATION_LISTENER);
+    }
+    return m_ephemeralNotificationServer;
 }
 
 std::shared_ptr<Open5GSSBIServer> Context::newSbiServer(const ogs_sockaddr_t *address)
