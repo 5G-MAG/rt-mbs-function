@@ -92,3 +92,11 @@ test_conditional_request_exe = executable('test_conditional_request', 'test_cond
     dependencies : [libmbsf_dep],
     install : false)
 test('test_conditional_request', test_conditional_request_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')
+
+# MBS5 User Service Description retrieval handler: allowed methods, the query-parameter rule and
+# the Cache-Control value, see the test's own file comment.
+test_user_service_discovery_handler_exe = executable('test_user_service_discovery_handler', 'test_user_service_discovery_handler.cc',
+    include_directories : [libmbsf_libinc, libinc],
+    dependencies : [libmbsf_dep],
+    install : false)
+test('test_user_service_discovery_handler', test_user_service_discovery_handler_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')
