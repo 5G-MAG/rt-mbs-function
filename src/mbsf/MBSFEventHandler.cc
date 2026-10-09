@@ -44,7 +44,7 @@ using fiveg_mag_reftools::ProblemCause;
 
 MBSF_NAMESPACE_START
 
-static void mbsf_nnrf_handle_nf_discover(ogs_sbi_xact_t *xact, ogs_sbi_message_t *recvmsg);
+static bool mbsf_nnrf_handle_nf_discover(ogs_sbi_xact_t *xact, ogs_sbi_message_t *recvmsg);
 
 void MBSFEventHandler::dispatch(Open5GSFSM &fsm, Open5GSEvent &event)
 {
@@ -176,7 +176,15 @@ void MBSFEventHandler::dispatch(Open5GSFSM &fsm, Open5GSEvent &event)
                     ogs_sbi_xact_t *sbi_xact = NULL;
                     ogs_pool_id_t sbi_xact_id = 0;
 
-                    message.parseResponse(response);
+                    /* An NRF answer that cannot be read is handled with the other answers that give no
+                       instance below, not by letting the exception leave the event handler. */
+                    bool answer_readable = true;
+                    try {
+                        message.parseResponse(response);
+                    } catch (const std::exception &ex) {
+                        ogs_error("The NRF's discovery answer cannot be read: %s", ex.what());
+                        answer_readable = false;
+                    }
 
                     sbi_xact_id = OGS_POINTER_TO_UINT(reinterpret_cast<ogs_sbi_xact_t*>(event.sbiData()));
                     ogs_assert(sbi_xact_id >= OGS_MIN_POOL_ID && sbi_xact_id <= OGS_MAX_POOL_ID);
@@ -189,13 +197,20 @@ void MBSFEventHandler::dispatch(Open5GSFSM &fsm, Open5GSEvent &event)
                           break;
                     }
                     std::string method(message.method());
+                    bool request_in_flight = false;
                     if (method == OGS_SBI_HTTP_METHOD_GET) {
-                        if (message.resStatus() == OGS_SBI_HTTP_STATUS_OK)
+                        if (answer_readable && message.resStatus() == OGS_SBI_HTTP_STATUS_OK)
                         {
 
-                            mbsf_nnrf_handle_nf_discover(sbi_xact, message.ogsSBIMessage());
+                            request_in_flight = mbsf_nnrf_handle_nf_discover(sbi_xact, message.ogsSBIMessage());
                         } else {
                             ogs_error("HTTP response error [%d]", message.resStatus());
+                            /* The request waiting for this discovery is answered, not freed in silence. */
+                            if (sbi_xact->service_type == OGS_SBI_SERVICE_TYPE_NMBSTF_DISTSESSION) {
+                                UserDataIngSession::failParkedMbstfRequest(sbi_xact,
+                                        std::string("the NRF answered the MBSTF discovery with status ")
+                                        + std::to_string(message.resStatus()));
+                            }
                         }
 
                     } else {
@@ -203,7 +218,8 @@ void MBSFEventHandler::dispatch(Open5GSFSM &fsm, Open5GSEvent &event)
                           ogs_assert_if_reached();
                     }
 
-                    if (sbi_xact) UserDataIngSession::removeXact(sbi_xact);
+                    /* A request sent to the instance just discovered keeps its transaction for the response. */
+                    if (sbi_xact && !request_in_flight) UserDataIngSession::removeXact(sbi_xact);
                     sbi_xact = NULL;
                 }
 
@@ -388,7 +404,7 @@ void MBSFEventHandler::dispatch(Open5GSFSM &fsm, Open5GSEvent &event)
     }
 }
 
-static void mbsf_nnrf_handle_nf_discover(ogs_sbi_xact_t *xact, ogs_sbi_message_t *recvmsg)
+static bool mbsf_nnrf_handle_nf_discover(ogs_sbi_xact_t *xact, ogs_sbi_message_t *recvmsg)
 {
     ogs_sbi_nf_instance_t *nf_instance = NULL;
     ogs_sbi_object_t *sbi_object = NULL;
@@ -416,7 +432,10 @@ static void mbsf_nnrf_handle_nf_discover(ogs_sbi_xact_t *xact, ogs_sbi_message_t
     SearchResult = recvmsg->SearchResult;
     if (!SearchResult) {
         ogs_error("No SearchResult");
-        return;
+        if (service_type == OGS_SBI_SERVICE_TYPE_NMBSTF_DISTSESSION) {
+            UserDataIngSession::failParkedMbstfRequest(xact, "the NRF's discovery answer carries no search result");
+        }
+        return false;
     }
 
     ogs_nnrf_disc_handle_nf_discover_search_result(SearchResult);
@@ -429,7 +448,9 @@ static void mbsf_nnrf_handle_nf_discover(ogs_sbi_xact_t *xact, ogs_sbi_message_t
                     OpenAPI_nf_type_ToString(requester_nf_type));
         //return;
     }
-    ogs_expect(true == UserDataIngSession::handleMbstfDiscover(nf_instance, xact));
+    bool xact_consumed = false;
+    ogs_expect(true == UserDataIngSession::handleMbstfDiscover(nf_instance, xact, xact_consumed));
+    return xact_consumed;
 }
 
 MBSF_NAMESPACE_STOP
