@@ -316,7 +316,7 @@ public:
     static void setMBSSessionDeleted(const UserDataIngDistSessId &ids);
     static void setMBSTFDistSessionDeletedFlag(const std::string &dist_session_id);
     static bool processEvent(Open5GSEvent &event);
-    static bool handleMbstfDiscover(ogs_sbi_nf_instance_t *nf_instance, ogs_sbi_xact_t *xact);
+    static bool handleMbstfDiscover(ogs_sbi_nf_instance_t *nf_instance, ogs_sbi_xact_t *xact, bool &xact_consumed);
     static bool createMbsSession(const std::shared_ptr<ContextData> &context_data);
 
     static bool processDistSession(const std::shared_ptr<reftools::mbsf::DistSession> &dist_session);
@@ -444,6 +444,11 @@ public:
      *  so it is the MBSF's own; the reason is carried in the notification's statusAddInfo.
      */
     static void registerDistSessionEstFailure(ogs_sbi_xact_t *xact, const std::string &reason);
+    static void registerDistSessionEstFailure(const std::shared_ptr<UserDataIngDistSessId> &ids, const std::string &reason);
+    /** As handleMbstfCreateFailure(xact, reason) for a transaction that is already gone: it is used only as
+     *  the key of the registry. */
+    static bool handleMbstfCreateFailure(const std::shared_ptr<UserDataIngDistSessId> &ids, ogs_sbi_xact_t *xact,
+                                         const std::string &reason);
 
     /** The MBSTF did not create a Distribution Session. Where MBSErrorHandling was negotiated, the failure
      *  is held until the MBSTF has answered for every session of the request, and a mixed outcome is then
@@ -452,6 +457,13 @@ public:
      *  @return true if the caller must now answer the request with one error, false if the request is
      *          still waiting for other sessions or has already been answered. */
     static bool handleMbstfCreateFailure(ogs_sbi_xact_t *xact, const std::string &reason);
+
+    /** The request a transaction holds cannot be sent: discovering the MBSTF failed, or the MBSTF offers no
+     *  client for it. The Nmb2 create of a Distribution Session is handled as a refusal by the MBSTF is, see
+     *  handleMbstfCreateFailure(), so a request for several sessions is answered once, with the failed ones
+     *  reported where MBSErrorHandling was negotiated; any other request is answered with an error. The
+     *  transaction is left for the caller to remove. */
+    static void failParkedMbstfRequest(ogs_sbi_xact_t *xact, const std::string &reason);
 
     /** Every MBSTF creation answer is in: answer the request, reporting the sessions the MBSTF failed. */
     void finishMbstfCreate(const std::shared_ptr<UserDataIngDistSessId> &ids);

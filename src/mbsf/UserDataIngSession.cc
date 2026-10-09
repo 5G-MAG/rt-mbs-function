@@ -174,6 +174,8 @@ static void process_mbs_distribution_session_info(const std::shared_ptr<UserData
                                                   const std::shared_ptr<DistSession> &dist_session);
 static std::string print_mbs_session_error(const std::shared_ptr<UserDataIngSession::ContextData> &context_data);
 static void handle_failed_mbstf_nf_instance_discover(ogs_sbi_xact_t *xact);
+static bool is_mbstf_create_request(const ogs_sbi_request_t *request);
+static void answer_mbstf_request_failed(ogs_pool_id_t stream_id, const std::string &detail);
 /* TS 29.500 V18.10.0 cl.5.2.7.2/table 5.2.7.1-1: 413 (Payload Too Large), mandatory for PATCH and
  * POST; see UserService.cc's own copy of this helper for the full citation and the residual
  * shared-framework gap it does not close. */
@@ -2353,7 +2355,12 @@ bool UserDataIngSession::handleMbstfCreateFailure(ogs_sbi_xact_t *xact, const st
         if (it != s_xactRegistry.end()) ids = it->second;
     }
     if (!ids) return true;
+    return handleMbstfCreateFailure(ids, xact, reason);
+}
 
+bool UserDataIngSession::handleMbstfCreateFailure(const std::shared_ptr<UserDataIngDistSessId> &ids, ogs_sbi_xact_t *xact,
+                                                  const std::string &reason)
+{
     try {
         std::shared_ptr<UserDataIngSession> ing_sess = locate(ids->first);
         std::shared_ptr<ContextData> context_data = ing_sess->getDistributionSessionInfoData(ids->second);
@@ -2640,8 +2647,11 @@ bool UserDataIngSession::sendNmbsfMbsUserDataIngestResponse(const std::shared_pt
     return true;
 }
 
-bool UserDataIngSession::handleMbstfDiscover(ogs_sbi_nf_instance_t *nf_instance, ogs_sbi_xact_t *xact)
+bool UserDataIngSession::handleMbstfDiscover(ogs_sbi_nf_instance_t *nf_instance, ogs_sbi_xact_t *xact, bool &xact_consumed)
 {
+    /* True once the transaction is no longer the caller's to remove: its request is in flight, awaiting the
+       answer, or the transaction has already been freed. */
+    xact_consumed = false;
     if (!nf_instance) {
         handle_failed_mbstf_nf_instance_discover(xact);
         return false;
@@ -2681,6 +2691,39 @@ bool UserDataIngSession::handleMbstfDiscover(ogs_sbi_nf_instance_t *nf_instance,
     }
 
     if (context_data->mbstfNFInstanceId.empty()) context_data->mbstfNFInstanceId = std::string(nf_instance->id);
+
+    if (xact->request) {
+        /* A discover-and-send transaction holds the request that was waiting for this instance. Sent
+           here, as every Open5GS NF sends it once its discovery returns; without this the request was
+           dropped with the transaction and nothing ever answered its stream. The registry entry stays
+           for the response, as it does when the instance was already known. */
+        const ogs_sbi_request_t *request = xact->request;
+        if (!request->h.uri && !ogs_sbi_client_find_by_service_name(nf_instance, request->h.service.name,
+                                                                   request->h.api.version)) {
+            /* Checked before sending because a send that fails frees the transaction. */
+            failParkedMbstfRequest(xact, std::string("the MBSTF offers no client for ") + request->h.service.name);
+            return false;
+        }
+        const ogs_pool_id_t stream_id = xact->assoc_stream_id;
+        const bool is_create = is_mbstf_create_request(request);
+        if (!ogs_sbi_send_request_to_nf_instance(nf_instance, xact)) {
+            /* The transaction is gone; the registry still knows it by its key. */
+            xact_consumed = true;
+            const std::string reason("the request could not be sent to the MBSTF");
+            if (is_create) {
+                registerDistSessionEstFailure(ids, reason);
+                if (handleMbstfCreateFailure(ids, xact, reason)) {
+                    answer_mbstf_request_failed(stream_id, "Failed to create MBS Distribution Session in MBSTF: " + reason);
+                }
+            } else {
+                removeFromRegistry(xact);
+                answer_mbstf_request_failed(stream_id, "The request could not be sent to the MBSTF");
+            }
+            return false;
+        }
+        xact_consumed = true;
+        return true;
+    }
     removeFromRegistry(xact);
 
     return true;
@@ -3575,6 +3618,16 @@ bool UserDataIngSession::mbsEventsExtNegotiated() const
     return (mask & 0x2) != 0;
 }
 
+static bool is_mbstf_create_request(const ogs_sbi_request_t *request)
+{
+    if (!request) return false;
+    const ogs_sbi_header_t &h = request->h;
+    if (!h.method || ogs_strcasecmp(h.method, OGS_SBI_HTTP_METHOD_POST) != 0) return false;
+    if (!h.service.name || std::string(h.service.name) != "nmbstf-distsession") return false;
+    if (!h.resource.component[0] || std::string(h.resource.component[0]) != "dist-sessions") return false;
+    return !h.resource.component[1];
+}
+
 void UserDataIngSession::registerDistSessionEstFailure(ogs_sbi_xact_t *xact, const std::string &reason)
 {
     std::shared_ptr<UserDataIngDistSessId> ids = nullptr;
@@ -3582,12 +3635,7 @@ void UserDataIngSession::registerDistSessionEstFailure(ogs_sbi_xact_t *xact, con
     /* Only the Nmb2 creation of a Distribution Session can fail to establish one. A transaction for
        any other request on that API reaching here would report a failure that did not happen, so the
        request the transaction carries is what decides, not the caller. */
-    if (!xact || !xact->request) return;
-    const ogs_sbi_header_t &h = xact->request->h;
-    if (!h.method || ogs_strcasecmp(h.method, OGS_SBI_HTTP_METHOD_POST) != 0) return;
-    if (!h.service.name || std::string(h.service.name) != "nmbstf-distsession") return;
-    if (!h.resource.component[0] || std::string(h.resource.component[0]) != "dist-sessions") return;
-    if (h.resource.component[1]) return;
+    if (!xact || !is_mbstf_create_request(xact->request)) return;
 
     {
         std::lock_guard<decltype(s_registry_mutex)> lock(s_registry_mutex);
@@ -3597,7 +3645,11 @@ void UserDataIngSession::registerDistSessionEstFailure(ogs_sbi_xact_t *xact, con
         }
     }
     if (!ids) return;
+    registerDistSessionEstFailure(ids, reason);
+}
 
+void UserDataIngSession::registerDistSessionEstFailure(const std::shared_ptr<UserDataIngDistSessId> &ids, const std::string &reason)
+{
     try {
         std::shared_ptr<UserDataIngSession> ing_sess = locate(ids->first);
         /* The event is recorded whatever was negotiated. Whether it may be sent is decided where it
@@ -4738,6 +4790,31 @@ static std::string print_mbs_session_error(const std::shared_ptr<UserDataIngSess
     oss << "] could not be created\n";
     return oss.str();
 
+}
+
+static void answer_mbstf_request_failed(ogs_pool_id_t stream_id, const std::string &detail)
+{
+    if (!ogs_sbi_stream_find_by_id(stream_id)) return;
+    Open5GSSBIStream stream(stream_id);
+    /* UNSPECIFIED_NF_FAILURE: TS 29.500 V18.10.0 table 5.2.7.2-1 NOTE 3 reserves it for a condition no other
+       row names, and no MBSTF answered here, so INBOUND_SERVER_ERROR, scoped to a 503 or 429 actually
+       received, does not describe it. */
+    ogs_assert(true == Open5GSSBIServer::sendError(stream, std::nullopt, ProblemCause::UNSPECIFIED_NF_FAILURE, detail.c_str()));
+}
+
+void UserDataIngSession::failParkedMbstfRequest(ogs_sbi_xact_t *xact, const std::string &reason)
+{
+    if (!xact) return;
+    if (is_mbstf_create_request(xact->request)) {
+        const ogs_pool_id_t stream_id = xact->assoc_stream_id;
+        ogs_error("Cannot create the MBS Distribution Session: %s", reason.c_str());
+        if (handleMbstfCreateFailure(xact, reason)) {
+            answer_mbstf_request_failed(stream_id, "Failed to create MBS Distribution Session in MBSTF: " + reason);
+        }
+        return;
+    }
+    ogs_error("Cannot send the MBSTF request: %s", reason.c_str());
+    handle_failed_mbstf_nf_instance_discover(xact);
 }
 
 static void handle_failed_mbstf_nf_instance_discover(ogs_sbi_xact_t *xact)
