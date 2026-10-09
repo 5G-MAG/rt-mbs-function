@@ -33,6 +33,7 @@
 #include "App.hh"
 #include "Context.hh"
 #include "ConditionalRequest.hh"
+#include "UserServiceDiscoveryHttp.hh"
 #include "MultipartMime.hh"
 #include "UserDataIngSession.hh"
 #include "UserService.hh"
@@ -85,7 +86,7 @@ HTTPResponse UserServiceDiscoveryHandler::doRequest(const HTTPRequest &request, 
 {
     if (request.method() != "GET") {
         // cl.9.2.2 table 9.2.2-1: both operations are GET-only.
-        return server.makeResponse().statusCode(405);
+        return discovery::methodNotAllowed(server);
     }
 
     // request.url() carries the path only by the time it reaches this handler; the query string is
@@ -306,9 +307,17 @@ HTTPResponse UserServiceDiscoveryHandler::buildBundleResponse(
         }
     }
 
+    /* TS 26.517 V18.6.0 clause 8.2.3.4: responses at MBS5 "shall include ... a predicted time-to-live
+       period for the resource, conveyed in a Cache-Control: max-age response header per section 5.2
+       of RFC 9111". The period is the operator's cacheControl.defaultMaxAge, the option the Nmb10
+       resources already take theirs from. A 304 carries the same validators and lifetime as the
+       200 it stands in for, RFC 9110 section 15.4.5. */
+    const std::string cache_control = discovery::cacheControlMaxAge(App::self().context()->cacheControl.defaultMaxAge);
+
     if (not_modified) {
         HTTPResponse nm = server.makeResponse();
         nm.addHeader("ETag", etag);
+        nm.addHeader("Cache-Control", cache_control);
         if (last_modified) nm.addHeader("Last-Modified", *last_modified);
         nm.statusCode(304);
         return nm;
@@ -319,6 +328,7 @@ HTTPResponse UserServiceDiscoveryHandler::buildBundleResponse(
         resp.addHeader(hdr.first, hdr.second);
     }
     resp.addHeader("ETag", etag);
+    resp.addHeader("Cache-Control", cache_control);
     if (last_modified) resp.addHeader("Last-Modified", *last_modified);
     resp.statusCode(200);
     return resp;

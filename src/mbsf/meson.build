@@ -180,6 +180,7 @@ libmbsf_dist_sources = files('''
     UserServiceDesc.hh
     UserServiceDiscoveryHandler.cc
     UserServiceDiscoveryHandler.hh
+    UserServiceDiscoveryHttp.hh
     utilities.cc
     utilities.hh
 '''.split())
