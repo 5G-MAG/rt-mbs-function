@@ -473,6 +473,9 @@ public:
     static void sendNotificationsEvent(const std::shared_ptr<UserDataIngDistSessId> &user_data_ing_dist_sess_ids);
     static void sendMbsmfActivityStatus(const std::shared_ptr<UserDataIngDistSessId> &user_data_ing_dist_sess_ids);
 
+    /** True while a transaction for the given Distribution Session is waiting for an answer or for the
+     *  discovery that precedes it. */
+    static bool hasMbstfRequestInFlight(const std::string &ing_session_id, const std::string &dist_session_key);
     static void addToRegistry(ogs_sbi_xact_t* xact, const std::shared_ptr<UserDataIngDistSessId> &ids);
     static void removeFromRegistry(ogs_sbi_xact_t* xact);
     static std::shared_ptr<UserDataIngDistSessId> getFromRegistry(ogs_sbi_xact_t* xact);
