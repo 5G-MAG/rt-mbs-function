@@ -293,6 +293,15 @@ UserDataIngSession::UserDataIngSession(const std::string &user_data_ing_session_
 UserDataIngSession::~UserDataIngSession()
 {
     clearDistributionSessionInfos();
+    {
+        /* Transactions still in flight for this session will never be answered to it: drop their registry entries so
+           a session created later with the same id is not held back by hasMbstfRequestInFlight(). */
+        std::lock_guard<decltype(s_registry_mutex)> registry_lock(s_registry_mutex);
+        for (auto it = s_xactRegistry.begin(); it != s_xactRegistry.end();) {
+            if (it->second && it->second->first == m_UserDataIngSessionId) it = s_xactRegistry.erase(it);
+            else ++it;
+        }
+    }
     std::lock_guard<decltype(m_deleteRequestsMutex)::element_type> lock(*m_deleteRequestsMutex);
     if (ogs_unlikely(!m_deleteRequests.empty())) {
         ogs_error("User Data Ingest Session deleted before %zu pending responses sent", m_deleteRequests.size());
@@ -1049,9 +1058,29 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
             UserDataIngDistSessId *ids = reinterpret_cast<UserDataIngDistSessId*>(event.sbiData());
             std::shared_ptr<UserDataIngDistSessId> ids_ptr(ids);
 
+            /* The creation is repeated by the callers while no answer has come (the announcement channel's
+               worker after 5 s, an update of the Ingest Session). A repeat sent while the first request is
+               still waiting is a second creation, and the MBSTF, which answers a slow request in the end,
+               then holds two Distribution Sessions for the one the MBSF asked for. Events are handled one at
+               a time here, so this check cannot be passed by two requests at once. */
+            if (hasMbstfRequestInFlight(ids->first, ids->second)) {
+                ogs_debug("The creation of MBS Distribution Session %s of Ingest Session %s is still waiting for "
+                          "the MBSTF, not requesting it again", ids->second.c_str(), ids->first.c_str());
+                return true;
+            }
+
             try {
                 //std::shared_ptr<UserDataIngSession> ing_session = find(ids_ptr->first);
                 std::shared_ptr<UserDataIngSession> ing_session = locate(ids->first);
+                /* A request queued before the MBSTF's answer arrived (the announcement channel's retry, an
+                   event raised for every unanswered key) reaches here after it: the Distribution Session
+                   exists and is not asked for again. sendMbstfRequests() applies the same test when it
+                   queues the event. */
+                if (ing_session->hasMbstfResponded(ids->second)) {
+                    ogs_debug("MBS Distribution Session %s of Ingest Session %s was already answered by the MBSTF, "
+                              "not requesting it again", ids->second.c_str(), ids->first.c_str());
+                    return true;
+                }
                 /* TS 26.502 V18.6.0 table 4.6.2-1, row "Distribution Session starting": "The MBSF is
                    starting to establish the MBS Distribution session at the MBSTF." The row's
                    stimulating reference point column is empty, which the same clause defines as
@@ -1415,6 +1444,15 @@ void UserDataIngSession::addToRegistry(const std::string &dist_session_id, const
     std::lock_guard<decltype(s_registry_mutex)> lock(s_registry_mutex);
     s_distSessionIdRegistry[dist_session_id] = ids;
 
+}
+
+bool UserDataIngSession::hasMbstfRequestInFlight(const std::string &ing_session_id, const std::string &dist_session_key)
+{
+    std::lock_guard<decltype(s_registry_mutex)> lock(s_registry_mutex);
+    for (const auto &[xact, ids] : s_xactRegistry) {
+        if (ids && ids->first == ing_session_id && ids->second == dist_session_key) return true;
+    }
+    return false;
 }
 
 void UserDataIngSession::removeFromRegistry(ogs_sbi_xact_t* xact)

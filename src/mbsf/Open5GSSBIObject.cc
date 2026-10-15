@@ -80,6 +80,7 @@ ogs_sbi_xact_t *Open5GSSBIObject::discoverAndSend(ogs_pool_id_t stream_id, ogs_s
     if (rv != OGS_OK) {
         ogs_error("discoverAndSend() failed");
         ogs_sbi_xact_remove(xact);
+        return nullptr;
     }
     return xact;
 }
