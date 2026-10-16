@@ -152,10 +152,13 @@ public:
 
     std::vector<std::shared_ptr<Open5GSSBIServer> > servers[SERVER_MAX_NUM];
 
+    /* The max-age of the Cache-Control header of the answers. A resource's own value applies when the
+       configuration gives one; otherwise defaultMaxAge does, see parseCacheControl(). */
     struct {
         unsigned int defaultMaxAge;
         unsigned int MBSUserServiceMaxAge;
         unsigned int MBSUserDataIngestSessionMaxAge;
+        unsigned int UserServiceDescriptionMaxAge; // MBS5, TS 26.517 clause 9.2
     } cacheControl;
 
     struct {
