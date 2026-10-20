@@ -1,7 +1,7 @@
 [wrap-git]
 directory = open5gs
 url = https://github.com/5G-MAG/open5gs.git
-revision = feature/mbs-compliance-fixes
+revision = 5mbs-development
 # The MBS compliance branch, not 5mbs. The MB-SMF this component talks to is built from it, and its
 # OpenAPI_ext_mbs_session_t carries red_mbs_service_area (open5gs 6e9946c2f), which TS 29.532 V18.6.0
 # clause 5.3.2.2.1 obliges the MB-SMF to return when it trims a requested MBS service area. Neither
