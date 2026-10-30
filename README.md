@@ -110,6 +110,19 @@ as a compile error rather than as a missing dependency.
 | `rt-common-shared` | git submodule | the HTTP server, including the query-argument capture `UserServiceDiscoveryHandler` uses |
 | `rt-5gc-service-consumers` | meson wrap | the MB-SMF service consumer, including `mb_smf_sc_ncgi_set_plmn_id_len`, which `MBSNcgi.cc` calls |
 
+### Testing other branches
+
+The wrap files in `subprojects/` pin the repositories this branch is built against, and they pin their
+`main` branches (`5mbs` for `open5gs`). Work that has not yet been merged into those branches is not in
+the pins, so a clean build against them as committed may not compile. To test other branches, adapt
+the pinned repositories: edit the `url` and `revision` lines of the matching `.wrap` file in
+`subprojects/` before running `meson setup`. For example, set `revision = development` in
+`subprojects/rt-5gc-service-consumers.wrap`, and `revision = 5mbs-development` in
+`subprojects/open5gs.wrap`.
+
+If a `subprojects/<name>` directory already exists as a checkout, Meson uses it and ignores the wrap
+file, so check out the branch there instead.
+
 ## Building
 
 The build needs a working Internet connection, because the API files are retrieved at build time.
