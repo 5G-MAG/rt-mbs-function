@@ -299,6 +299,16 @@ public:
      * @param id The UserDataIngSession id to find
      * @throw std::out_of_range if id does not exist
      */
+    /* The string form of an Associated Session Id (TS 29.571 AssociatedSessionId, anyOf an Ssm and a string) of each
+       Distribution Session, by its key in mbsDisSessInfos. The generated model carries the Ssm form only, so a request's
+       string is taken out of the body before the model is built, kept here, sent to the MB-SMF when its MBS Session is
+       created and put back into the body of every response. */
+    void associatedSessionIdStrings(std::map<std::string, std::string> strings);
+    std::optional<std::string> associatedSessionIdString(const std::string &key) const;
+    // The Associated Session Id is given when the MBS Session is created and is not updated with it: reports a string of an
+    // update that differs from the stored one
+    void reportIgnoredAssociatedSessionIdStrings(const std::map<std::string, std::string> &strings) const;
+
     static const std::shared_ptr<UserDataIngSession> &find(const std::string &id);
 
     /** Find UserDataIngSession by Id
@@ -504,6 +514,7 @@ private:
     static std::map<std::string, std::shared_ptr<UserDataIngDistSessId>> s_distSessionIdRegistry;
 
     std::shared_ptr<reftools::mbsf::MBSUserDataIngSession> m_MBSUserDataIngSession;
+    std::map<std::string, std::string> m_assocIdStrings; // guarded by m_distSessInfosMutex
     std::unique_ptr<std::recursive_mutex> m_distSessInfosMutex;
     std::unique_ptr<std::recursive_mutex> m_deleteRequestsMutex;
     std::shared_ptr<std::recursive_mutex> m_serviceScheduleDescMutex;

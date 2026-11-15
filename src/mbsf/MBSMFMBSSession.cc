@@ -224,6 +224,16 @@ MBSMFMBSSession &MBSMFMBSSession::setAssociatedSessionId(std::shared_ptr< Associ
     return *this;
 }
 
+MBSMFMBSSession &MBSMFMBSSession::setAssociatedSessionIdString(const std::string &associated_session_id)
+{
+    if (m_session) {
+        mb_smf_sc_associated_session_id_t *id = mb_smf_sc_associated_session_id_new();
+        id->string = ogs_strdup(associated_session_id.c_str());
+        m_session->associated_session_id = id;
+    }
+    return *this;
+}
+
 MBSMFMBSSession &MBSMFMBSSession::setLocationDependent(bool location_dependent)
 {
     if (m_session) {

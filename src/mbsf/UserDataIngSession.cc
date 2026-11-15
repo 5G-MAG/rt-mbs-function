@@ -205,6 +205,7 @@ static void send_model_error(const ModelException &err, Open5GSSBIStream &stream
 static void log_missing_ing_session(const std::string &id);
 static void validate_traffic_marking(const MBSUserDataIngSession &ing_session);
 static std::list<std::string> take_nulled_dist_sess_infos(CJson &update);
+static std::map<std::string, std::string> take_associated_session_id_strings(CJson &body);
 static void apply_merge_patch(CJson &target, const CJson &patch);
 static std::string ing_session_allow_methods(const Open5GSSBIMessage &message);
 
@@ -312,7 +313,18 @@ UserDataIngSession::~UserDataIngSession()
 
 CJson UserDataIngSession::json(bool as_request = false) const
 {
-    return m_MBSUserDataIngSession->toJSON(as_request);
+    CJson body(m_MBSUserDataIngSession->toJSON(as_request));
+    std::lock_guard<std::recursive_mutex> lock(*m_distSessInfosMutex);
+    if (!m_assocIdStrings.empty() && body.isObject()) {
+        CJson infos(body.getObjectItemCaseSensitive("mbsDisSessInfos"));
+        if (infos.isObject()) {
+            for (const auto &[key, value] : m_assocIdStrings) {
+                CJson entry(infos.getObjectItemCaseSensitive(key));
+                if (entry.isObject()) entry.set("associatedSessionId", CJson::newString(value));
+            }
+        }
+    }
+    return body;
 }
 
 
@@ -514,7 +526,9 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
                         }
 
                         try {
+                            std::map<std::string, std::string> assoc_id_strings(take_associated_session_id_strings(user_data_ing_sess));
                             user_data_ing_session.reset(new UserDataIngSession(user_data_ing_sess, true));
+                            user_data_ing_session->associatedSessionIdStrings(std::move(assoc_id_strings));
                         } catch (ModelException &ex) {
                             send_model_error(ex, stream, 3, message, app_meta, api, "Problem with UserDataIngSession", "Creating UserDataIngSession");
                             return true;
@@ -720,6 +734,7 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
                            can tell "delete this" apart from "this key is simply not mentioned," which
                            TS 29.580 V18.8.0 clause 5.3.2.4.2 treats as two different things. */
                         std::list<std::string> nulled_dist_sess_keys(take_nulled_dist_sess_infos(user_data_ing_sess_update));
+                        user_data_ing_sess->reportIgnoredAssociatedSessionIdStrings(take_associated_session_id_strings(user_data_ing_sess_update));
                         for (const auto &nulled_key : nulled_dist_sess_keys) {
                             ogs_debug("Distribution Session [%s] is set to NULL in this update, so it is to be deleted",
                                       nulled_key.c_str());
@@ -881,7 +896,11 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
                            request body before it is applied to anything, so an attribute that type
                            does not carry is refused here rather than reaching the session. */
                         try {
-                            MBSUserDataIngSessionPatch patch_model(patch_json, true);
+                            /* the string form of an associatedSessionId is not in the generated model; the update reads
+                               it from the merged body below, where it is taken out as in any update */
+                            CJson patch_to_check(patch_json);
+                            take_associated_session_id_strings(patch_to_check);
+                            MBSUserDataIngSessionPatch patch_model(patch_to_check, true);
                         } catch (ModelException &ex) {
                             send_model_error(ex, stream, 3, message, app_meta, api,
                                              "Problem with UserDataIngSession patch", "Validating UserDataIngSession patch");
@@ -903,6 +922,7 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
                            than removing it, so a legitimate deletion request would otherwise be
                            rejected as an invalid patch instead of being carried out. */
                         std::list<std::string> nulled_dist_sess_keys(take_nulled_dist_sess_infos(patched));
+                        user_data_ing_sess->reportIgnoredAssociatedSessionIdStrings(take_associated_session_id_strings(patched));
 
                         try {
                             MBSUserDataIngSession patched_model(patched, true);
@@ -1873,6 +1893,75 @@ static std::list<std::string> take_nulled_dist_sess_infos(CJson &update)
     return nulled;
 }
 
+/* The string form of associatedSessionId, taken out of each Distribution Session of a request body.
+ *
+ * TS 29.571 V18.12.0 clause 5.9.4.21.1 makes AssociatedSessionId an anyOf of an Ssm and a string, and the
+ * generated model builds only the Ssm. A string is therefore removed from the body before the model is built and
+ * handed back by key. An entry that is not an object, or carries no string, is left as it is. */
+static std::map<std::string, std::string> take_associated_session_id_strings(CJson &body)
+{
+    std::map<std::string, std::string> strings;
+
+    if (!body.isObject()) return strings;
+    CJson infos(body.getObjectItemCaseSensitive("mbsDisSessInfos"));
+    if (!infos.isObject()) return strings;
+
+    bool found = false;
+    CJson kept(CJson::newObject());
+    const std::size_t entries = infos.arraySize();
+    for (std::size_t idx = 0; idx < entries; idx++) {
+        CJson entry(infos.index(idx));
+        const char *entry_key = entry.key();
+        if (!entry_key) continue;
+        if (entry.isObject()) {
+            CJson assoc(entry.getObjectItemCaseSensitive("associatedSessionId"));
+            if (assoc.isString()) {
+                strings[std::string(entry_key)] = std::string(assoc.stringValue());
+                found = true;
+                CJson stripped(CJson::newObject());
+                const std::size_t members = entry.arraySize();
+                for (std::size_t m = 0; m < members; m++) {
+                    CJson member(entry.index(m));
+                    const char *member_key = member.key();
+                    if (!member_key || std::string(member_key) == "associatedSessionId") continue;
+                    stripped.set(std::string(member_key), member);
+                }
+                kept.set(std::string(entry_key), std::move(stripped));
+                continue;
+            }
+        }
+        kept.set(std::string(entry_key), entry);
+    }
+
+    if (found) body.set("mbsDisSessInfos", std::move(kept));
+
+    return strings;
+}
+
+void UserDataIngSession::associatedSessionIdStrings(std::map<std::string, std::string> strings)
+{
+    std::lock_guard<std::recursive_mutex> lock(*m_distSessInfosMutex);
+    m_assocIdStrings = std::move(strings);
+}
+
+void UserDataIngSession::reportIgnoredAssociatedSessionIdStrings(const std::map<std::string, std::string> &strings) const
+{
+    for (const auto &[key, value] : strings) {
+        const std::optional<std::string> stored(associatedSessionIdString(key));
+        if (!stored.has_value() || *stored != value) {
+            ogs_warn("The Associated Session Id of Distribution Session [%s] is not changed by an update", key.c_str());
+        }
+    }
+}
+
+std::optional<std::string> UserDataIngSession::associatedSessionIdString(const std::string &key) const
+{
+    std::lock_guard<std::recursive_mutex> lock(*m_distSessInfosMutex);
+    auto it = m_assocIdStrings.find(key);
+    if (it == m_assocIdStrings.end()) return std::nullopt;
+    return it->second;
+}
+
 /** What this API serves on the resource a request names.
  *
  * TS 29.580 V18.8.0 gives the MBS User Data Ingest Sessions collection GET and POST, clauses
@@ -1931,6 +2020,9 @@ void UserDataIngSession::processUserDataIngSessionUpdate(ogs_pool_id_t stream_id
 {
     std::shared_ptr< DistSessionState > dist_sess_state = nullptr;
 
+    /* The Associated Session Id of a Distribution Session is given when its MBS Session is created and is not updated
+       with it: a string in an update is taken out of the body, and one that differs from the stored one is reported. */
+    reportIgnoredAssociatedSessionIdStrings(take_associated_session_id_strings(json));
     std::shared_ptr<MBSUserDataIngSession> mbs_user_data_ing_session(new MBSUserDataIngSession(json, true));
     /* The generated model cannot itself carry a NULL mbsDisSessInfos entry (see
        take_nulled_dist_sess_infos()), so the caller pulled each one out of the JSON before this
@@ -5154,6 +5246,14 @@ static std::shared_ptr<MBSMFMBSSession> populate_mb_smf_mbs_session(
     if (associated_session_id.has_value()) {
         mb_smf_mbs_session->setAssociatedSessionId(associated_session_id.value());
 
+    } else {
+        try {
+            const std::optional<std::string> assoc_string(
+                UserDataIngSession::find(context_data->ingSessionId)->associatedSessionIdString(context_data->distSessionInfoKey));
+            if (assoc_string.has_value()) mb_smf_mbs_session->setAssociatedSessionIdString(assoc_string.value());
+        } catch (const std::out_of_range &) {
+            /* the session is not registered (yet): none to give */
+        }
     }
 
     std::optional<bool > restricted_flag = context_data->info->getRestrictedFlag();

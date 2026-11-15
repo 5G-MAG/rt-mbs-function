@@ -95,6 +95,7 @@ public:
 
 
     MBSMFMBSSession &setAssociatedSessionId(std::shared_ptr<reftools::mbsf::AssociatedSessionId> associated_session_id);
+    MBSMFMBSSession &setAssociatedSessionIdString(const std::string &associated_session_id);
     MBSMFMBSSession &setSession(mb_smf_sc_mbs_session_t *session);
     MBSMFMBSSession &setSubscription(mb_smf_sc_mbs_status_subscription_t *subscription);
     MBSMFMBSSession &createStatusSubscription(uint16_t area_session_id, mb_smf_sc_mbs_session_event_type_e event_type,
