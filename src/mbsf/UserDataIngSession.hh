@@ -205,6 +205,11 @@ public:
     UserDataIngSession &userServiceAnnBundleAvailable(bool available) { m_userServiceAnnBundleAvailable = available; return *this;};
     UserDataIngSession &includedInCarouselObjectManifest(bool in_manifest) { m_includedInCarouselObjectManifest = in_manifest; return *this;};
     UserDataIngSession &userServiceAnnouncement(const std::shared_ptr<reftools::mbsf::UserServiceDescription> &user_service_description);
+    /* mbsUserServiceAnmtUrl: where the announcement of the VIA_MBS_5 service is retrieved, or none */
+    UserDataIngSession &userServiceAnnouncementUrl(const std::optional<std::string> &url);
+    /* the MBS-5 URL of this session's service announcement when it is a VIA_MBS_5 service whose Distribution Sessions are all
+       ESTABLISHED or ACTIVE, none otherwise (TS 29.580 V18.8.0 table 6.2.6.2.2-1, mbsUserServiceAnmtUrl) */
+    std::optional<std::string> viaMbs5AnnouncementUrl();
 
     UserDataIngSession &createTimer();
     UserDataIngSession &createCurrentStateTimer();

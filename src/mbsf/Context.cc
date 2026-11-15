@@ -1131,6 +1131,14 @@ const SockAddr &Context::findUserServAnnServerAddrForRemote(const SockAddr &remo
     throw std::out_of_range(std::format("Could not find server address that can talk to {}", remote_addr));
 }
 
+std::string Context::userServAnnServerAuthority() const
+{
+    for (const auto &svr : m_userServAnnServers) {
+        return std::format("{}", svr->listenAddress());
+    }
+    return std::string();
+}
+
 bool Context::userServiceAnnouncementConfigured()
 {
     if(userServiceAnnouncement.mbr.empty() || userServiceAnnouncement.ssmSourceAddress.empty()

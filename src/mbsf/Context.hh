@@ -137,6 +137,9 @@ public:
     std::optional<int32_t > keepUpdated() const { return userServiceAnnouncement.keepUpdatedInterval;};
     const std::shared_ptr<UserServiceAnnChannel> &userServiceAnnouncementChannel() const;
     const reftools::common::httpxpp::SockAddr &findUserServAnnServerAddrForRemote(const reftools::common::httpxpp::SockAddr &remote_addr) const;
+    /* The address and port of the first co-located MBS AF server (the one that serves the MBS-5 User Service Description
+       retrieval API), as they are written in a URL, or an empty string when there is none. */
+    std::string userServAnnServerAuthority() const;
 
     enum ServerType {
         OPEN5GS_SBI_SERVER,

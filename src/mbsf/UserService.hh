@@ -109,6 +109,7 @@ public:
     const std::string &hash() const {return m_hash;};
 
     bool isServiceAnnModePassedBack();
+    bool isServiceAnnModeViaMbs5();
 
 
     static bool processEvent(Open5GSEvent &event);

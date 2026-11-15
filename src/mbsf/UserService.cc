@@ -1072,6 +1072,16 @@ bool UserService::isServiceAnnModePassedBack()
 }
 
 
+bool UserService::isServiceAnnModeViaMbs5()
+{
+    const reftools::mbsf::MBSUserService::ServAnnModesType &service_ann_modes =  m_MBSUserService->getServAnnModes();
+    for( const auto &service_ann_mode : service_ann_modes) {
+        if (!service_ann_mode.has_value()) continue;
+        if (service_ann_mode.value()->getValue() == reftools::mbsf::ServiceAnnouncementMode::VAL_VIA_MBS_5) return true;
+    }
+    return false;
+}
+
 bool UserService::canMbsfHandleServiceAnnouncementModes(const fiveg_mag_reftools::CJson &json, bool as_request)
 {
     MBSUserService mbs_user_service(json, as_request);

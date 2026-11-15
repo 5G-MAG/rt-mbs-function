@@ -206,6 +206,7 @@ static void log_missing_ing_session(const std::string &id);
 static void validate_traffic_marking(const MBSUserDataIngSession &ing_session);
 static std::list<std::string> take_nulled_dist_sess_infos(CJson &update);
 static std::map<std::string, std::string> take_associated_session_id_strings(CJson &body);
+static void strip_response_only_attributes(CJson &body);
 static void apply_merge_patch(CJson &target, const CJson &patch);
 static std::string ing_session_allow_methods(const Open5GSSBIMessage &message);
 
@@ -526,6 +527,7 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
                         }
 
                         try {
+                            strip_response_only_attributes(user_data_ing_sess);
                             std::map<std::string, std::string> assoc_id_strings(take_associated_session_id_strings(user_data_ing_sess));
                             user_data_ing_session.reset(new UserDataIngSession(user_data_ing_sess, true));
                             user_data_ing_session->associatedSessionIdStrings(std::move(assoc_id_strings));
@@ -734,6 +736,7 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
                            can tell "delete this" apart from "this key is simply not mentioned," which
                            TS 29.580 V18.8.0 clause 5.3.2.4.2 treats as two different things. */
                         std::list<std::string> nulled_dist_sess_keys(take_nulled_dist_sess_infos(user_data_ing_sess_update));
+                        strip_response_only_attributes(user_data_ing_sess_update);
                         user_data_ing_sess->reportIgnoredAssociatedSessionIdStrings(take_associated_session_id_strings(user_data_ing_sess_update));
                         for (const auto &nulled_key : nulled_dist_sess_keys) {
                             ogs_debug("Distribution Session [%s] is set to NULL in this update, so it is to be deleted",
@@ -922,6 +925,7 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
                            than removing it, so a legitimate deletion request would otherwise be
                            rejected as an invalid patch instead of being carried out. */
                         std::list<std::string> nulled_dist_sess_keys(take_nulled_dist_sess_infos(patched));
+                        strip_response_only_attributes(patched);
                         user_data_ing_sess->reportIgnoredAssociatedSessionIdStrings(take_associated_session_id_strings(patched));
 
                         try {
@@ -1938,6 +1942,38 @@ static std::map<std::string, std::string> take_associated_session_id_strings(CJs
     return strings;
 }
 
+/* The attributes of an MBS User Data Ingest Session that only a response carries (TS 29.580 V18.8.0 table 6.2.6.2.2-1:
+ * mbsUserServAnmt, mbsUserServiceAnmt and mbsUserServiceAnmtUrl "may be present only in an HTTP PUT/PATCH response", and the
+ * failure and reduced service area information the MBSF reports). A request body that carries them, or the stored
+ * representation a PATCH is merged into, has them taken out before the body is read as a request: they describe what
+ * the MBSF made of the session, not what is asked of it. */
+static void strip_response_only_attributes(CJson &body)
+{
+    static const char *const response_only[] = {"mbsUserServAnmt", "mbsUserServiceAnmt", "mbsUserServiceAnmtUrl",
+                                                 "failedDistSessions", "redMbsServAreaInfo"};
+    if (!body.isObject()) return;
+
+    bool found = false;
+    for (const char *name : response_only) {
+        if (!body.getObjectItemCaseSensitive(name).isNull()) found = true;
+    }
+    if (!found) return;
+
+    CJson kept(CJson::newObject());
+    const std::size_t members = body.arraySize();
+    for (std::size_t idx = 0; idx < members; idx++) {
+        CJson member(body.index(idx));
+        const char *member_key = member.key();
+        if (!member_key) continue;
+        bool drop = false;
+        for (const char *name : response_only) {
+            if (std::string(member_key) == name) drop = true;
+        }
+        if (!drop) kept.set(std::string(member_key), member);
+    }
+    body = std::move(kept);
+}
+
 void UserDataIngSession::associatedSessionIdStrings(std::map<std::string, std::string> strings)
 {
     std::lock_guard<std::recursive_mutex> lock(*m_distSessInfosMutex);
@@ -2346,6 +2382,7 @@ void UserDataIngSession::processUserDataIngSessionUpdate(ogs_pool_id_t stream_id
     } else {
         userServiceAnnouncement(nullptr);
     }
+    userServiceAnnouncementUrl(viaMbs5AnnouncementUrl());
     if (!m_pendingUpdate) m_pendingUpdate.emplace(PendingUpdate{.request = request, .streamId = stream_id});
     handleUserDataIngSessionUpdate(stream_id, request);
 }
@@ -2652,6 +2689,31 @@ bool UserDataIngSession::checkIfAllMBSDistributionSessionsEstablishedOrActive()
     return (number_of_established_or_active_sessions == dist_sessions);
 }
 
+UserDataIngSession &UserDataIngSession::userServiceAnnouncementUrl(const std::optional<std::string> &url)
+{
+    m_MBSUserDataIngSession->setMbsUserServiceAnmtUrl(url);
+    return *this;
+}
+
+std::optional<std::string> UserDataIngSession::viaMbs5AnnouncementUrl()
+{
+    if (!mbsUserService() || !mbsUserService()->isServiceAnnModeViaMbs5() || !checkIfAllMBSDistributionSessionsEstablishedOrActive()) {
+        return std::nullopt;
+    }
+    const std::string authority(App::self().context()->userServAnnServerAuthority());
+    const auto &ids = mbsUserService()->serviceIds();
+    if (authority.empty() || ids.empty()) return std::nullopt;
+    /* TS 26.517 V18.6.0 clause 9.2.2: {apiRoot}/3gpp-mbs-user-service-discovery/{apiVersion}/ with the sub-resource
+       user-service-descriptions/{externalServiceId} for a single service; the identifier is a URL, so it is escaped */
+    std::string escaped;
+    if (!ids.front().has_value()) return std::nullopt;
+    for (unsigned char c : ids.front().value()) {
+        if (std::isalnum(c) || c == '-' || c == '.' || c == '_' || c == '~') escaped += static_cast<char>(c);
+        else escaped += std::format("%{:02X}", static_cast<unsigned>(c));
+    }
+    return std::format("http://{}/3gpp-mbs-user-service-discovery/v1/user-service-descriptions/{}", authority, escaped);
+}
+
 UserDataIngSession &UserDataIngSession::userServiceAnnouncement(const std::shared_ptr<reftools::mbsf::UserServiceDescription> &user_service_description)
 {
     if (user_service_description) {
@@ -2719,6 +2781,7 @@ bool UserDataIngSession::sendNmbsfMbsUserDataIngestResponse(const std::shared_pt
         } else {
             ing_sess->userServiceAnnouncement(nullptr);
         }
+        ing_sess->userServiceAnnouncementUrl(ing_sess->viaMbs5AnnouncementUrl());
 
         // This gate must admit a VIA_MBS_5-only service as well, not only VIA_MBS_DISTRIBUTION_SESSION;
         // see UserDataIngSession::requiresUserServiceAnnouncement() for the reasoning. Gating on that
