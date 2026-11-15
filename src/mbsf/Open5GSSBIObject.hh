@@ -45,12 +45,12 @@ public:
     Open5GSSBIObject &operator=(const Open5GSSBIObject &other) = delete;
     virtual ~Open5GSSBIObject();
 
-    ogs_sbi_xact_t *discoverAndSend(ogs_pool_id_t stream_id, ogs_sbi_service_type_e service_type, ogs_sbi_discovery_option_t *discovery_option, ogs_sbi_build_f build, void *context, void *data);
-    ogs_sbi_xact_t *discoverOnly(ogs_pool_id_t stream_id, ogs_sbi_service_type_e service_type, ogs_sbi_discovery_option_t *discovery_option);
+    ogs_sbi_xact_t *discoverAndSend(ogs_pool_id_t stream_id, OpenAPI_service_name_e service_type, ogs_sbi_discovery_option_t *discovery_option, ogs_sbi_build_f build, void *context, void *data);
+    ogs_sbi_xact_t *discoverOnly(ogs_pool_id_t stream_id, OpenAPI_service_name_e service_type, ogs_sbi_discovery_option_t *discovery_option);
     ogs_sbi_object_t *ogsSBIObject() { return m_ogsObject; };
 
-    void setNFInstance(ogs_sbi_service_type_e service_type, ogs_sbi_nf_instance_t *nf_instance);
-    ogs_sbi_nf_instance_t *getNFInstance(ogs_sbi_service_type_e service_type);
+    void setNFInstance(OpenAPI_service_name_e service_type, ogs_sbi_nf_instance_t *nf_instance);
+    ogs_sbi_nf_instance_t *getNFInstance(OpenAPI_service_name_e service_type);
 
     void addData(const ogs_pool_id_t xact_id, Data data);
     const Data& getData(const ogs_pool_id_t xact_id) const;

@@ -137,7 +137,15 @@ void Open5GSNetworkFunction::initialise() {
     mb_smf_sc_parse_config(mb_smf_client_sect);
     auto subs = subscriptions();
     for( auto &[nf_type, service_name] : subs) {
-        ogs_sbi_subscription_spec_add(nf_type, service_name.empty()?nullptr:service_name.c_str());
+        OpenAPI_service_name_e name = OpenAPI_service_name_NULL;
+        if (!service_name.empty()) {
+            name = OpenAPI_service_name_FromString(const_cast<char*>(service_name.c_str()));
+            if (name == OpenAPI_service_name_NULL) {
+                ogs_error("Subscription to unknown service name [%s] ignored", service_name.c_str());
+                continue;
+            }
+        }
+        ogs_sbi_subscription_spec_add(nf_type, name);
     }
 };
 
@@ -190,6 +198,7 @@ bool Open5GSNetworkFunction::configureLoggingDomain()
 
 bool Open5GSNetworkFunction::sbiParseConfig(const char *app_section, const char *nrf_section, const char *scp_section)
 {
+    if (ogs_app_parse_local_conf(app_section) != OGS_OK) return false;
     if (ogs_sbi_self()->tls.server.scheme == OpenAPI_uri_scheme_NULL) ogs_sbi_self()->tls.server.scheme = OpenAPI_uri_scheme_http;
     return ogs_sbi_context_parse_config(app_section, nrf_section, scp_section) == OGS_OK;
 }
@@ -236,14 +245,19 @@ int Open5GSNetworkFunction::setNFServices(const char *serviceName, const char *s
 
     ogs_info("NF UUID: %s", id);
 
-    nf_service = ogs_sbi_nf_service_add(ogs_sbi_self()->nf_instance, id, serviceName, ogs_sbi_self()->tls.server.scheme);
+    OpenAPI_service_name_e name = OpenAPI_service_name_FromString(const_cast<char*>(serviceName));
+    if (name == OpenAPI_service_name_NULL) {
+        ogs_error("Unknown service name [%s]", serviceName);
+        return OGS_ERROR;
+    }
+    nf_service = ogs_sbi_nf_service_add(ogs_sbi_self()->nf_instance, id, name, ogs_sbi_self()->tls.server.scheme);
     ogs_assert(nf_service);
 
     addAddressesToNFService(nf_service, addrs);
     ogs_sbi_nf_service_add_version(nf_service, OGS_SBI_API_V1, apiVersion, NULL);
     if (supportedFeatures) nf_service->supported_features = ogs_strdup(supportedFeatures);
     if (capacity.has_value() && *capacity != 0 ) nf_service->capacity = *capacity;
-    ogs_info("MBSF Service [%s]", nf_service->name);
+    ogs_info("MBSF Service [%s]", OpenAPI_service_name_ToString(nf_service->name));
     if (!nf_service) return OGS_ERROR;
 
     return OGS_OK;
@@ -306,7 +320,7 @@ bool Open5GSNetworkFunction::sbiOpen()
 
         if (setNFServices(nfservice.serviceName(), nfservice.supportedFeatures(), nfservice.apiVersion(), nfservice.sockAddrs(),
                           nfservice.capacity()) != OGS_OK) {
-            return OGS_ERROR;
+            return false;
         }
     }
 

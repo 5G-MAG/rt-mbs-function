@@ -197,7 +197,7 @@ public:
     const bool isIncludedInCarouselObjectManifest() const { return m_includedInCarouselObjectManifest;};
     ogs_sbi_xact_t *nmbstfDiscoverOnly(const std::shared_ptr<ContextData> &data);
     ogs_sbi_xact_t *nmbstfDiscoverAndSend(const std::shared_ptr<UserDataIngDistSessId> &ids, ogs_sbi_build_f build, void *context, void *data);
-    UserDataIngSession &setNFInstance(ogs_sbi_service_type_e service_type, ogs_sbi_nf_instance_t *nf_instance);
+    UserDataIngSession &setNFInstance(OpenAPI_service_name_e service_type, ogs_sbi_nf_instance_t *nf_instance);
 
     UserDataIngSession &alwaysActive() {m_activePeriods.reset(new AlwaysActive(m_UserDataIngSessionId)); return *this;};
     UserDataIngSession &activePeriods(const ActPeriodsType &act_periods) {m_activePeriods.reset(new ActivePeriods(act_periods, m_activePeriods, *this)); return *this;};
@@ -485,6 +485,9 @@ public:
     static std::shared_ptr<UserDataIngDistSessId> getFromRegistry(const std::string &dist_session_id);
 
     static void removeXact(ogs_sbi_xact_t* xact);
+    // For a transaction whose response may already have been sent on the stream it is attached to:
+    // closing that stream removes the transaction, so it is looked up again by id before removal.
+    static void removeXact(ogs_sbi_xact_t* xact, ogs_pool_id_t xact_id);
     static int numberOfDistributionSessions();
 
     static void clearRegistries() { std::lock_guard<std::recursive_mutex> lock(s_registry_mutex); s_xactRegistry.clear(); s_distSessionIdRegistry.clear(); };

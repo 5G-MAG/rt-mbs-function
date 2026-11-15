@@ -1208,7 +1208,7 @@ ogs_sbi_xact_t *UserDataIngSession::nmbstfDiscoverOnly(const std::shared_ptr<Con
     }
 
 
-    xact = m_sbiObject->discoverOnly(data->streamId, OGS_SBI_SERVICE_TYPE_NMBSTF_DISTSESSION, discovery_option);
+    xact = m_sbiObject->discoverOnly(data->streamId, OpenAPI_service_name_nmbstf_distsession, discovery_option);
     if (!xact) {
         ogs_error("discoverOnly() failed");
     } else {
@@ -1232,7 +1232,7 @@ ogs_sbi_xact_t *UserDataIngSession::nmbstfDiscoverAndSend(const std::shared_ptr<
         ogs_sbi_discovery_option_set_target_nf_instance_id(discovery_option,
                                                            const_cast<char*>(context_data->mbstfNFInstanceId.c_str()));
     }
-    xact = m_sbiObject->discoverAndSend(context_data->streamId, OGS_SBI_SERVICE_TYPE_NMBSTF_DISTSESSION, discovery_option, build, context, data);
+    xact = m_sbiObject->discoverAndSend(context_data->streamId, OpenAPI_service_name_nmbstf_distsession, discovery_option, build, context, data);
     if (!xact) {
         ogs_error("discoverAndSend() failed");
     } else {
@@ -1241,7 +1241,7 @@ ogs_sbi_xact_t *UserDataIngSession::nmbstfDiscoverAndSend(const std::shared_ptr<
     return xact;
 }
 
-UserDataIngSession &UserDataIngSession::setNFInstance(ogs_sbi_service_type_e service_type, ogs_sbi_nf_instance_t *nf_instance)
+UserDataIngSession &UserDataIngSession::setNFInstance(OpenAPI_service_name_e service_type, ogs_sbi_nf_instance_t *nf_instance)
 {
     m_sbiObject->setNFInstance(service_type, nf_instance);
     return *this;
@@ -1469,6 +1469,14 @@ void UserDataIngSession::removeXact(ogs_sbi_xact_t* xact)
     removeFromRegistry(xact);
     ogs_sbi_xact_remove(xact);
     xact =nullptr;
+}
+
+void UserDataIngSession::removeXact(ogs_sbi_xact_t* xact, ogs_pool_id_t xact_id)
+{
+    if (!xact) return;
+    removeFromRegistry(xact); // by address, the transaction is not read
+    ogs_sbi_xact_t *live = ogs_sbi_xact_find_by_id(xact_id);
+    if (live) ogs_sbi_xact_remove(live);
 }
 
 void UserDataIngSession::removeFromRegistry(const std::string &dist_session_id)
@@ -2720,7 +2728,7 @@ bool UserDataIngSession::handleMbstfDiscover(ogs_sbi_nf_instance_t *nf_instance,
     if(!ing_session) return false;
 
     if (nf_instance->t_validity)  ogs_timer_stop(nf_instance->t_validity);
-    ing_session->setNFInstance(xact->service_type, nf_instance);
+    ing_session->setNFInstance(xact->service_name, nf_instance);
 
     const auto &context_data = getContextData(ids);
     if (!context_data) {

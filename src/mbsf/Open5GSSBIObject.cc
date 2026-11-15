@@ -57,7 +57,7 @@ Open5GSSBIObject::~Open5GSSBIObject()
 
 }
 
-ogs_sbi_xact_t *Open5GSSBIObject::discoverAndSend(ogs_pool_id_t stream_id, ogs_sbi_service_type_e service_type, ogs_sbi_discovery_option_t *discovery_option, ogs_sbi_build_f build, void *context, void *data)
+ogs_sbi_xact_t *Open5GSSBIObject::discoverAndSend(ogs_pool_id_t stream_id, OpenAPI_service_name_e service_type, ogs_sbi_discovery_option_t *discovery_option, ogs_sbi_build_f build, void *context, void *data)
 {
     ogs_sbi_xact_t *xact = nullptr;
     int rv;
@@ -85,7 +85,7 @@ ogs_sbi_xact_t *Open5GSSBIObject::discoverAndSend(ogs_pool_id_t stream_id, ogs_s
     return xact;
 }
 
-ogs_sbi_xact_t *Open5GSSBIObject::discoverOnly(ogs_pool_id_t stream_id, ogs_sbi_service_type_e service_type, ogs_sbi_discovery_option_t *discovery_option)
+ogs_sbi_xact_t *Open5GSSBIObject::discoverOnly(ogs_pool_id_t stream_id, OpenAPI_service_name_e service_type, ogs_sbi_discovery_option_t *discovery_option)
 {
     ogs_sbi_xact_t *xact;
     int rv;
@@ -111,14 +111,14 @@ ogs_sbi_xact_t *Open5GSSBIObject::discoverOnly(ogs_pool_id_t stream_id, ogs_sbi_
     return xact;
 }
 
-void Open5GSSBIObject::setNFInstance(ogs_sbi_service_type_e service_type, ogs_sbi_nf_instance_t *nf_instance)
+void Open5GSSBIObject::setNFInstance(OpenAPI_service_name_e service_type, ogs_sbi_nf_instance_t *nf_instance)
 {
-    OGS_SBI_SETUP_NF_INSTANCE(m_ogsObject->service_type_array[service_type], nf_instance);
+    OGS_SBI_SETUP_NF_INSTANCE(m_ogsObject->service_name_array[service_type], nf_instance);
 }
 
-ogs_sbi_nf_instance_t *Open5GSSBIObject::getNFInstance(ogs_sbi_service_type_e service_type)
+ogs_sbi_nf_instance_t *Open5GSSBIObject::getNFInstance(OpenAPI_service_name_e service_type)
 {
-    return OGS_SBI_GET_NF_INSTANCE(m_ogsObject->service_type_array[service_type]);
+    return OGS_SBI_GET_NF_INSTANCE(m_ogsObject->service_name_array[service_type]);
 }
 
 void Open5GSSBIObject::addData(ogs_pool_id_t xact_id, Data data) {

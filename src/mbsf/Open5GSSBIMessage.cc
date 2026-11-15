@@ -85,7 +85,7 @@ void Open5GSSBIMessage::parseHeader(Open5GSSBIRequest &request)
         { OGS_SBI_PARAM_REQUESTER_FEATURES, [this, &discovery_option, &discovery_option_presence](const std::string &key, const char *val) {
                                             if (val) {
                                                 char *pval = const_cast<char*>(val);
-                                                discovery_option->requester_features = ogs_uint64_from_string(pval);
+                                                discovery_option->requester_features = ogs_uint64_from_string(pval, 16);
                                                 discovery_option_presence = true;
                                             } } },
         { OGS_SBI_PARAM_NF_ID, [this](const std::string &key, const char *val) {
@@ -136,7 +136,7 @@ void Open5GSSBIMessage::parseHeader(Open5GSSBIRequest &request)
                                                         }
                                                         m_message->param.roaming_indication =
                                                                                         SliceInfoForPduSession->roaming_indication;
-                                                        m_message->param.slice_info_request_for_pdu_session_presence = true;
+                                                        m_message->param.slice_info_for_pdu_session_presence = true;
                                                         OpenAPI_slice_info_for_pdu_session_free(SliceInfoForPduSession);
                                                     }
                                                     cJSON_Delete(item);

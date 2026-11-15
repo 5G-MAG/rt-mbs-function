@@ -76,7 +76,7 @@ MBSF_NAMESPACE_START
 static bool handle_mbstf_dist_session_response(ogs_sbi_xact_t *xact, Open5GSSBIResponse &response, bool update);
 static void handle_mbstf_dist_session_delete(std::string &dist_session_id);
 static void send_error(ogs_sbi_xact_t *xact);
-static void remove_xact(ogs_sbi_xact_t *xact);
+static void remove_xact(ogs_sbi_xact_t *xact, ogs_pool_id_t xact_id);
 static bool valid_content_type(Open5GSSBIMessage &message);
 
 static const NfServer::InterfaceMetadata g_nmbsf_userdataingstatsubsc_api_metadata(
@@ -256,7 +256,7 @@ bool Nmb2Handler::processEvent(Open5GSEvent &event)
                         std::string resource_id(message.resourceComponent(1));
                         if (!resource_id.empty()) {
                             if (sbi_xact) {
-                                remove_xact(sbi_xact);
+                                remove_xact(sbi_xact, sbi_xact_id);
                                 sbi_xact = nullptr;
                             }
                             handle_mbstf_dist_session_delete(resource_id);
@@ -304,7 +304,7 @@ bool Nmb2Handler::processEvent(Open5GSEvent &event)
                     ogs_error("Invalid HTTP method [%s]", method.c_str());
                 }
                 if (sbi_xact) {
-                    remove_xact(sbi_xact);
+                    remove_xact(sbi_xact, sbi_xact_id);
                     sbi_xact = nullptr;
                 }
                 return true;
@@ -323,7 +323,7 @@ bool Nmb2Handler::processEvent(Open5GSEvent &event)
 static bool handle_mbstf_dist_session_response(ogs_sbi_xact_t *xact, Open5GSSBIResponse &response, bool update)
 {
     ogs_sbi_object_t *sbi_object = NULL;
-    ogs_sbi_service_type_e service_type = OGS_SBI_SERVICE_TYPE_NULL;
+    OpenAPI_service_name_e service_type = OpenAPI_service_name_NULL;
 
     OpenAPI_nf_type_e target_nf_type = OpenAPI_nf_type_NULL;
     OpenAPI_nf_type_e requester_nf_type = OpenAPI_nf_type_NULL;
@@ -331,9 +331,9 @@ static bool handle_mbstf_dist_session_response(ogs_sbi_xact_t *xact, Open5GSSBIR
     ogs_assert(xact);
     sbi_object = xact->sbi_object;
     ogs_assert(sbi_object);
-    service_type = xact->service_type;
+    service_type = xact->service_name;
     ogs_assert(service_type);
-    target_nf_type = ogs_sbi_service_type_to_nf_type(service_type);
+    target_nf_type = ogs_sbi_service_name_to_nf_type(service_type);
     ogs_assert(target_nf_type);
     requester_nf_type = xact->requester_nf_type;
     ogs_assert(requester_nf_type);
@@ -417,10 +417,10 @@ static void send_error(ogs_sbi_xact_t *xact)
                                                                       "Failed to create MBS Distribution Session in MBSTF"));
 }
 
-static void remove_xact(ogs_sbi_xact_t *xact)
+static void remove_xact(ogs_sbi_xact_t *xact, ogs_pool_id_t xact_id)
 {
     if (xact) {
-        UserDataIngSession::removeXact(xact);
+        UserDataIngSession::removeXact(xact, xact_id);
         xact = nullptr;
     }
 }

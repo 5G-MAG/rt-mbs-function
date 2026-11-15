@@ -86,7 +86,7 @@ void MBSFEventHandler::dispatch(Open5GSFSM &fsm, Open5GSEvent &event)
             }
 
             std::string service_name(message.serviceName());
-            if (service_name == OGS_SBI_SERVICE_NAME_NNRF_NFM) {
+            if (service_name == OpenAPI_service_name_ToString(OpenAPI_service_name_nnrf_nfm)) {
                 std::string api_version(message.apiVersion());
                 if (api_version != OGS_SBI_API_V1) {
                     ogs_error("Not supported version [%s]", api_version.c_str());
@@ -170,7 +170,7 @@ void MBSFEventHandler::dispatch(Open5GSFSM &fsm, Open5GSEvent &event)
             message.resStatus(response.status());
 
             std::string service_name(message.serviceName());
-            if (service_name == OGS_SBI_SERVICE_NAME_NNRF_DISC) {
+            if (service_name == OpenAPI_service_name_ToString(OpenAPI_service_name_nnrf_disc)) {
                 std::string resource(message.resourceComponent(0));
                 if (resource == OGS_SBI_RESOURCE_NAME_NF_INSTANCES) {
                     ogs_sbi_xact_t *sbi_xact = NULL;
@@ -206,7 +206,7 @@ void MBSFEventHandler::dispatch(Open5GSFSM &fsm, Open5GSEvent &event)
                         } else {
                             ogs_error("HTTP response error [%d]", message.resStatus());
                             /* The request waiting for this discovery is answered, not freed in silence. */
-                            if (sbi_xact->service_type == OGS_SBI_SERVICE_TYPE_NMBSTF_DISTSESSION) {
+                            if (sbi_xact->service_name == OpenAPI_service_name_nmbstf_distsession) {
                                 UserDataIngSession::failParkedMbstfRequest(sbi_xact,
                                         std::string("the NRF answered the MBSTF discovery with status ")
                                         + std::to_string(message.resStatus()));
@@ -219,11 +219,11 @@ void MBSFEventHandler::dispatch(Open5GSFSM &fsm, Open5GSEvent &event)
                     }
 
                     /* A request sent to the instance just discovered keeps its transaction for the response. */
-                    if (sbi_xact && !request_in_flight) UserDataIngSession::removeXact(sbi_xact);
+                    if (sbi_xact && !request_in_flight) UserDataIngSession::removeXact(sbi_xact, sbi_xact_id);
                     sbi_xact = NULL;
                 }
 
-            } else if (service_name == OGS_SBI_SERVICE_NAME_NNRF_NFM) {
+            } else if (service_name == OpenAPI_service_name_ToString(OpenAPI_service_name_nnrf_nfm)) {
                 std::string resource(message.resourceComponent(0));
                 message.parseResponse(response);
                 if (resource == OGS_SBI_RESOURCE_NAME_NF_INSTANCES) {
@@ -233,7 +233,8 @@ void MBSFEventHandler::dispatch(Open5GSFSM &fsm, Open5GSEvent &event)
 
                     ogs_assert(nf_instance);
 
-                    if (response.contentLength() && response.content()){
+                    /* a response without an instance id is the NF list (links), parsed by parseResponse() */
+                    if (message.resourceComponent(1) && response.contentLength() && response.content()){
                         ogs_debug( "response: %s", response.content());
                         nf_profile = cJSON_Parse(response.content());
                         nfprofile = OpenAPI_nf_profile_parseFromJSON(nf_profile);
@@ -408,7 +409,7 @@ static bool mbsf_nnrf_handle_nf_discover(ogs_sbi_xact_t *xact, ogs_sbi_message_t
 {
     ogs_sbi_nf_instance_t *nf_instance = NULL;
     ogs_sbi_object_t *sbi_object = NULL;
-    ogs_sbi_service_type_e service_type = OGS_SBI_SERVICE_TYPE_NULL;
+    OpenAPI_service_name_e service_type = OpenAPI_service_name_NULL;
     ogs_sbi_discovery_option_t *discovery_option = NULL;
 
     OpenAPI_nf_type_e target_nf_type = OpenAPI_nf_type_NULL;
@@ -419,9 +420,9 @@ static bool mbsf_nnrf_handle_nf_discover(ogs_sbi_xact_t *xact, ogs_sbi_message_t
     ogs_assert(xact);
     sbi_object = xact->sbi_object;
     ogs_assert(sbi_object);
-    service_type = xact->service_type;
+    service_type = xact->service_name;
     ogs_assert(service_type);
-    target_nf_type = ogs_sbi_service_type_to_nf_type(service_type);
+    target_nf_type = ogs_sbi_service_name_to_nf_type(service_type);
     ogs_assert(target_nf_type);
     requester_nf_type = xact->requester_nf_type;
     ogs_assert(requester_nf_type);
@@ -432,7 +433,7 @@ static bool mbsf_nnrf_handle_nf_discover(ogs_sbi_xact_t *xact, ogs_sbi_message_t
     SearchResult = recvmsg->SearchResult;
     if (!SearchResult) {
         ogs_error("No SearchResult");
-        if (service_type == OGS_SBI_SERVICE_TYPE_NMBSTF_DISTSESSION) {
+        if (service_type == OpenAPI_service_name_nmbstf_distsession) {
             UserDataIngSession::failParkedMbstfRequest(xact, "the NRF's discovery answer carries no search result");
         }
         return false;
@@ -444,7 +445,7 @@ static bool mbsf_nnrf_handle_nf_discover(ogs_sbi_xact_t *xact, ogs_sbi_message_t
                     target_nf_type, requester_nf_type, discovery_option);
     if (!nf_instance) {
         ogs_error("(NF discover) No [%s:%s]",
-                    ogs_sbi_service_type_to_name(service_type),
+                    OpenAPI_service_name_ToString(service_type),
                     OpenAPI_nf_type_ToString(requester_nf_type));
         //return;
     }

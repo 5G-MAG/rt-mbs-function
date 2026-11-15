@@ -74,8 +74,6 @@ HTTPXPP_NAMESPACE_USING(HTTPServer);
 HTTPXPP_NAMESPACE_USING(PathDelegatorHTTPRequestHandler);
 HTTPXPP_NAMESPACE_USING(SockAddr);
 
-extern ogs_sbi_server_actions_t ogs_sbi_server_actions;
-
 MBSF_NAMESPACE_START
 
 namespace {
@@ -207,7 +205,7 @@ bool Context::parseConfig()
             Open5GSYamlIter mbsf_iter(root_iter);
             while (mbsf_iter.next()) {
                 std::string mbsf_key(mbsf_iter.key());
-                if (mbsf_key == "sbi" || mbsf_key == "service_name" || mbsf_key == "discovery") {
+                if (mbsf_key == "sbi" || mbsf_key == "service_name" || mbsf_key == "discovery" || mbsf_key == "default") {
                     // Handled by SBI config parser
                 } else if (mbsf_key == "serverResponseCacheControl") {
                     Open5GSYamlIter cc_array(mbsf_iter);
@@ -1029,7 +1027,7 @@ std::shared_ptr<Open5GSSBIServer> Context::newSbiServer(const ogs_sockaddr_t *ad
 {
     ogs_sbi_server_t *svr = ogs_sbi_server_add(NULL, OpenAPI_uri_scheme_http, (ogs_sockaddr_t*)address, NULL);
     if (svr) {
-        ogs_sbi_server_actions.start(svr, ogs_sbi_server_handler);
+        svr->actions->start(svr, ogs_sbi_server_handler);
         if ((address->ogs_sa_family == AF_INET && address->sin.sin_port == 0) ||
             (address->ogs_sa_family == AF_INET6 && address->sin6.sin6_port == 0)) {
             /* Retrieve bound address to get port number of ephemeral port */

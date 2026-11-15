@@ -147,7 +147,7 @@ bool NfServer::__sendError(Open5GSSBIStream &stream, int status, const std::opti
                          const std::optional<std::string> &problem_type,
                          const std::optional<std::string> &allow_methods)
 {
-    OpenAPI_problem_details_t *problem = OpenAPI_problem_details_create(nullptr, nullptr, false, 0, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+    OpenAPI_problem_details_t *problem = OpenAPI_problem_details_create(nullptr, nullptr, false, 0, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
     OpenAPI_problem_details_t *problem_details = NULL;
 
     ogs_assert(stream);
