@@ -816,10 +816,10 @@ void Context::parseConfiguration(const std::string &pc_key, Open5GSYamlIter &ite
     }
     ogs_list_for_each(&list6, node6) {
         if (node6) {
-            std::shared_ptr<Open5GSSBIServer> new_server = findServerForAddr(node);
+            std::shared_ptr<Open5GSSBIServer> new_server = findServerForAddr(node6);
 
             if (!new_server) {
-                new_server.reset(new Open5GSSBIServer(node, is_option ? &option : nullptr));
+                new_server.reset(new Open5GSSBIServer(node6, is_option ? &option : nullptr));
                 new_server->ogsSBIServerAdvertise(addr);
             }
 
