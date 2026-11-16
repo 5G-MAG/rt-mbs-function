@@ -96,6 +96,10 @@ void ExternalServiceArea::geographicAreas(mb_smf_sc_ext_mbs_service_area_t *ext_
             geographical_area.reset(new GeographicalArea(recv_geo_area));
 
             mb_smf_sc_geographic_area_t *geographic_area = geographical_area->populateGeographicArea();
+            if (!geographic_area) {
+                ogs_error("A Geographic Area of this shape cannot be carried to the MB-SMF");
+                continue;
+            }
             ogs_list_add(&ext_mbs_service_area->geographic_areas, geographic_area);
         }
 
