@@ -107,6 +107,19 @@ void UserServiceAnnBundle::wait() {
     m_userServiceAnnChange.wait(lock, [this] { return m_done.load(); });
 }
 
+/* Drops a reference to the Ingest Session on a thread of its own.
+
+   The session owns this bundle, and the bundle's destructor joins the worker thread. If the Ingest
+   Session was deleted while the worker held the only remaining reference, releasing it on the worker
+   would run the bundle's destructor on the thread it is meant to join: the join is skipped for the
+   current thread, and the std::thread member is then destroyed while still joinable, which calls
+   std::terminate. The mutex the worker still holds would also be freed under it. Released here
+   instead, the destructor waits for the worker to return. code-derived, no spec claim. */
+static void release_ingest_session(std::shared_ptr<UserDataIngSession> &&session)
+{
+    std::thread([held = std::move(session)]() mutable { held.reset(); }).detach();
+}
+
 void UserServiceAnnBundle::worker()
 {
     while (m_rebuild) {
@@ -120,22 +133,28 @@ void UserServiceAnnBundle::worker()
 
         m_userServiceAnnThreadRunning = true;
 
+        /* Held for the whole pass, so that no other lock() of the weak pointer below can be the one
+           that drops the last reference. */
+        auto user_data_ing_session = m_userDataIngSession.lock();
+        if (!user_data_ing_session) {
+            finish();
+            return;
+        }
+
         clearServingFiles();
 
         if(!writeAnnouncement()) {
             ogs_error("Unable to write announcement.json to local file system");
         }
 
-        auto user_data_ing_session = m_userDataIngSession.lock();
-        if (user_data_ing_session) {
-            user_data_ing_session->forEachDistributionSessionInfo([this](const auto &id, const auto &ctx) -> bool {
-                if (!writeServiceDescriptionProtocolDoc(ctx)) {
-                    ogs_error("Unable to write SDP file");
-                }
-                return true;
-            });
-            user_data_ing_session->userServiceAnnBundled();
-        }
+        user_data_ing_session->forEachDistributionSessionInfo([this](const auto &id, const auto &ctx) -> bool {
+            if (!writeServiceDescriptionProtocolDoc(ctx)) {
+                ogs_error("Unable to write SDP file");
+            }
+            return true;
+        });
+        user_data_ing_session->userServiceAnnBundled();
+        release_ingest_session(std::move(user_data_ing_session));
     }
 
     finish();
