@@ -1432,6 +1432,15 @@ std::shared_ptr<UserDataIngSession::ContextData> UserDataIngSession::getDistribu
     if (it != m_distributionSessionInfos.end()) {
         return it->second;
     }
+    /* The identifier of a Distribution Session is also the mbsDistSessionId the MBSF gave it, not only its key in
+       mbsDisSessInfos: TS 29.580 V18.8.0 says of SubscribedEvent.mbsDistSessionId that it "Represents the identifier
+       for the MBS Distribution Session to which the subscribed MBS User Data Ingest Session Status event is
+       related", so a subscription may name either. */
+    for (const auto &entry : m_distributionSessionInfos) {
+        if (!entry.second || !entry.second->info) continue;
+        const std::optional<std::string> &assigned = entry.second->info->getMbsDistSessionId();
+        if (assigned.has_value() && *assigned == key) return entry.second;
+    }
     return nullptr;
 }
 
