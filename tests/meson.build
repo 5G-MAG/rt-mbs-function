@@ -107,3 +107,10 @@ test_timer_duration_exe = executable('test_timer_duration', 'test_timer_duration
     dependencies : [libmbsf_dep],
     install : false)
 test('test_timer_duration', test_timer_duration_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')
+
+# The GeographicArea model, an anyOf of seven shapes, see the test's own file comment.
+test_geographic_area_exe = executable('test_geographic_area', 'test_geographic_area.cc',
+    include_directories : [libmbsf_libinc, libinc],
+    dependencies : [libmbsf_dep],
+    install : false)
+test('test_geographic_area', test_geographic_area_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')
