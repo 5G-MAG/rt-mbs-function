@@ -366,6 +366,7 @@ public:
      * The events table 6.2.6.3.4-1 marks with that applicability may only be reported where it was.
      */
     bool mbsEventsExtNegotiated() const;
+    bool mbsPatchEnhNegotiated() const;
 
     /** Record a Distribution Session the MB-SMF rejected, for reporting alongside the ones that
      *  succeeded. Keyed by the map key the consumer used in "mbsDisSessInfos". */

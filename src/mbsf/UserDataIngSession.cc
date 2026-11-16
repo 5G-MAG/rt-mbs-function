@@ -902,6 +902,24 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
                             /* the string form of an associatedSessionId is not in the generated model; the update reads
                                it from the merged body below, where it is taken out as in any update */
                             CJson patch_to_check(patch_json);
+                            /* TS 29.580 V18.8.0 table 6.2.8-1, MBSPatchEnh: "enhancements to the PATCH method on the
+                               "Individual MBS User Data Ingest Session" resource to support individual map elements
+                               removal." Where it was negotiated, a null Distribution Session entry asks for its deletion
+                               and is applied below; the generated map item validator would read it as an entry with its
+                               mandatory attributes missing. A patch that only deletes leaves an empty map, which the type
+                               does not allow, so the check is made without it. Where it was not negotiated the null stays
+                               and the type check refuses it. */
+                            if (user_data_ing_sess->mbsPatchEnhNegotiated() &&
+                                !take_nulled_dist_sess_infos(patch_to_check).empty() &&
+                                patch_to_check.getObjectItemCaseSensitive("mbsDisSessInfos").arraySize() == 0) {
+                                CJson others(CJson::newObject());
+                                for (std::size_t i = 0; i < patch_to_check.arraySize(); i++) {
+                                    CJson member(patch_to_check.index(i));
+                                    if (!member.key() || std::string(member.key()) == "mbsDisSessInfos") continue;
+                                    others.set(std::string(member.key()), member);
+                                }
+                                patch_to_check = std::move(others);
+                            }
                             take_associated_session_id_strings(patch_to_check);
                             MBSUserDataIngSessionPatch patch_model(patch_to_check, true);
                         } catch (ModelException &ex) {
@@ -925,6 +943,10 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
                            than removing it, so a legitimate deletion request would otherwise be
                            rejected as an invalid patch instead of being carried out. */
                         std::list<std::string> nulled_dist_sess_keys(take_nulled_dist_sess_infos(patched));
+                        for (const auto &nulled_key : nulled_dist_sess_keys) {
+                            ogs_debug("Distribution Session [%s] is set to NULL in this patch, so it is to be deleted",
+                                      nulled_key.c_str());
+                        }
                         strip_response_only_attributes(patched);
                         user_data_ing_sess->reportIgnoredAssociatedSessionIdStrings(take_associated_session_id_strings(patched));
 
@@ -2036,9 +2058,10 @@ static std::string ing_session_allow_methods(const Open5GSSBIMessage &message)
  * Session changes that attribute alone and not the entry around it.
  *
  * A member whose value is null is set rather than removed. RFC 7396 removes it, but removal of a
- * map element is what the MBSPatchEnh feature adds, and this MBSF does not negotiate it; leaving
- * the null in place lets the model that parses the merged result refuse it, which is the answer a
- * consumer should get for asking for a capability that was not agreed.
+ * map element is what the MBSPatchEnh feature adds: where it was negotiated the caller takes the nulled
+ * Distribution Session entries out of the merged result and deletes those sessions, and where it was not
+ * the type check of the patch has already refused the null, which is the answer a consumer should get for
+ * asking for a capability that was not agreed.
  */
 static void apply_merge_patch(CJson &target, const CJson &patch)
 {
@@ -2072,12 +2095,9 @@ void UserDataIngSession::processUserDataIngSessionUpdate(ogs_pool_id_t stream_id
     /* The generated model cannot itself carry a NULL mbsDisSessInfos entry (see
        take_nulled_dist_sess_infos()), so the caller pulled each one out of the JSON before this
        model was built and hands the keys back here. Re-inserting them as an explicit empty
-       optional puts update_dist_sess_infos, below, back into the shape the reconciliation logic
+       optional (into update_dist_sess_infos below) puts it back into the shape the reconciliation logic
        is written against: a key present with no value is a deletion request, exactly as TS 29.580
        V18.8.0 clause 5.3.2.4.2 defines it. */
-    for (const auto &nulled_key : nulled_dist_sess_keys) {
-        mbs_user_data_ing_session->addMbsDisSessInfos(nulled_key, MBSUserDataIngSession::MbsDisSessInfosItemType());
-    }
     const ActPeriodsType &act_periods = mbs_user_data_ing_session->getActPeriods();
     const ActPeriodsType &current_act_periods = m_MBSUserDataIngSession->getActPeriods();
 
@@ -2087,6 +2107,12 @@ void UserDataIngSession::processUserDataIngSessionUpdate(ogs_pool_id_t stream_id
     auto app_context = App::self().context();
     const MBSUserDataIngSession::MbsDisSessInfosType &current_dist_sess_infos = m_MBSUserDataIngSession->getMbsDisSessInfos();
     MBSUserDataIngSession::MbsDisSessInfosType update_dist_sess_infos = mbs_user_data_ing_session->getMbsDisSessInfos();
+    /* The nulled keys go into this copy of the map, not into the model: the generated addMbsDisSessInfos() refuses an
+       item that holds no value, so putting them into the model left no deletion request here and a Distribution
+       Session named null in an update was kept. */
+    for (const auto &nulled_key : nulled_dist_sess_keys) {
+        update_dist_sess_infos.insert(std::make_pair(nulled_key, MBSUserDataIngSession::MbsDisSessInfosItemType()));
+    }
     /* Iterated over a snapshot of the keys, not over the live map. The body calls
        removeMbsDisSessInfos(), which erases from the very map current_dist_sess_infos refers to,
        and advancing a range-for past an erased node is undefined. It behaved as a step backwards:
@@ -3525,6 +3551,9 @@ void UserDataIngSession::setMBSSessionDeleted(const UserDataIngDistSessId &ids)
                 // duplicate" warning.
                 removeFromRegistry(context_data->mbstfDistSessionId);
                 ing_sess->removeDistributionSessionInfo(context_data->distSessionInfoKey);
+                /* The announcement is built from the Distribution Sessions held, so one removed from a live Ingest Session
+                   is announced as gone only once the bundle is built again without it. */
+                if (!ingest_session_deletion_requested) ing_sess->configureUserServiceAnnouncementBundler();
             }
             /* checkIfAllMBSSessionDeletionsReceived() is satisfied as soon as every Distribution
                Session currently held is DELETED, which a session with one Distribution Session
@@ -3828,6 +3857,20 @@ bool UserDataIngSession::mbsEventsExtNegotiated() const
     return (mask & 0x2) != 0;
 }
 
+bool UserDataIngSession::mbsPatchEnhNegotiated() const
+{
+    /* TS 29.580 V18.8.0 table 6.2.8-1 numbers MBSPatchEnh 4, so bit 4 (value 8) of the negotiated bitmask, read the
+       same way as mbsErrorHandlingNegotiated() above. */
+    const auto &supp_feat = m_MBSUserDataIngSession->getSuppFeat();
+    if (!supp_feat.has_value() || supp_feat->empty()) return false;
+    char last = supp_feat->back();
+    unsigned mask = 0;
+    if (last >= '0' && last <= '9') mask = (unsigned)(last - '0');
+    else if (last >= 'a' && last <= 'f') mask = (unsigned)(last - 'a' + 10);
+    else if (last >= 'A' && last <= 'F') mask = (unsigned)(last - 'A' + 10);
+    return (mask & 0x8) != 0;
+}
+
 static bool is_mbstf_create_request(const ogs_sbi_request_t *request)
 {
     if (!request) return false;
@@ -4104,6 +4147,8 @@ void UserDataIngSession::setMBSTFDistSessionDeletedFlag(const std::string &dist_
         if (context_data->markForDeletion) {
             removeFromRegistry(dist_session_id);
             ing_sess->removeDistributionSessionInfo(context_data->distSessionInfoKey);
+            /* As in setMBSSessionDeleted(): announce the removal of a Distribution Session of a live Ingest Session. */
+            if (ing_sess->m_deleteRequests.empty() && !ing_sess->m_removalRequested) ing_sess->configureUserServiceAnnouncementBundler();
             return;
         }
     }
@@ -5077,7 +5122,8 @@ static bool request_too_large(Open5GSSBIRequest &request, Open5GSSBIStream &stre
  * features by comparing the client's requested bitmask against its own supported set, and
  * returns the intersection. TS 29.580 V18.8.0 cl.6.2.8, Table 6.2.8-1 (Nmbsf_MBSUserDataIngestSession
  * API) defines exactly four features: 1 5MBS2, 2 MBSEventsExt, 3 MBSErrorHandling, 4 MBSPatchEnh.
- * Of these, MBSEventsExt (feature 2) and MBSErrorHandling (feature 3) are implemented here -- this
+ * Of these, MBSEventsExt (feature 2), MBSErrorHandling (feature 3) and MBSPatchEnh (feature 4, the removal of one
+ * Distribution Session by a null map entry in a patch) are implemented here -- this
  * mask reflects what's actually there, not an aspiration. TS 29.571's own
  * SupportedFeatures encoding (its own copy of TS 29.500 table 5.2.2-3): each hex character
  * represents 4 features, and the last character in the string represents features 1 to 4 -- since
@@ -5097,7 +5143,7 @@ static bool request_too_large(Open5GSSBIRequest &request, Open5GSSBIStream &stre
  *    A mixed outcome is reported in failedDistSessions, and a narrowed service area in
  *    redMbsServAreaInfo on an update.
  */
-static const unsigned MBSF_UD_INGEST_SUPPORTED_FEATURES = 0x6; /* bits 1,2 = features 2,3 */
+static const unsigned MBSF_UD_INGEST_SUPPORTED_FEATURES = 0xe; /* bits 1,2,3 = features 2,3,4 */
 
 static std::optional<std::string> negotiate_supp_feat(const std::optional<std::string> &requested)
 {
