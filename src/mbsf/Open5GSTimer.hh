@@ -23,12 +23,23 @@
 #include "ogs-proto.h"
 #include "ogs-core.h"
 
+#include <chrono>
 #include <cstdint>
 #include <memory>
 
 #include "common.hh"
 
 MBSF_NAMESPACE_START
+
+/* Whole milliseconds from `now` until `tp`, for Open5GSTimer::start(). ogs_timer_start() asserts on a duration of
+   zero, so the result is never less than one. It rounds up, so the timer cannot fire before `tp`: a handler that ran
+   early would still see the old state, find the same transition ahead of it and start the timer with a zero duration. */
+inline int64_t timerDurationMs(const std::chrono::system_clock::time_point &tp, const std::chrono::system_clock::time_point &now)
+{
+    const auto us = std::chrono::duration_cast<std::chrono::microseconds>(tp - now).count();
+    if (us <= 0) return 1;
+    return static_cast<int64_t>((us + 999) / 1000);
+}
 
 class Open5GSTimer {
 public:

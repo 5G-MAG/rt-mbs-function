@@ -5054,10 +5054,7 @@ static void handle_failed_mbstf_nf_instance_discover(ogs_sbi_xact_t *xact)
 }
 
 static int64_t duration_timer(const std::chrono::system_clock::time_point &tp) {
-    const std::chrono::system_clock::time_point now = std::chrono::system_clock::now();
-    auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(tp - now).count();
-    if (diff <= 0) return 0;
-    return static_cast<int64_t>(diff);
+    return timerDurationMs(tp, std::chrono::system_clock::now());
 }
 
 static bool request_too_large(Open5GSSBIRequest &request, Open5GSSBIStream &stream, int path_segments,

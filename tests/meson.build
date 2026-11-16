@@ -100,3 +100,10 @@ test_user_service_discovery_handler_exe = executable('test_user_service_discover
     dependencies : [libmbsf_dep],
     install : false)
 test('test_user_service_discovery_handler', test_user_service_discovery_handler_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')
+
+# timerDurationMs(), the duration the active periods timer is started with, see the test's own file comment.
+test_timer_duration_exe = executable('test_timer_duration', 'test_timer_duration.cc',
+    include_directories : [libmbsf_libinc, libinc],
+    dependencies : [libmbsf_dep],
+    install : false)
+test('test_timer_duration', test_timer_duration_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')
