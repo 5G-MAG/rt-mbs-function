@@ -197,6 +197,27 @@ static void send_invalid_user_data_ing_session_err(const std::out_of_range &e, O
 static std::shared_ptr<MBSMFMBSSession> populate_mb_smf_mbs_session(
                                                         const std::shared_ptr<UserDataIngSession::ContextData> &context_data,
                                                         const std::shared_ptr<MBSMFMBSSession> &mb_smf_mbs_session);
+
+/* Whether the Distribution Session is flagged as part of a multiplex. */
+static bool multiplexed(const std::shared_ptr<reftools::mbsf::MBSDistributionSessionInfo> &info)
+{
+    const auto &flag = info->getMultiplexedServFlag();
+    return flag.has_value() && flag.value();
+}
+
+/* The target service areas of a Distribution Session as the text the members of a multiplex are compared on. An
+   absent area and an empty one are the same here. */
+static std::string target_area_signature(const std::shared_ptr<reftools::mbsf::MBSDistributionSessionInfo> &info)
+{
+    std::string signature;
+    const auto &tgt = info->getTgtServAreas();
+    if (tgt.has_value() && tgt.value()) signature += tgt.value()->toJSON(true).serialise();
+    signature += '|';
+    const auto &ext = info->getExtTgtServAreas();
+    if (ext.has_value() && ext.value()) signature += ext.value()->toJSON(true).serialise();
+    return signature;
+}
+
 static int64_t duration_timer(const std::chrono::system_clock::time_point &tp);
 static uint64_t get_next_tsi();
 static void send_model_error(const ModelException &err, Open5GSSBIStream &stream, int path_segments, Open5GSSBIMessage &message,
@@ -2271,6 +2292,8 @@ void UserDataIngSession::processUserDataIngSessionUpdate(ogs_pool_id_t stream_id
     // Validate MBS Session Id uniqueness for the genuine additions, including against each other,
     // before planning any of them.
     std::list<UniqueMbsSessionId> reserved_mbs_session_ids;
+    /* Those of them that the flagged Distribution Sessions added by this update hold: a multiplex shares one */
+    std::list<UniqueMbsSessionId> reserved_multiplexed_ids;
     for (const auto &[key_in_update, sess_info_update]: update_dist_sess_infos) {
         if (!sess_info_update.has_value() || !sess_info_update.value()) {
             ogs_debug("Distribution Session [%s] is set to NULL in this update but does not exist; ignored",
@@ -2284,9 +2307,28 @@ void UserDataIngSession::processUserDataIngSessionUpdate(ogs_pool_id_t stream_id
             UniqueMbsSessionId cmp_mbs_session_id(!!mbs_session_id.value()->getSsm(), mbs_session_id.value(),
                                     mbs_svc_area?mbs_svc_area.value():std::shared_ptr<MbsServiceArea>(),
                                     ext_mbs_svc_area?ext_mbs_svc_area.value():std::shared_ptr<ExternalMbsServiceArea>());
-            if (app_context->haveMbsSessionId(cmp_mbs_session_id) ||
+            /* A flagged Distribution Session may take the identifier of another flagged one of this Ingest Session,
+               stored or added by this same update, with the same target service areas (the identifier carries them):
+               TS 29.580 V18.8.0 table 6.2.6.2.4-1, multiplexedServFlag. */
+            bool shares_multiplex = false;
+            if (multiplexed(sess_info_update.value())) {
+                shares_multiplex = std::find(reserved_multiplexed_ids.begin(), reserved_multiplexed_ids.end(),
+                                             cmp_mbs_session_id) != reserved_multiplexed_ids.end();
+                if (!shares_multiplex) {
+                    std::lock_guard<decltype(m_distSessInfosMutex)::element_type> held_lock(*m_distSessInfosMutex);
+                    for (const auto &held : m_distributionSessionInfos) {
+                        if (held.second && held.second->info && multiplexed(held.second->info) &&
+                                held.second->distributionSessionInfo &&
+                                held.second->distributionSessionInfo->getUniqueMbsSessionId() == cmp_mbs_session_id) {
+                            shares_multiplex = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (!shares_multiplex && (app_context->haveMbsSessionId(cmp_mbs_session_id) ||
                     std::find(reserved_mbs_session_ids.begin(), reserved_mbs_session_ids.end(), cmp_mbs_session_id)
-                            != reserved_mbs_session_ids.end()) {
+                            != reserved_mbs_session_ids.end())) {
                 ogs_error("UserDataIngSession update adds already allocated MBS Session Id");
                 /* Thrown, not answered here: this function returns to a caller that then answered 200
                    on the same stream. Still in validation, so nothing has changed yet. The cause
@@ -2298,6 +2340,7 @@ void UserDataIngSession::processUserDataIngSessionUpdate(ogs_pool_id_t stream_id
                                                                   : ProblemCause::MANDATORY_IE_INCORRECT);
             }
             reserved_mbs_session_ids.push_back(cmp_mbs_session_id);
+            if (multiplexed(sess_info_update.value())) reserved_multiplexed_ids.push_back(cmp_mbs_session_id);
         }
         plan.push_back(PlannedChange{key_in_update, nullptr, nullptr, sess_info_update.value(), false, true, std::nullopt});
     }
@@ -2963,26 +3006,6 @@ bool UserDataIngSession::handleMbstfDiscover(ogs_sbi_nf_instance_t *nf_instance,
     removeFromRegistry(xact);
 
     return true;
-}
-
-/* Whether the Distribution Session is flagged as part of a multiplex. */
-static bool multiplexed(const std::shared_ptr<reftools::mbsf::MBSDistributionSessionInfo> &info)
-{
-    const auto &flag = info->getMultiplexedServFlag();
-    return flag.has_value() && flag.value();
-}
-
-/* The target service areas of a Distribution Session as the text the members of a multiplex are compared on. An
-   absent area and an empty one are the same here. */
-static std::string target_area_signature(const std::shared_ptr<reftools::mbsf::MBSDistributionSessionInfo> &info)
-{
-    std::string signature;
-    const auto &tgt = info->getTgtServAreas();
-    if (tgt.has_value() && tgt.value()) signature += tgt.value()->toJSON(true).serialise();
-    signature += '|';
-    const auto &ext = info->getExtTgtServAreas();
-    if (ext.has_value() && ext.value()) signature += ext.value()->toJSON(true).serialise();
-    return signature;
 }
 
 bool UserDataIngSession::createMbsSession(const std::shared_ptr<UserDataIngSession::ContextData> &context_data)
@@ -5237,7 +5260,9 @@ static bool validate_state_setting_options(const std::shared_ptr<UserDataIngSess
     /* MBS Session IDs already named by an earlier Distribution Session of this same request. The
        registry check below only sees sessions that exist, so two entries of one request naming the
        same ID both passed it and both went to the MB-SMF. */
-    std::set<UniqueMbsSessionId> seen_in_request;
+    /* Whether the Distribution Session that named it is flagged as part of a multiplex: those of a multiplex name the
+       same one, TS 29.580 V18.8.0 table 6.2.6.2.4-1, "multiplexed onto the same MBS Session". */
+    std::map<UniqueMbsSessionId, bool> seen_in_request;
     if (mbs_user_data_ing_session->getActPeriods() && mbs_user_data_ing_session->getActPeriodsRepRule()) {
         invalid_params["actPeriods"] = "actPeriods cannot be present if any mbsDistSessState or actPeriodRepRule are present";
         invalid_params["actPeriodRepRule"] = "actPeriodRepRule cannot be present if any mbsDistSessState or actPeriods are present";
@@ -5267,12 +5292,21 @@ static bool validate_state_setting_options(const std::shared_ptr<UserDataIngSess
                     UniqueMbsSessionId unique_mbs_session_id(!!mbs_session_id.value()->getSsm(), mbs_session_id.value(),
                                     mbs_service_area?mbs_service_area.value():std::shared_ptr<MbsServiceArea>(),
                                     ext_mbs_service_area?ext_mbs_service_area.value():std::shared_ptr<ExternalMbsServiceArea>());
-                    if (!seen_in_request.insert(unique_mbs_session_id).second) {
-                        /* Refused as a malformed request rather than as an already created session:
-                           the conflict is between two entries of this request, not with anything in
-                           the MBS system, and no clause names a cause for it. */
-                        invalid_params[std::format("mbsDisSessInfos.{}.mbsSessionId", dist_sess_id)] =
-                            "mbsSessionId repeats another MBS Distribution Session of this request";
+                    const bool flagged = multiplexed(info);
+                    const auto seen = seen_in_request.emplace(unique_mbs_session_id, flagged);
+                    if (!seen.second) {
+                        if (flagged && seen.first->second) {
+                            /* Both are flagged as part of a multiplex, and the identifier carries the target service
+                               areas, so they have the same ones: they share the MBS Session. */
+                            ogs_debug("MBS Distribution Session [%s] shares the mbsSessionId of another of this request "
+                                      "(a multiplex)", dist_sess_id.c_str());
+                        } else {
+                            /* Refused as a malformed request rather than as an already created session:
+                               the conflict is between two entries of this request, not with anything in
+                               the MBS system, and no clause names a cause for it. */
+                            invalid_params[std::format("mbsDisSessInfos.{}.mbsSessionId", dist_sess_id)] =
+                                "mbsSessionId repeats another MBS Distribution Session of this request";
+                        }
                     } else if (context->haveMbsSessionId(unique_mbs_session_id)) {
                         if (error_handling) {
                             already_created_sessions.push_back(dist_sess_id);

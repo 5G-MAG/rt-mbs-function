@@ -33,6 +33,7 @@
 
 #include <SockAddr.hh>
 
+#include "RefCountedSet.hh"
 #include "common.hh"
 #include "UserDataIngSession.hh"
 #include "openapi/model/MbsSessionId.h"
@@ -265,7 +266,7 @@ private:
     std::map<std::string, std::weak_ptr<UserService> > m_userDataIngSessIndex;
 
     std::shared_ptr<std::recursive_mutex> m_mbsSessionIdsMutex;
-    std::set<UniqueMbsSessionId> m_mbsSessionIds;
+    RefCountedSet<UniqueMbsSessionId> m_mbsSessionIds;
 
     std::shared_ptr<std::recursive_mutex> m_userDataIngStatSubscMutex;
     std::map<std::string, std::shared_ptr<UserDataIngStatSubsc> > m_userDataIngStatSubscs;

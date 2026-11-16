@@ -453,9 +453,9 @@ const std::shared_ptr<UserDataIngSession> &Context::findUserDataIngSession(const
 void Context::addMbsSessionId(const UniqueMbsSessionId &mbs_session_id)
 {
     std::lock_guard<std::recursive_mutex> lock(*m_mbsSessionIdsMutex);
-    auto [it, inserted] = m_mbsSessionIds.insert(mbs_session_id);
-    if (!inserted) {
-        ogs_warn("Attempt to insert duplicate %s into context", mbs_session_id.repr().c_str());
+    /* Once for each MBS Distribution Session that holds it: the members of a multiplex hold the same one */
+    if (m_mbsSessionIds.add(mbs_session_id) > 1) {
+        ogs_debug("%s is held by more than one MBS Distribution Session (a multiplex)", mbs_session_id.repr().c_str());
     }
 }
 
@@ -469,7 +469,7 @@ void Context::addMbsSessionId(bool request_tmgi, const std::shared_ptr<MbsSessio
 void Context::deleteMbsSessionId(const UniqueMbsSessionId &mbs_session_id)
 {
     std::lock_guard<std::recursive_mutex> lock(*m_mbsSessionIdsMutex);
-    if (!m_mbsSessionIds.erase(mbs_session_id)) {
+    if (!m_mbsSessionIds.remove(mbs_session_id)) {
         ogs_warn("Attempt to delete non-existant %s from context", mbs_session_id.repr().c_str());
     }
 }

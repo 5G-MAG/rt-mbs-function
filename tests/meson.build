@@ -120,3 +120,9 @@ test_multiplex_members_exe = executable('test_multiplex_members', 'test_multiple
     include_directories : [libmbsf_libinc, libinc],
     install : false)
 test('test_multiplex_members', test_multiplex_members_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')
+
+# RefCountedSet, which holds the MBS Session Identifiers in use, see the test's own file comment.
+test_ref_counted_set_exe = executable('test_ref_counted_set', 'test_ref_counted_set.cc',
+    include_directories : [libmbsf_libinc, libinc],
+    install : false)
+test('test_ref_counted_set', test_ref_counted_set_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')
