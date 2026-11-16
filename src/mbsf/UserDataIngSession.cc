@@ -4821,8 +4821,16 @@ void UserDataIngSession::userServiceAnnBundled()
 
     pushNotificationsEvent();
 
-    std::lock_guard<decltype(m_carouselObjectMutex)::element_type> lock(*m_carouselObjectMutex);
-    if (m_carouselObject) {
+    /* m_carouselObjectMutex is released before the channel is called. The channel's worker holds the
+       channel's mutex while it reads each session's carousel object, which takes this mutex; calling
+       the channel with this mutex held took the two in the opposite order, and a bundle worker and the
+       channel worker then waited on each other for good. */
+    bool has_carousel_object;
+    {
+        std::lock_guard<decltype(m_carouselObjectMutex)::element_type> lock(*m_carouselObjectMutex);
+        has_carousel_object = static_cast<bool>(m_carouselObject);
+    }
+    if (has_carousel_object) {
         //m_carouselObjectManifest.reset(new ObjManifest(objects, object_locators));
         userServiceAnnBundleAvailable(true);
         ann_channel->addUserDataIngSession(weak_from_this().lock());
