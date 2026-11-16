@@ -126,3 +126,10 @@ test_ref_counted_set_exe = executable('test_ref_counted_set', 'test_ref_counted_
     include_directories : [libmbsf_libinc, libinc],
     install : false)
 test('test_ref_counted_set', test_ref_counted_set_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')
+
+# multiplex_signature(), what the members of a multiplex are compared on, see the test's own file comment.
+test_multiplex_signature_exe = executable('test_multiplex_signature', 'test_multiplex_signature.cc',
+    include_directories : [libmbsf_libinc, libinc],
+    dependencies : [libmbsf_dep],
+    install : false)
+test('test_multiplex_signature', test_multiplex_signature_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')
