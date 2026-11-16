@@ -20,10 +20,15 @@
  */
 
 #include "ogs-app.h"
+#include "MultiplexMembers.hh"
 #include "ogs-sbi.h"
 #include "mb-smf-service-consumer.h"
 
 #include <atomic>
+#include <mutex>
+#include <map>
+#include <vector>
+#include <optional>
 #include <memory>
 #include <optional>
 #include <any>
@@ -115,6 +120,19 @@ public:
 
     void deleteSession();
 
+    /* One MB-SMF MBS Session can carry several MBS Distribution Sessions of an MBS User Data Ingest Session
+       that are flagged as a multiplex, TS 29.580 V18.8.0 table 6.2.6.2.4-1 multiplexedServFlag: "forms part of
+       a set of MBS Distribution Sessions under the same parent MBS User Data Ingest Session with identical or
+       empty set(s) of target service areas and multiplexed onto the same MBS Session". The session is created
+       by the first of them, the member it was made for. Every other member is added here, hears the results
+       of the MB-SMF as the first does, and leaves it through deleteSessionFor(): the MB-SMF is asked to release
+       the session only when the last member leaves. A session with one member behaves as it always did. */
+    void addMember(const UserDataIngDistSessId &ids);
+    void deleteSessionFor(const UserDataIngDistSessId &ids);
+    /* The activity status the MB-SMF is told is ACTIVE while any member is, INACTIVE otherwise. */
+    void setActivityStatusFor(const UserDataIngDistSessId &ids, mb_smf_sc_activity_status_e activity_status);
+    std::size_t memberCount() const;
+
     /* True when a result for these changes will be reported: a request was sent, or one is queued
        behind the request in flight. */
     bool pushChanges();
@@ -148,6 +166,12 @@ private:
     // no-op. See deleteSession() for why a second call happens at all.
     std::atomic<bool> m_deleteRequested;
     UserDataIngDistSessId m_id;
+
+    /* Sends the event to every member. */
+    void sendToMembers(LocalEventId event_id, mb_smf_sc_mbs_session_t *session, int result,
+                       const OpenAPI_problem_details_t *problem_details);
+
+    MultiplexMembers m_members;
 };
 
 MBSF_NAMESPACE_STOP

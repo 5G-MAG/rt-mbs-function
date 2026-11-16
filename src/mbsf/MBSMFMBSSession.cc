@@ -447,9 +447,12 @@ void MBSMFMBSSession::mbsSessionCallback(mb_smf_sc_mbs_session_t *session, int r
         mbs_session->m_subscription = nullptr;
     }
 
-    /* queue result event */
-    sendLocalEvent((result != OGS_DONE)?MBSF_LOCAL_EVENT_MBS_SESSION_CREATE_RESULT:MBSF_LOCAL_EVENT_MBS_SESSION_DELETED,
-                   session, result, problem_details, mbs_session->m_id);
+    /* queue result event, one for each member */
+    if (result != OGS_DONE) {
+        mbs_session->m_members.setCreateResult(result);
+    }
+    mbs_session->sendToMembers((result != OGS_DONE)?MBSF_LOCAL_EVENT_MBS_SESSION_CREATE_RESULT:MBSF_LOCAL_EVENT_MBS_SESSION_DELETED,
+                               session, result, problem_details);
 
     /* if we have pending changes, try to send them */
     if (mbs_session->m_sendUpdates) {
@@ -457,7 +460,7 @@ void MBSMFMBSSession::mbsSessionCallback(mb_smf_sc_mbs_session_t *session, int r
         /* Queued changes that turn out to need no request would otherwise never be answered, and an
            update waiting on their result would wait for ever: reported as applied. */
         if (result != OGS_DONE && !mbs_session->pushChanges()) {
-            sendLocalEvent(MBSF_LOCAL_EVENT_MBS_SESSION_UPDATE_RESULT, session, OGS_OK, nullptr, mbs_session->m_id);
+            mbs_session->sendToMembers(MBSF_LOCAL_EVENT_MBS_SESSION_UPDATE_RESULT, session, OGS_OK, nullptr);
         }
     }
 }
@@ -470,12 +473,12 @@ void MBSMFMBSSession::mbsSessionUpdateCallback(mb_smf_sc_mbs_session_t *session,
 
     ogs_debug("MB-SMF update result callback (%i)", result);
 
-    sendLocalEvent(MBSF_LOCAL_EVENT_MBS_SESSION_UPDATE_RESULT, session, result, problem_details, mbs_session->m_id);
+    mbs_session->sendToMembers(MBSF_LOCAL_EVENT_MBS_SESSION_UPDATE_RESULT, session, result, problem_details);
 
     if (mbs_session->m_sendUpdates) {
         mbs_session->m_sendUpdates = false;
         if (!mbs_session->pushChanges()) {
-            sendLocalEvent(MBSF_LOCAL_EVENT_MBS_SESSION_UPDATE_RESULT, session, OGS_OK, nullptr, mbs_session->m_id);
+            mbs_session->sendToMembers(MBSF_LOCAL_EVENT_MBS_SESSION_UPDATE_RESULT, session, OGS_OK, nullptr);
         }
     }
 }
@@ -483,6 +486,7 @@ void MBSMFMBSSession::mbsSessionUpdateCallback(mb_smf_sc_mbs_session_t *session,
 MBSMFMBSSession &MBSMFMBSSession::setCallback(const UserDataIngDistSessId &dist_sess_id)
 {
     m_id = dist_sess_id;
+    m_members.reset(dist_sess_id);
     mb_smf_sc_mbs_session_set_callback(m_session, mbsSessionCallback, reinterpret_cast<void*>(this));
     /* An update's result is not a create's. Reported through the create path, a refused update marked
        the MBS Session as failed to be created, and the Distribution Session was taken down with it. */
@@ -617,6 +621,52 @@ MBSMFMBSSession &MBSMFMBSSession::setAnyUeInd(bool any_ue_ind)
     }
     return *this;
 
+}
+
+void MBSMFMBSSession::sendToMembers(LocalEventId event_id, mb_smf_sc_mbs_session_t *session, int result,
+                                    const OpenAPI_problem_details_t *problem_details)
+{
+    for (const auto &ids : m_members.members()) {
+        sendLocalEvent(event_id, session, result, problem_details, ids);
+    }
+}
+
+void MBSMFMBSSession::addMember(const UserDataIngDistSessId &ids)
+{
+    std::optional<int> create_result;
+    if (!m_members.add(ids, create_result)) return;
+    /* The MB-SMF may have answered before this member joined; it is told the same answer. */
+    if (create_result) {
+        sendLocalEvent(MBSF_LOCAL_EVENT_MBS_SESSION_CREATE_RESULT, m_session, *create_result, nullptr, ids);
+    }
+}
+
+std::size_t MBSMFMBSSession::memberCount() const
+{
+    return m_members.size();
+}
+
+void MBSMFMBSSession::deleteSessionFor(const UserDataIngDistSessId &ids)
+{
+    switch (m_members.leave(ids)) {
+    case MultiplexMembers::Leave::Detached:
+        /* The MB-SMF session stays for the other members; this one is told it is gone. */
+        sendLocalEvent(MBSF_LOCAL_EVENT_MBS_SESSION_DELETED, m_session, OGS_DONE, nullptr, ids);
+        return;
+    case MultiplexMembers::Leave::AlreadyGone:
+        /* This member has left already (the teardown paths call this more than once for the same member) and the
+           others still hold the session. */
+        return;
+    case MultiplexMembers::Leave::DeleteSession:
+        break;
+    }
+    deleteSession();
+}
+
+void MBSMFMBSSession::setActivityStatusFor(const UserDataIngDistSessId &ids, mb_smf_sc_activity_status_e activity_status)
+{
+    const bool active = m_members.setActive(ids, activity_status == MBS_SESSION_ACTIVITY_STATUS_ACTIVE);
+    setActivityStatus(active ? MBS_SESSION_ACTIVITY_STATUS_ACTIVE : MBS_SESSION_ACTIVITY_STATUS_INACTIVE);
 }
 
 void MBSMFMBSSession::sendLocalNotifyEvent(LocalEventId event_id, const mb_smf_sc_mbs_status_notification_result_t *notification, void *data)

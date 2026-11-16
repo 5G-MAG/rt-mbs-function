@@ -114,3 +114,9 @@ test_geographic_area_exe = executable('test_geographic_area', 'test_geographic_a
     dependencies : [libmbsf_dep],
     install : false)
 test('test_geographic_area', test_geographic_area_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')
+
+# MultiplexMembers, which keeps who shares one MB-SMF MBS Session, see the test's own file comment.
+test_multiplex_members_exe = executable('test_multiplex_members', 'test_multiplex_members.cc',
+    include_directories : [libmbsf_libinc, libinc],
+    install : false)
+test('test_multiplex_members', test_multiplex_members_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')

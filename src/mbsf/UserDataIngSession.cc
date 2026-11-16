@@ -1204,7 +1204,7 @@ bool UserDataIngSession::processEvent(Open5GSEvent &event)
                 //std::shared_ptr<UserDataIngSession> ing_session = find(ids->second->first);
                 std::shared_ptr<UserDataIngSession> ing_session = locate(ids->second->first);
                 std::shared_ptr<ContextData> context_data = ing_session->getDistributionSessionInfoData(ids->second->second);
-                context_data->MBSSession->setActivityStatus(MBS_SESSION_ACTIVITY_STATUS_INACTIVE);
+                context_data->MBSSession->setActivityStatusFor(*ids->second, MBS_SESSION_ACTIVITY_STATUS_INACTIVE);
                 context_data->MBSSession->pushChanges();
                 ing_session->nmbstfDiscoverAndSend(ids->second, Nmb2Build::buildNmb2DistSessionDelete, nullptr, ids);
             } catch (const std::out_of_range &e) {
@@ -1327,9 +1327,9 @@ void UserDataIngSession::sendMbsmfActivityStatus(
 
     if (( *dist_sess_state == DistSessionState::VAL_ACTIVE ) ||
                 *dist_sess_state == DistSessionState::VAL_ESTABLISHED) {
-           context_data->MBSSession->setActivityStatus(MBS_SESSION_ACTIVITY_STATUS_ACTIVE);
+           context_data->MBSSession->setActivityStatusFor(UserDataIngDistSessId(context_data->ingSessionId, context_data->distSessionInfoKey), MBS_SESSION_ACTIVITY_STATUS_ACTIVE);
         } else {
-            context_data->MBSSession->setActivityStatus(MBS_SESSION_ACTIVITY_STATUS_INACTIVE);
+            context_data->MBSSession->setActivityStatusFor(UserDataIngDistSessId(context_data->ingSessionId, context_data->distSessionInfoKey), MBS_SESSION_ACTIVITY_STATUS_INACTIVE);
         }
     context_data->MBSSession->pushChanges();
 
@@ -1472,7 +1472,7 @@ void UserDataIngSession::removeDistributionSessionInfo(const std::string &key)
     std::lock_guard<decltype(m_distSessInfosMutex)::element_type> lock(*m_distSessInfosMutex);
     std::shared_ptr<ContextData> context_data = getDistributionSessionInfoData(key);
     if (context_data && context_data->MBSSession) {
-        context_data->MBSSession->deleteSession();
+        context_data->MBSSession->deleteSessionFor(UserDataIngDistSessId(context_data->ingSessionId, context_data->distSessionInfoKey));
     }
     if (context_data && context_data->distributionSessionInfo) {
         auto mbs_session_id = context_data->distributionSessionInfo->getUniqueMbsSessionId();
@@ -2965,6 +2965,26 @@ bool UserDataIngSession::handleMbstfDiscover(ogs_sbi_nf_instance_t *nf_instance,
     return true;
 }
 
+/* Whether the Distribution Session is flagged as part of a multiplex. */
+static bool multiplexed(const std::shared_ptr<reftools::mbsf::MBSDistributionSessionInfo> &info)
+{
+    const auto &flag = info->getMultiplexedServFlag();
+    return flag.has_value() && flag.value();
+}
+
+/* The target service areas of a Distribution Session as the text the members of a multiplex are compared on. An
+   absent area and an empty one are the same here. */
+static std::string target_area_signature(const std::shared_ptr<reftools::mbsf::MBSDistributionSessionInfo> &info)
+{
+    std::string signature;
+    const auto &tgt = info->getTgtServAreas();
+    if (tgt.has_value() && tgt.value()) signature += tgt.value()->toJSON(true).serialise();
+    signature += '|';
+    const auto &ext = info->getExtTgtServAreas();
+    if (ext.has_value() && ext.value()) signature += ext.value()->toJSON(true).serialise();
+    return signature;
+}
+
 bool UserDataIngSession::createMbsSession(const std::shared_ptr<UserDataIngSession::ContextData> &context_data)
 {
     // Returns early when a session object already exists for this context, rather than building a new
@@ -2979,6 +2999,34 @@ bool UserDataIngSession::createMbsSession(const std::shared_ptr<UserDataIngSessi
     if (context_data->MBSSession) {
         ogs_debug("createMbsSession: MBS Session already exists for this context, not recreating");
         return true;
+    }
+
+    /* A Distribution Session flagged as part of a multiplex joins the MB-SMF MBS Session of the first flagged
+       Distribution Session of the same Ingest Session that has the same target service areas, instead of
+       making its own. TS 29.580 V18.8.0 table 6.2.6.2.4-1, multiplexedServFlag: "forms part of a set of MBS
+       Distribution Sessions under the same parent MBS User Data Ingest Session with identical or empty set(s)
+       of target service areas and multiplexed onto the same MBS Session". */
+    if (context_data->info && multiplexed(context_data->info)) {
+        std::shared_ptr<UserDataIngSession> ing_sess = locate(context_data->ingSessionId);
+        std::shared_ptr<MBSMFMBSSession> leader_session = nullptr;
+        if (ing_sess) {
+            const std::string signature = target_area_signature(context_data->info);
+            ing_sess->forEachDistributionSessionInfo([&](const std::string &key, const std::shared_ptr<ContextData> &other) -> bool {
+                if (other && other != context_data && other->MBSSession && other->info && multiplexed(other->info) &&
+                        target_area_signature(other->info) == signature) {
+                    leader_session = other->MBSSession;
+                    return false;
+                }
+                return true;
+            });
+        }
+        if (leader_session) {
+            ogs_debug("createMbsSession: Distribution Session [%s] joins the multiplexed MBS Session of the Ingest Session",
+                      context_data->distSessionInfoKey.c_str());
+            context_data->MBSSession = leader_session;
+            leader_session->addMember(UserDataIngDistSessId(context_data->ingSessionId, context_data->distSessionInfoKey));
+            return true;
+        }
     }
 
     const auto &ssm_ptr = context_data->ssm;
@@ -3292,7 +3340,7 @@ void UserDataIngSession::clearDistributionSessionInfos()
     {
         std::shared_ptr<ContextData> context_data = dist_sess_info.second;
         if (context_data->MBSSession) {
-            context_data->MBSSession->deleteSession();
+            context_data->MBSSession->deleteSessionFor(UserDataIngDistSessId(context_data->ingSessionId, context_data->distSessionInfoKey));
         }
         if (app_context && context_data->distributionSessionInfo) {
             auto mbs_session_id = context_data->distributionSessionInfo->getUniqueMbsSessionId();
@@ -4135,7 +4183,7 @@ void UserDataIngSession::setMBSTFDistSessionDeletedFlag(const std::string &dist_
         context_data->MBSTFDistSessionDeleted = true;
         if (context_data->MBSSession) {
             ogs_debug("Deleting MBS Session for Dist Session %s", dist_session_id.c_str());
-            context_data->MBSSession->deleteSession();
+            context_data->MBSSession->deleteSessionFor(UserDataIngDistSessId(context_data->ingSessionId, context_data->distSessionInfoKey));
         }
         // dist_session_id, this function's own parameter, is already the registry key; no field lookup is
         // needed. removeDistributionSessionInfo() is keyed by distSessionInfoKey rather than by the
