@@ -108,6 +108,13 @@ test_timer_duration_exe = executable('test_timer_duration', 'test_timer_duration
     install : false)
 test('test_timer_duration', test_timer_duration_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')
 
+# The media type of a User Service Descriptions document, see the test's own file comment.
+test_service_announcement_media_types_exe = executable('test_service_announcement_media_types', 'test_service_announcement_media_types.cc',
+    include_directories : [libmbsf_libinc, libinc],
+    dependencies : [libmbsf_dep],
+    install : false)
+test('test_service_announcement_media_types', test_service_announcement_media_types_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')
+
 # The GeographicArea model, an anyOf of seven shapes, see the test's own file comment.
 test_geographic_area_exe = executable('test_geographic_area', 'test_geographic_area.cc',
     include_directories : [libmbsf_libinc, libinc],

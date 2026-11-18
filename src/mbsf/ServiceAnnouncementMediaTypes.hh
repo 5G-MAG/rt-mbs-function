@@ -14,15 +14,17 @@
    it.
 
    The two announcement documents carry different version values, and that is the specification's
-   own wording rather than an oversight here: annex A.2.1 states "Rel18" for these descriptions,
-   while the object manifest's own annex states "Rel17", its schema not having been revised.
+   own wording rather than an oversight here: TS 26.517 V19.2.0 annex A.2.1 states "The version parameter (see
+   clause E.2.3) shall contain the value "Rel19" to indicate conformance with this version of the present
+   document" for these descriptions, while the object manifest's own annex states "Rel17", its schema not
+   having been revised.
 
    The profile is the one clause 12.4 names for the Baseline MBS Distribution Session Profile,
-   spelled with 17 in its third field in the Release 18 document. */
+   spelled with 17 in its third field also in the Release 19 document. */
 #define USER_SERVICE_DESCRIPTIONS_MEDIA_TYPE "application/3gpp-mbs-user-service-descriptions+json"
 #define BASELINE_DISTRIBUTION_SESSION_PROFILE "urn:3GPP:26517:17:baseline"
 #define USER_SERVICE_DESCRIPTIONS_MIME_TYPE \
-    USER_SERVICE_DESCRIPTIONS_MEDIA_TYPE ";profiles=\"" BASELINE_DISTRIBUTION_SESSION_PROFILE "\";version=\"Rel18\""
+    USER_SERVICE_DESCRIPTIONS_MEDIA_TYPE ";profiles=\"" BASELINE_DISTRIBUTION_SESSION_PROFILE "\";version=\"Rel19\""
 
 /* vim:ts=8:sts=4:sw=4:expandtab:
  */
