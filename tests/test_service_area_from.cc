@@ -28,6 +28,7 @@
 #include "ogs-sbi.h"
 
 #include <cstdio>
+#include <cstring>
 #include <string>
 
 #include "mb-smf-service-consumer.h"
@@ -97,6 +98,47 @@ static mb_smf_sc_mbs_service_area_t *make_area()
 
 int main(int argc, char *argv[])
 {
+    /* NR NTN Intended Service Areas (TS 29.571 V19.8.0 table 5.9.4.4-1, intendedServAreaList): the octets travel between the MbsServiceArea
+     * model and the library type unchanged, in both directions, and an area with none stays without the attribute. */
+    {
+        static const unsigned char first[] = {0x01, 0x02, 0x03, 0xfe, 0xff};
+        static const unsigned char second[] = {0xa0};
+        std::shared_ptr<MbsServiceArea> model(new MbsServiceArea());
+        // the model holds the base64 text of the octets (01 02 03 fe ff, and a0), as the JSON parser leaves it
+        const std::basic_string<unsigned char> first_text(reinterpret_cast<const unsigned char*>("AQID/v8="), 8);
+        const std::basic_string<unsigned char> second_text(reinterpret_cast<const unsigned char*>("oA=="), 4);
+        model->addIntendedServAreaList(first_text);
+        model->addIntendedServAreaList(second_text);
+        MBSF_NAMESPACE::ServiceArea service_area(model);
+        mb_smf_sc_mbs_service_area_t *lib = service_area.populateServiceArea();
+
+        CHECK(lib && ogs_list_count(&lib->intended_service_areas) == 2, "populateServiceArea() carries both Intended Service Areas");
+        if (lib && ogs_list_count(&lib->intended_service_areas) == 2) {
+            mb_smf_sc_intended_service_area_t *a = (mb_smf_sc_intended_service_area_t*)ogs_list_first(&lib->intended_service_areas);
+            mb_smf_sc_intended_service_area_t *b = (mb_smf_sc_intended_service_area_t*)ogs_list_next(a);
+            CHECK(a->coordinates_len == sizeof(first) && memcmp(a->coordinates, first, sizeof(first)) == 0,
+                  "the first Intended Service Area keeps its octets");
+            CHECK(b->coordinates_len == sizeof(second) && memcmp(b->coordinates, second, sizeof(second)) == 0,
+                  "the second Intended Service Area keeps its octets");
+
+            std::shared_ptr<MbsServiceArea> back = MBSF_NAMESPACE::ServiceArea::fromServiceArea(lib);
+            const auto &list = back ? back->getIntendedServAreaList() : MbsServiceArea::IntendedServAreaListType();
+            CHECK(list.has_value() && list.value().size() == 2, "fromServiceArea() returns both Intended Service Areas");
+            if (list.has_value() && list.value().size() == 2) {
+                CHECK(list.value().front().value() == first_text, "the first Intended Service Area is returned as the same base64 text");
+            }
+        }
+        if (lib) mb_smf_sc_mbs_service_area_delete(lib);
+
+        std::shared_ptr<MbsServiceArea> none(new MbsServiceArea());
+        MBSF_NAMESPACE::ServiceArea no_isa(none);
+        mb_smf_sc_mbs_service_area_t *lib_none = no_isa.populateServiceArea();
+        CHECK(lib_none && ogs_list_count(&lib_none->intended_service_areas) == 0, "an area without Intended Service Areas gives none");
+        std::shared_ptr<MbsServiceArea> back_none = MBSF_NAMESPACE::ServiceArea::fromServiceArea(lib_none);
+        CHECK(back_none && !back_none->getIntendedServAreaList().has_value(), "and none are written back");
+        if (lib_none) mb_smf_sc_mbs_service_area_delete(lib_none);
+    }
+
     /* Case 1: nothing in, nothing out. An MBS Session the MB-SMF did not reduce must not
      * produce an empty MbsServiceArea that a reader could mistake for "reduced to nothing". */
     {

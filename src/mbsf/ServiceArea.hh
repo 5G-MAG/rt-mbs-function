@@ -50,6 +50,7 @@ public:
     const std::shared_ptr<reftools::mbsf::MbsServiceArea> &getMbsServiceArea() const {return m_mbsServiceArea;};
     const reftools::mbsf::MbsServiceArea::NcgiListType &getNcgiList() const {return m_mbsServiceArea->getNcgiList();};
     const reftools::mbsf::MbsServiceArea::TaiListType &getTaiList() const {return m_mbsServiceArea->getTaiList();};
+    const reftools::mbsf::MbsServiceArea::IntendedServAreaListType &getIntendedServAreaList() const {return m_mbsServiceArea->getIntendedServAreaList();};
 
     mb_smf_sc_mbs_service_area_t *populateServiceArea();
 
@@ -60,6 +61,7 @@ public:
                     const mb_smf_sc_mbs_service_area_t *area);
     void ncgiTais(mb_smf_sc_mbs_service_area_t *mbs_service_area);
     void tais(mb_smf_sc_mbs_service_area_t *mbs_service_area);
+    void intendedServiceAreas(mb_smf_sc_mbs_service_area_t *mbs_service_area);
 
 private:
     std::shared_ptr<reftools::mbsf::MbsServiceArea> m_mbsServiceArea;
