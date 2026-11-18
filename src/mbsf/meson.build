@@ -87,7 +87,9 @@ libmbsf_dist_sources = files('''
     DistributionSessionNotificationEvent.hh
     EventHandler.hh
     ExternalServiceArea.cc
+    NtnIntendedServiceArea.cc
     ExternalServiceArea.hh
+    NtnIntendedServiceArea.hh
     GeographicalArea.cc
     GeographicalArea.hh
     GeographicalCoordinate.cc

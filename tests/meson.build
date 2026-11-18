@@ -46,6 +46,13 @@ test_service_area_from_exe = executable('test_service_area_from', 'test_service_
     install : false)
 test('test_service_area_from', test_service_area_from_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')
 
+# The NR NTN Intended Service Area derived from geographical areas (TS 23.247 clause 6.21), see the test's own file comment.
+test_ntn_intended_service_area_exe = executable('test_ntn_intended_service_area', 'test_ntn_intended_service_area.cc',
+    include_directories : [libmbsf_libinc, libinc],
+    dependencies : [libmbsf_dep],
+    install : false)
+test('test_ntn_intended_service_area', test_ntn_intended_service_area_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')
+
 # UserServiceAnnBundle::sdpBandwidthBitRate(), the transport-overhead adjustment the SDP bandwidth
 # line needs, see the test's own file comment.
 test_sdp_bandwidth_exe = executable('test_sdp_bandwidth', 'test_sdp_bandwidth.cc',

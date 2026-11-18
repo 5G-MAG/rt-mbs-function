@@ -284,5 +284,11 @@ mbsaf:
 #    activeUserServicesSoftLimit: 100
 #    actPeriodGoToEstablishedState: 120
 #
+#  o NR NTN Intended Service Area (TS 23.247 clause 6.21, "based on local configuration"): when true, the MBSF derives the
+#    Intended Service Area from the geographical areas (extTgtServAreas) of an MBS Distribution Session whose areas are polygons of
+#    3 to 15 points or points with an uncertainty circle, and sends it to the MB-SMF in the MBS service area. Default false.
+#  mbsf:
+#    nrNtnIntendedServiceArea: true
+#
 ################################################################################
 

@@ -25,9 +25,11 @@
 
 #include "mb-smf-service-consumer.h"
 
+#include <cstdint>
 #include <memory>
 #include <tuple>
 #include <mutex>
+#include <vector>
 #include "openapi/model/ExternalMbsServiceArea.h"
 #include "common.hh"
 
@@ -59,6 +61,11 @@ public:
     mb_smf_sc_ext_mbs_service_area_t *populateExternalServiceArea();
     void geographicAreas(mb_smf_sc_ext_mbs_service_area_t *ext_mbs_service_area);
     void civicAddresses(mb_smf_sc_ext_mbs_service_area_t *ext_mbs_service_area);
+
+    /** The NR NTN Intended Service Areas (octets of the Intended Service Area Coordinates IE of TS 38.413 clause 9.3.1.273) that the
+     * geographical areas of this service area give: a polygon of 3 to 15 points or a point with an uncertainty circle gives one
+     * each, any other shape or civic address gives none (a log line says so). */
+    std::vector<std::vector<uint8_t> > deriveIntendedServiceAreas() const;
 
 private:
     std::shared_ptr<reftools::mbsf::ExternalMbsServiceArea> m_externalMbsServiceArea;
