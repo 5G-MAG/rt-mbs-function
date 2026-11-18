@@ -284,16 +284,5 @@ mbsaf:
 #    activeUserServicesSoftLimit: 100
 #    actPeriodGoToEstablishedState: 120
 #
-#  o NR NTN Intended Service Area (TS 23.247 clause 6.21, "based on local configuration"): when true, the MBSF derives the
-#    Intended Service Area from the geographical areas (extTgtServAreas) of an MBS Distribution Session whose areas are polygons of
-#    3 to 15 points or points with an uncertainty circle, and sends it to the MB-SMF in the MBS service area. Default false.
-#    NOT SPECIFICATION COMPLIANT, experimental: TS 23.247 has the NEF/MBSF translate geographical areas to a TAI or cell list and
-#    send the derived area "in combination with" it, which this MBSF does not do (it has no cell locations), and it forwards the
-#    geographical areas to the MB-SMF in extMbsServiceArea, which TS 29.571 allows only over N33. The encoding of the area is a
-#    reading of TS 38.331 and TS 37.355 that no independent implementation confirms. A trusted Application Provider gives the area
-#    directly, in tgtServAreas (taiList and intendedServAreaList), which is the supported way.
-#  mbsf:
-#    nrNtnIntendedServiceArea: true
-#
 ################################################################################
 

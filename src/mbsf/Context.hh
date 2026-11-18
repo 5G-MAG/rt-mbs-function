@@ -116,10 +116,6 @@ public:
     std::shared_ptr<Open5GSSBIServer> ephemeralNotificationServer(const ogs_sockaddr_t *address);
 
     bool userServiceAnnouncementConfigured();
-    /** mbsf.nrNtnIntendedServiceArea: derive an NR NTN Intended Service Area from the geographical areas of a session (TS 23.247
-     * V19.3.0 clause 6.21 "Based on local configuration ..."). Off unless the configuration turns it on. */
-    bool nrNtnIntendedServiceArea() const { return m_nrNtnIntendedServiceArea; }
-
     bool broadcastDistributionConfigured() const {
         return !broadcastDistribution.sourceAddress.empty() && !broadcastDistribution.destinationAddress.empty();
     }
@@ -173,8 +169,6 @@ public:
         int activeDistributionSessionsSoftLimit;
         int activeUserServicesSoftLimit;
     } capacity;
-
-    bool m_nrNtnIntendedServiceArea = false;
 
     struct {
         int32_t backOffParametersOffsetTime;

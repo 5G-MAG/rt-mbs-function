@@ -113,13 +113,7 @@ public:
     MBSMFMBSSession &setActivityStatus(mb_smf_sc_activity_status_e activity_status);
     MBSMFMBSSession &setAnyUeInd(bool any_ue_ind);
     MBSMFMBSSession &setServiceInfo(std::shared_ptr<reftools::mbsf::MbsServiceInfo> mbs_service_info);
-    /* derive_intended_service_areas: also derive the NR NTN Intended Service Areas of the geographical areas into the MBS service area
-       (the mbsf.nrNtnIntendedServiceArea configuration, passed by the caller). */
-    MBSMFMBSSession &setExternalServiceArea(std::shared_ptr<reftools::mbsf::ExternalMbsServiceArea> ext_mbs_service_area,
-                                            bool derive_intended_service_areas = false);
-    /* Drops the MBS service area that setExternalServiceArea() made of derived NR NTN Intended Service Areas alone, for a session
-       whose geographical areas are gone; an MBS service area of target service areas is left. */
-    MBSMFMBSSession &clearDerivedServiceArea();
+    MBSMFMBSSession &setExternalServiceArea(std::shared_ptr<reftools::mbsf::ExternalMbsServiceArea> ext_mbs_service_area);
     MBSMFMBSSession &setServiceArea(std::shared_ptr<reftools::mbsf::MbsServiceArea> mbs_service_area);
     MBSMFMBSSession &setFsaId(const std::string &mbs_fsa_id);
     MBSMFMBSSession &setLocationDependent(bool location_dependent);
@@ -163,8 +157,6 @@ private:
 
     mb_smf_sc_mbs_session_t *m_session;
     mb_smf_sc_mbs_status_subscription_t *m_subscription;
-    /* True while m_session->mbs_service_area holds nothing but NR NTN Intended Service Areas derived from geographical areas */
-    bool m_derivedServiceArea = false;
     // Owned by this class, not by m_session: see setTmgi()'s own comment for the ownership
     // contract this rests on (mb-smf-service-consumer's mbs-session.c, code-derived).
     mb_smf_sc_tmgi_t *m_afSuppliedTmgi;

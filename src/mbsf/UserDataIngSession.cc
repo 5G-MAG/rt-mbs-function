@@ -5445,10 +5445,7 @@ static std::shared_ptr<MBSMFMBSSession> populate_mb_smf_mbs_session(
     const std::optional<std::shared_ptr< ExternalMbsServiceArea > > &ext_mbs_service_area = context_data->info->getExtTgtServAreas();
     if (ext_mbs_service_area.has_value()) {
 
-        mb_smf_mbs_session->setExternalServiceArea(ext_mbs_service_area.value(),
-                                                   App::self().context()->nrNtnIntendedServiceArea());
-    } else {
-        mb_smf_mbs_session->clearDerivedServiceArea();
+        mb_smf_mbs_session->setExternalServiceArea(ext_mbs_service_area.value());
     }
 
     const std::optional<std::shared_ptr< AssociatedSessionId > > &associated_session_id = context_data->info->getAssociatedSessionId();

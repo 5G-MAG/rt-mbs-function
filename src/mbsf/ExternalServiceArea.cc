@@ -36,9 +36,6 @@
 #include "Context.hh"
 #include "CivicAddr.hh"
 #include "GeographicalArea.hh"
-#include "GeographicalCoordinate.hh"
-#include "NtnIntendedServiceArea.hh"
-#include "openapi/model/SupportedGADShapes.h"
 #include "openapi/model/CivicAddress.h"
 #include "openapi/model/ExternalMbsServiceArea.h"
 #include "openapi/model/GeographicArea.h"
@@ -107,48 +104,6 @@ void ExternalServiceArea::geographicAreas(mb_smf_sc_ext_mbs_service_area_t *ext_
         }
 
     }
-}
-
-std::vector<std::vector<uint8_t> > ExternalServiceArea::deriveIntendedServiceAreas() const {
-
-    using reftools::mbsf::GeographicalCoordinates;
-    using reftools::mbsf::SupportedGADShapes;
-
-    std::vector<std::vector<uint8_t> > result;
-    const reftools::mbsf::ExternalMbsServiceArea::GeographicAreaListType &geo_areas = getGeographicAreaList();
-    if (!geo_areas.has_value()) return result;
-
-    auto to_point = [](const std::shared_ptr<GeographicalCoordinates> &c) {
-        return NtnIntendedServiceArea::Point{c ? c->getLon() : 0.0, c ? c->getLat() : 0.0};
-    };
-
-    for (const auto &geo_area: geo_areas.value()) {
-        if (!geo_area.has_value() || !geo_area.value() || !geo_area.value()->getShape()) continue;
-        const GeographicArea &area = *geo_area.value();
-        std::optional<std::vector<uint8_t> > coordinates;
-        switch (area.getShape()->getValue()) {
-        case SupportedGADShapes::VAL_POLYGON: {
-            std::vector<NtnIntendedServiceArea::Point> points;
-            for (const auto &item : area.getPointList()) {
-                if (item && item.value()) points.push_back(to_point(item.value()));
-            }
-            coordinates = NtnIntendedServiceArea::polygonCoordinates(points);
-            break;
-        }
-        case SupportedGADShapes::VAL_POINT_UNCERTAINTY_CIRCLE:
-            if (area.getPoint()) coordinates = NtnIntendedServiceArea::circleCoordinates(to_point(area.getPoint()), area.getUncertainty());
-            break;
-        default:
-            break;
-        }
-        if (coordinates.has_value()) {
-            result.push_back(std::move(coordinates.value()));
-        } else {
-            ogs_info("A Geographic Area gives no NR NTN Intended Service Area: only a polygon of 3 to 15 points and a point with an "
-                     "uncertainty circle, with coordinates in range, can be carried");
-        }
-    }
-    return result;
 }
 
 void ExternalServiceArea::civicAddresses(mb_smf_sc_ext_mbs_service_area_t *ext_mbs_service_area) {

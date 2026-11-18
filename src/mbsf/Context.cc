@@ -253,15 +253,6 @@ bool Context::parseConfig()
                       std::string active_distribution_sessions_limit(mbsf_iter.value());
                       capacity.activeDistributionSessionsSoftLimit = std::stoi(active_distribution_sessions_limit);
 
-                } else if (mbsf_key == "nrNtnIntendedServiceArea") {
-                    const std::string value(mbsf_iter.value());
-                    if (value == "true" || value == "yes" || value == "1") {
-                        m_nrNtnIntendedServiceArea = true;
-                    } else if (value == "false" || value == "no" || value == "0") {
-                        m_nrNtnIntendedServiceArea = false;
-                    } else {
-                        throw std::out_of_range("Bad value at mbsf.nrNtnIntendedServiceArea, expected true or false");
-                    }
                 } else if (mbsf_key == "activeUserServicesSoftLimit") {
                     std::string active_user_services_limit(mbsf_iter.value());
                     capacity.activeUserServicesSoftLimit = std::stoi(active_user_services_limit);

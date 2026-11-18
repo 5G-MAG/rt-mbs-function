@@ -191,50 +191,15 @@ MBSMFMBSSession &MBSMFMBSSession::setServiceArea(std::shared_ptr< MbsServiceArea
     if (m_session) {
         ServiceArea service_area(mbs_service_area);
         m_session->mbs_service_area = service_area.populateServiceArea();
-        m_derivedServiceArea = false;
     }
     return *this;
 }
 
-MBSMFMBSSession &MBSMFMBSSession::clearDerivedServiceArea()
-{
-    if (m_session && m_derivedServiceArea && m_session->mbs_service_area) {
-        mb_smf_sc_mbs_service_area_delete(m_session->mbs_service_area);
-        m_session->mbs_service_area = nullptr;
-    }
-    m_derivedServiceArea = false;
-    return *this;
-}
-
-MBSMFMBSSession &MBSMFMBSSession::setExternalServiceArea(std::shared_ptr< ExternalMbsServiceArea > ext_mbs_service_area,
-                                                         bool derive_intended_service_areas)
+MBSMFMBSSession &MBSMFMBSSession::setExternalServiceArea(std::shared_ptr< ExternalMbsServiceArea > ext_mbs_service_area)
 {
     if (m_session) {
         ExternalServiceArea external_service_area(ext_mbs_service_area);
         m_session->ext_mbs_service_area = external_service_area.populateExternalServiceArea();
-
-        /* TS 23.247 V19.3.0 clause 6.21: "Based on local configuration (e.g. related to the received geographical area from an AF), the
-           NEF may determine that an MBS session is targeting a NR NTN network and may be configured to include the NR NTN Intended
-           Service Area derived from the geographical area information in an MBS service area". The areas derived by an earlier
-           population of this session are replaced, not added to. */
-        clearDerivedServiceArea();
-        if (derive_intended_service_areas) {
-            const std::vector<std::vector<uint8_t> > areas = external_service_area.deriveIntendedServiceAreas();
-            if (!areas.empty()) {
-                if (!m_session->mbs_service_area) {
-                    m_session->mbs_service_area = mb_smf_sc_mbs_service_area_new();
-                    m_derivedServiceArea = true;
-                }
-                for (const auto &coordinates : areas) {
-                    if (!mb_smf_sc_mbs_service_area_add_intended_service_area(m_session->mbs_service_area, coordinates.data(),
-                                                                              coordinates.size())) {
-                        ogs_error("Could not add a derived NR NTN Intended Service Area to the MBS Service Area");
-                    }
-                }
-                ogs_info("Derived %zu NR NTN Intended Service Area(s) from the geographical areas of the MBS session",
-                         areas.size());
-            }
-        }
     }
     return *this;
 }
