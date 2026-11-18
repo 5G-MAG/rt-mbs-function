@@ -1,7 +1,6 @@
 [wrap-git]
 directory = rt-5gc-service-consumers
 url = https://github.com/5G-MAG/rt-5gc-service-consumers.git
-revision = main
-# Pinned to main. src/mbsf/MBSNcgi.cc calls mb_smf_sc_ncgi_set_plmn_id_len, which the service consumers
-# carry on their development branch and which reaches main when that branch is merged. Until then,
-# build with revision = development.
+revision = feature/mbs-broadcast-rel19
+# The Release 19 MBS Broadcast branch of the service consumers: it carries the NR NTN Intended Service Areas of an MBS
+# Service Area (mb_smf_sc_mbs_service_area_add_intended_service_area) and its Open5GS wrap names the same Open5GS branch.

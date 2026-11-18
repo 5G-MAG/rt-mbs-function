@@ -1,8 +1,6 @@
 [wrap-git]
 directory = open5gs
 url = https://github.com/5G-MAG/open5gs.git
-revision = 5mbs
-# Pinned to 5mbs. The rt-5gc-service-consumers subproject parses red_mbs_service_area (open5gs
-# 6e9946c2f), which 5mbs-development carries and 5mbs does not until that branch is merged. Until then,
-# build with revision = 5mbs-development.
-diff_files = open5gs.patch
+revision = feature/mbs-broadcast-rel19
+# The Release 19 MBS Broadcast branch of Open5GS: the 2.8 API this repository is written against (ogs_global_conf()),
+# the Release 19 Nmbsmf models, and the MB-SMF handling of the NR NTN Intended Service Areas.
