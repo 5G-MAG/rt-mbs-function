@@ -1,3 +1,5 @@
+{{#hasVars}}{{#vars}}#define MODEL_HAS_{{name}} 1
+{{/vars}}{{/hasVars}}
 {{classname}}::{{classname}}()
     :ModelObject(){{#vars}}
     ,m_{{name}}()
@@ -161,6 +163,7 @@ CJson {{classname}}::toJSON(bool as_request) const
     {{#vars}}
     {{>model-toJSON-var}}
     {{/vars}}
+#ifdef MODEL_HAS_Shape
     {
         /* anyOf of object models: object holds the members of every alternative, and each alternative
            requires its own. Keep the members of the alternative that the shape member names, so the
@@ -187,6 +190,7 @@ CJson {{classname}}::toJSON(bool as_request) const
         }
         {{/anyOf}}
     }
+#endif
     {{/anyOf.1.isString}}{{#anyOf.1.isString}}
     {{#vars}}
     {{>model-toJSON-var}}
@@ -240,6 +244,7 @@ bool {{classname}}::operator==(const {{classname}} &other) const
 bool {{classname}}::validate() const
 {
 {{#hasVars}}{{#composedSchemas}}{{#anyOf.0.isModel}}{{^anyOf.1.isString}}
+#ifdef MODEL_HAS_Shape
     /* anyOf of object models: only the members of the alternative the shape names are meaningful; the
        others hold defaults that their own limits would refuse. Validate that alternative on its own,
        from the JSON this class writes for it. */
@@ -261,6 +266,7 @@ bool {{classname}}::validate() const
         {{/anyOf}}
         return m_Shape_validator.validate(m_Shape);
     }
+#endif
 {{/anyOf.1.isString}}{{/anyOf.0.isModel}}{{/composedSchemas}}{{/hasVars}}
     return {{^hasVars}}{{^isEnum}}{{#composedSchemas}}{{#oneOf.0.name}}
 #error "Not implemented oneOf yet!"

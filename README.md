@@ -43,12 +43,12 @@ built as an [Open5GS](https://open5gs.org/) network function that registers with
 
 Built against these versions:
 
-- **3GPP TS 29.580 V18.8.0**, the Nmbsf APIs (Nmb10)
-- **3GPP TS 26.502 V18.6.0**, the MBS User Service architecture
-- **3GPP TS 26.517 V18.6.0**, service announcement and the User Service Description
+- **3GPP TS 29.580 V19.6.0**, the Nmbsf APIs (Nmb10)
+- **3GPP TS 26.502 V19.5.0**, the MBS User Service architecture
+- **3GPP TS 26.517 V19.2.0**, service announcement and the User Service Description
 
 The API bindings are generated at build time from the 3GPP 5G APIs, by default at tag
-`TSG111-Rel18` (build options `fiveg_api_release` and `fiveg_api_approval` in `meson_options.txt`).
+`TSG113-Rel19` (build options `fiveg_api_release` and `fiveg_api_approval` in `meson_options.txt`).
 Besides the TS 29.580 Nmbsf APIs, the build uses the TS 29.581 Nmbstf distribution session API and
 the TS 26.517 service announcement and object manifest models.
 
