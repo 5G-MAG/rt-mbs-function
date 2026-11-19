@@ -44,6 +44,7 @@
 #include "common.hh"
 #include "AnnouncementBundleIndexHandler.hh"
 #include "AnnouncementBundleRequestHandler.hh"
+#include "AnnouncementBundleUrl.hh"
 #include "ServerIdentification.hh"
 #include "UserServiceDiscoveryHandler.hh"
 #include "App.hh"
@@ -861,8 +862,8 @@ void Context::parseUserServAnnSvrConfiguration(const std::string &pc_key, Open5G
 /* The Server response header of the co-located server.
  *
  * TS 26.517 V19.2.0 clause 8.2.3.3.1 puts the host name after a single hyphen in the product identifier and the release
- * number as its version; clause 8.2.3.3.4 names the MBS AF "MBSAF". The host name is read once, when the first header
- * is built.
+ * number as its version; clause 8.2.3.3.4 names the MBS AF "MBSAF" and clause 8.2.3.3.2 the MBSF at MBS-1 "MBSF". The
+ * host name is read once, when the first header is built.
  */
 static std::string userServAnnServerHeader(const std::string &type)
 {
@@ -903,7 +904,13 @@ void Context::createUserServAnnRequestHandler()
         // (left untouched; what else may depend on it has not been established).
         auto discovery_handler = std::shared_ptr<UserServiceDiscoveryHandler>(new UserServiceDiscoveryHandler);
         auto handler = std::shared_ptr<PathDelegatorHTTPRequestHandler>(new PathDelegatorHTTPRequestHandler({
-            {"/x-5gmag-service-announcements/v1/user-data-ingest-session/", std::shared_ptr<HTTPRequestHandler>(new AnnouncementBundleRequestHandler(docroot_handler, announce_index))},
+            /* The object locator the MBSTF pulls (MBS-11): the server's own name, MBSAF. */
+            {bundleurl::objectLocatorPath(), std::shared_ptr<HTTPRequestHandler>(new AnnouncementBundleRequestHandler(docroot_handler, announce_index))},
+            /* The same bundle at MBS-1, the URL passed back to the MBS Application Provider: it names itself MBSF
+               (TS 26.517 V19.2.0 clause 8.2.3.3.2). */
+            {bundleurl::mbs1Path(), std::shared_ptr<HTTPRequestHandler>(new serverident::ServerIdentifyingRequestHandler(
+                    std::shared_ptr<HTTPRequestHandler>(new AnnouncementBundleRequestHandler(docroot_handler, announce_index)),
+                    userServAnnServerHeader("MBSF")))},
             {"/3gpp-mbs-user-service-discovery/v1/", std::static_pointer_cast<HTTPRequestHandler>(discovery_handler)}
         }));
         m_userServAnnRequestHandler = std::static_pointer_cast<HTTPRequestHandler>(handler);

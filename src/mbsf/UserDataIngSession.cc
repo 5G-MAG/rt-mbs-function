@@ -121,6 +121,7 @@
 #include "mb-smf-service-consumer.h"
 
 // Header include for this class
+#include "AnnouncementBundleUrl.hh"
 #include "UserDataIngSession.hh"
 
 using fiveg_mag_reftools::CJson;
@@ -4828,7 +4829,7 @@ void UserDataIngSession::populateObjectCarousel(const std::string &user_serv_ann
 {
     if (user_serv_ann_server_addr.empty()) return;
 
-    std::string object_locator = std::format("http://{}/x-5gmag-service-announcements/v1/user-data-ingest-session/{}", user_serv_ann_server_addr, m_UserDataIngSessionId);
+    std::string object_locator = bundleurl::objectLocator(user_serv_ann_server_addr, m_UserDataIngSessionId);
     std::shared_ptr<CarouselObject> object(new CarouselObject(object_locator, App::self().context()->repetitionInterval(),
                                                                App::self().context()->keepUpdated()));
     setCarouselObject(object);
@@ -4924,10 +4925,12 @@ void UserDataIngSession::resetCarouselObject()
 }
 
 
-void UserDataIngSession::forEachObjectLocator(std::function<void(const std::string &)> fn) const
+void UserDataIngSession::forEachMbs1AnnouncementUrl(std::function<void(const std::string &)> fn) const
 {
     std::lock_guard<decltype(m_carouselObjectMutex)::element_type> lock(*m_carouselObjectMutex);
-    if (m_carouselObject) fn(m_carouselObject->object()->getLocator());
+    if (!m_carouselObject) return;
+    const auto url = bundleurl::mbs1UrlFromObjectLocator(m_carouselObject->object()->getLocator());
+    if (url) fn(*url);
 }
 
 void UserDataIngSession::resetUserSerAdReported() const

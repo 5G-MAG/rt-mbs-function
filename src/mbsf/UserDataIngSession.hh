@@ -430,7 +430,8 @@ public:
     void setCarouselObject(const std::shared_ptr<CarouselObject> &carousel_object);
     std::shared_ptr<CarouselObject> getCarouselObject() const;
     void resetCarouselObject();
-    void forEachObjectLocator(std::function<void(const std::string &)> fn) const;
+    /** The MBS-1 URL of the announcement bundle, when there is one to announce (TS 26.517 V19.2.0 clause 8A.2). */
+    void forEachMbs1AnnouncementUrl(std::function<void(const std::string &)> fn) const;
     /** Have every status subscription on this session report the User Service Announcement again.
      *
      * Called where the announcement is (re)configured. The state itself lives on each subscription,

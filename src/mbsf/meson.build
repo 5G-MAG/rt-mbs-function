@@ -62,6 +62,7 @@ libmbsf_dist_sources = files('''
     AnnouncementBundleIndexHandler.hh
     AnnouncementBundleRequestHandler.cc
     AnnouncementBundleRequestHandler.hh
+    AnnouncementBundleUrl.hh
     AssociatedSessId.cc
     AssociatedSessId.hh
     AvailabilityInfo.cc

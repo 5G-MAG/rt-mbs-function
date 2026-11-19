@@ -162,3 +162,10 @@ test_announcement_bundle_request_handler_exe = executable('test_announcement_bun
     dependencies : [libmbsf_dep],
     install : false)
 test('test_announcement_bundle_request_handler', test_announcement_bundle_request_handler_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')
+
+# bundleurl::mbs1UrlFromObjectLocator() and the object locator, the two URLs of an announcement bundle, see the test's own file comment.
+test_announcement_bundle_url_exe = executable('test_announcement_bundle_url', 'test_announcement_bundle_url.cc',
+    include_directories : [libmbsf_libinc, libinc],
+    dependencies : [libmbsf_dep],
+    install : false)
+test('test_announcement_bundle_url', test_announcement_bundle_url_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')

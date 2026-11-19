@@ -15,7 +15,13 @@
 
 #include <climits>
 #include <format>
+#include <memory>
 #include <string>
+
+#include <HTTPRequest.hh>
+#include <HTTPRequestHandler.hh>
+#include <HTTPResponse.hh>
+#include <HTTPServer.hh>
 
 #include "common.hh"
 
@@ -51,7 +57,8 @@ inline bool isTokenChar(unsigned char c)
  * a token is written as a hyphen, so that the value is still one product token. An empty host name leaves the type and
  * the version only: no host name is invented.
  *
- * \param type the product identifier token of the function (clause 8.2.3.3.4: "MBSAF" for the MBS AF).
+ * \param type the product identifier token of the function: "MBSAF" for the MBS AF (clause 8.2.3.3.4) and "MBSF" for the
+ *             MBSF at MBS-1 (clause 8.2.3.3.2).
  * \param host the host name of the responding server.
  */
 inline std::string productIdentifier(const std::string &type, const std::string &host)
@@ -81,6 +88,34 @@ inline std::string localHostName()
     if (gethostname(name, sizeof(name) - 1) != 0) return std::string();
     return std::string(name);
 }
+
+/** A request handler that sets the Server response header of every response of the handler it wraps.
+ *
+ * One HTTP server carries two interfaces: the MBS-1 bundle path of the MBSF and the MBS-5 API of the MBS AF. The two
+ * name themselves differently (TS 26.517 V19.2.0 clause 8.2.3.3.2: "The product identifier token shall be set to the
+ * value MBSF." and clause 8.2.3.3.4: "The product identifier token shall be set to the value MBSAF."), so each path is
+ * wrapped with the header of its own interface.
+ */
+class ServerIdentifyingRequestHandler : public HTTPXPP_NAMESPACE_NAME(HTTPRequestHandler) {
+public:
+    ServerIdentifyingRequestHandler(const std::shared_ptr<HTTPXPP_NAMESPACE_NAME(HTTPRequestHandler)> &delegate,
+                                    const std::string &server_header)
+        :HTTPXPP_NAMESPACE_NAME(HTTPRequestHandler)(), m_delegate(delegate), m_serverHeader(server_header) {}
+
+    virtual void serverShutdown(const HTTPXPP_NAMESPACE_NAME(HTTPServer) &server) { m_delegate->serverShutdown(server); }
+
+    virtual HTTPXPP_NAMESPACE_NAME(HTTPResponse) doRequest(const HTTPXPP_NAMESPACE_NAME(HTTPRequest) &request,
+                                                           const HTTPXPP_NAMESPACE_NAME(HTTPServer) &server)
+    {
+        HTTPXPP_NAMESPACE_NAME(HTTPResponse) response = m_delegate->doRequest(request, server);
+        response.setHeader("Server", m_serverHeader);
+        return response;
+    }
+
+private:
+    std::shared_ptr<HTTPXPP_NAMESPACE_NAME(HTTPRequestHandler)> m_delegate;
+    std::string m_serverHeader;
+};
 
 } // namespace serverident
 

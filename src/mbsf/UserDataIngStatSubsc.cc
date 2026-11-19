@@ -977,10 +977,13 @@ bool UserDataIngStatSubsc::processEvent(Open5GSEvent &event)
                    subscription having had it is no reason to stop walking the others. */
                 if (user_data_ing_session_id == id && stat_subsc->checkForUserServiceAnn()
                         && !stat_subsc->userSerAdReported()) {
-                    user_data_ing_session.forEachObjectLocator([&stat_subsc](const std::string &object_locator){
+                    /* TS 26.517 V19.2.0 clause 8A.2: the URL through which the bundle is exposed at MBS-1 is indicated in the
+                       statusAddInfo attribute of the EventNotification "when its statusEvent attribute indicates USER_SER_AD".
+                       That is the MBS-1 path, not the object locator the MBSTF pulls. */
+                    user_data_ing_session.forEachMbs1AnnouncementUrl([&stat_subsc](const std::string &bundle_url){
                         std::shared_ptr<Event> event(new Event());
                         *event = Event::VAL_USER_SER_AD;
-                        stat_subsc->setSubscribedEventTime(event, DateTime::clock::now(), object_locator);
+                        stat_subsc->setSubscribedEventTime(event, DateTime::clock::now(), bundle_url);
                         stat_subsc->sendNotifications();
                     });
                     stat_subsc->userSerAdReported(true);
