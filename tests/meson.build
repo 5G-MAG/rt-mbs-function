@@ -140,3 +140,10 @@ test_multiplex_signature_exe = executable('test_multiplex_signature', 'test_mult
     dependencies : [libmbsf_dep],
     install : false)
 test('test_multiplex_signature', test_multiplex_signature_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')
+
+# AvailabilityInfo: the target service areas of the announcement (TS 26.517 V19.2.0 tables 5.2.9-1 and 5.2.9-1a), see the test's own file comment.
+test_availability_info_exe = executable('test_availability_info', 'test_availability_info.cc',
+    include_directories : [libmbsf_libinc, libinc],
+    dependencies : [libmbsf_dep],
+    install : false)
+test('test_availability_info', test_availability_info_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')

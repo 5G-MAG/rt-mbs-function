@@ -58,13 +58,13 @@ public:
     AvailabilityInfo &addNrParameters(int32_t freq_band_indicator, int32_t arfcn_value);
 
     const std::shared_ptr<reftools::mbsf::AvailabilityInformation> &availabilityInformation() const {return m_availabilityInformation;};
-    const reftools::mbsf::AvailabilityInformation::MbsServiceAreasType &mbsServiceAreas() const {return m_availabilityInformation->getMbsServiceAreas();};
+    const reftools::mbsf::AvailabilityInformation::TargetServiceAreasType &targetServiceAreas() const {return m_availabilityInformation->getTargetServiceAreas();};
     const std::optional<std::string > &mbsFSAId() const {return m_availabilityInformation->getMbsFSAId();};
     const reftools::mbsf::AvailabilityInformation::NrParametersType &nrParameters() const {return m_availabilityInformation->getNrParameters();};
     const reftools::mbsf::AvailabilityInformation::NrRedCapUEInfoType &nrRedCapUEInfo() const {return m_availabilityInformation->getNrRedCapUEInfo();};
 
 private:
-    AvailabilityInfo &setMbsServiceAreas(const std::list<std::shared_ptr< ServiceArea > > &service_areas);
+    AvailabilityInfo &setTargetServiceAreas(const std::list<std::shared_ptr< ServiceArea > > &service_areas);
 
     std::shared_ptr<reftools::mbsf::AvailabilityInformation> m_availabilityInformation;
     std::list<std::shared_ptr< ServiceArea > > m_serviceAreas;
