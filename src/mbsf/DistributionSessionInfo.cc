@@ -649,7 +649,16 @@ std::optional<std::shared_ptr<ObjRepairParameters>> DistributionSessionInfo::pop
         //auto obj_repair_parameters = std::make_shared<ObjRepairParameters>(std::optional<std::string>{obj_distr_uri});
 
 
-        std::shared_ptr<ObjRepairParameters> obj_repair_parameters(new ObjRepairParameters(user_data_ing_session_id, distribution_session_info_key, dist_method_info->getObjDistrUri()));
+        /* The identifier of the session in the MBSTF, which the MBS AS co-located with the MBSTF finds the session's objects by. */
+        std::string mbstf_distribution_session_id;
+        try {
+            const auto context_data = UserDataIngSession::find(user_data_ing_session_id)->getDistributionSessionInfoData(distribution_session_info_key);
+            if (context_data) mbstf_distribution_session_id = context_data->mbstfDistSessionId;
+        } catch (const std::out_of_range &) {
+            // no such Ingest Session: no identifier, and a locator that needs one is then not announced
+        }
+
+        std::shared_ptr<ObjRepairParameters> obj_repair_parameters(new ObjRepairParameters(user_data_ing_session_id, distribution_session_info_key, dist_method_info->getObjDistrUri(), mbstf_distribution_session_id));
         return obj_repair_parameters;
     }
     return std::nullopt;

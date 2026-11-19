@@ -174,6 +174,7 @@ public:
         int32_t backOffParametersOffsetTime;
         int32_t backOffParametersRandomTimePeriod;
         std::optional<std::string > objectRepairBaseLocator;
+        bool hostedByMbstf = false; /**< mbsf.objectRepairParameters.hostedBy: mbstf, the MBS AS is the one co-located with the MBSTF */
     } objectRepairParameters;
 
     struct {

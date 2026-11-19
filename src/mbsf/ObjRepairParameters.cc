@@ -39,6 +39,7 @@
 
 // Header include for this class
 #include "ObjRepairParameters.hh"
+#include "ObjectRepairLocator.hh"
 
 using fiveg_mag_reftools::CJson;
 using reftools::mbsf::ObjectRepairParameters;
@@ -47,7 +48,6 @@ using fiveg_mag_reftools::ModelException;
 
 MBSF_NAMESPACE_START
 
-static std::string remove_trailing_slash(std::string input);
 
 ObjRepairParameters::ObjRepairParameters(CJson &json, bool as_request)
     :m_objectRepairParameters(new ObjectRepairParameters(json, as_request))
@@ -67,7 +67,7 @@ ObjRepairParameters::ObjRepairParameters(const std::optional<std::string > &obje
 
 }
 
-ObjRepairParameters::ObjRepairParameters(const std::string &user_data_ing_session_id, const std::string &distribution_session_info_key, const std::optional<std::string > &object_distribution_base_locator)
+ObjRepairParameters::ObjRepairParameters(const std::string &user_data_ing_session_id, const std::string &distribution_session_info_key, const std::optional<std::string > &object_distribution_base_locator, const std::string &mbstf_distribution_session_id)
     :m_objectRepairParameters(new ObjectRepairParameters())
 {
     if (App::self().context()->objectRepairParameters.objectRepairBaseLocator.has_value() &&
@@ -75,9 +75,11 @@ ObjRepairParameters::ObjRepairParameters(const std::string &user_data_ing_sessio
                     App::self().context()->objectRepairParameters.backOffParametersRandomTimePeriod)
     {
         if (App::self().context()->objectRepairParameters.objectRepairBaseLocator.has_value()) {
-            std::string obj_repair_base_locator = remove_trailing_slash(App::self().context()->objectRepairParameters.objectRepairBaseLocator.value()) + "/" + user_data_ing_session_id + "/"+ distribution_session_info_key;
-
-            m_objectRepairParameters->setObjectRepairBaseLocator(obj_repair_base_locator);
+            const auto obj_repair_base_locator = announcedRepairBaseLocator(App::self().context()->objectRepairParameters.objectRepairBaseLocator.value(),
+                    App::self().context()->objectRepairParameters.hostedByMbstf, user_data_ing_session_id, distribution_session_info_key, mbstf_distribution_session_id, object_distribution_base_locator);
+            if (obj_repair_base_locator) {
+                m_objectRepairParameters->setObjectRepairBaseLocator(*obj_repair_base_locator);
+            }
         }
         m_objectRepairParameters->setObjectDistributionBaseLocator(object_distribution_base_locator);
 
@@ -99,12 +101,6 @@ CJson ObjRepairParameters::json(bool as_request = false) const
     return m_objectRepairParameters->toJSON(as_request);
 }
 
-static std::string remove_trailing_slash(std::string input) {
-    if (!input.empty() && input.back() == '/') {
-        return input.substr(0, input.size() - 1);
-    }
-    return input;
-}
 
 MBSF_NAMESPACE_STOP
 

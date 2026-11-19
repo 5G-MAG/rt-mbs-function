@@ -125,6 +125,7 @@ libmbsf_dist_sources = files('''
     ObjManifest.cc
     ObjManifest.hh
     ObjRepairParameters.cc
+    ObjectRepairLocator.hh
     ObjRepairParameters.hh
     Open5GSEvent.hh
     Open5GSFSM.hh

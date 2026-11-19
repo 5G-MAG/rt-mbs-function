@@ -553,6 +553,15 @@ void Context::parseObjectRepairParameters(Open5GSYamlIter &iter) {
         if (orp_key == "objectRepairBaseLocator") {
                 objectRepairParameters.objectRepairBaseLocator = std::string(orp_val);
             }
+        if (orp_key == "hostedBy") {
+            /* "mbstf": the repair base locator is the address of the MBS AS co-located with the MBSTF (TS 26.502 V19.5.0 clause 4.3.4), under which each
+               session's objects are found by the session's identifier in the MBSTF. Absent: any other MBS AS, as before. */
+            if (orp_val == "mbstf") {
+                objectRepairParameters.hostedByMbstf = true;
+            } else {
+                ogs_error("mbsf.objectRepairParameters.hostedBy of \"%s\" is not understood (only \"mbstf\" is); treated as not given.", orp_val.c_str());
+            }
+        }
 
     }
 }

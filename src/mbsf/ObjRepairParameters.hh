@@ -31,7 +31,7 @@ public:
     ObjRepairParameters(fiveg_mag_reftools::CJson &json, bool as_request);
     ObjRepairParameters(const std::shared_ptr<reftools::mbsf::ObjectRepairParameters> &object_repair_parameters);
     ObjRepairParameters(const std::optional<std::string > &object_distribution_base_locator, const std::optional<std::string > &object_repair_base_locator);
-    ObjRepairParameters(const std::string &user_data_ing_session_id, const std::string &distribution_session_info_key, const std::optional<std::string > &object_distribution_base_locator = std::nullopt);
+    ObjRepairParameters(const std::string &user_data_ing_session_id, const std::string &distribution_session_info_key, const std::optional<std::string > &object_distribution_base_locator = std::nullopt, const std::string &mbstf_distribution_session_id = std::string());
     ObjRepairParameters() = delete;
     ObjRepairParameters(ObjRepairParameters &&other) = delete;
     ObjRepairParameters(const ObjRepairParameters &other) = delete;
