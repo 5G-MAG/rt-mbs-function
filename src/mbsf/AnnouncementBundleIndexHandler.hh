@@ -19,6 +19,7 @@
  * under the License.
  */
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -44,6 +45,14 @@ public:
     AnnouncementBundleIndexHandler &operator=(AnnouncementBundleIndexHandler &&other) = delete;
 
     virtual HTTPXPP_NAMESPACE_NAME(HTTPResponse) makeResponseForDir(const std::string &dir_path, const std::string &url_path, const HTTPXPP_NAMESPACE_NAME(HTTPServer) &server);
+
+    /** The bundle of an Ingest Session with its validators, or 304 when the request's conditions match them.
+     *
+     * The IndexHandler interface of the docroot handler does not carry the request, so the conditional request header
+     * field values are passed in by the caller that has it (AnnouncementBundleRequestHandler).
+     */
+    HTTPXPP_NAMESPACE_NAME(HTTPResponse) makeResponseForDir(const std::string &dir_path, const std::string &url_path, const HTTPXPP_NAMESPACE_NAME(HTTPServer) &server,
+                                                            const std::optional<std::string> &if_none_match, const std::optional<std::string> &if_modified_since);
 };
 
 MBSF_NAMESPACE_STOP

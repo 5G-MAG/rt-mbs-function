@@ -29,7 +29,9 @@
 
 #include "ConditionalRequest.hh"
 
+#include <chrono>
 #include <cstdio>
+#include <optional>
 #include <string>
 
 using namespace com::fiveg_mag::ref_tools::mbsf;
@@ -86,6 +88,33 @@ int main(void)
     /* If-Match is evaluated first, per RFC 9110 section 13.2.2's evaluation order. */
     check(evaluatePreconditions("\"stale\"", quoted, tag, true) == Precondition::PreconditionFailed,
           "a failing If-Match decides the outcome before If-None-Match is considered");
+
+    /* The Last-Modified value of the MBS-1 bundle: an IMF-fixdate that reads back to the same second. */
+    using namespace std::chrono;
+    check(httpDate(system_clock::time_point{}) == "Thu, 01 Jan 1970 00:00:00 GMT", "the epoch is written as an IMF-fixdate");
+    const auto when = system_clock::time_point{seconds{1700000000}};
+    check(httpDate(when) == "Tue, 14 Nov 2023 22:13:20 GMT", "a date after the epoch is written as an IMF-fixdate");
+    check(httpDate(when + milliseconds{900}) == "Tue, 14 Nov 2023 22:13:20 GMT", "a fraction of a second is cut, not rounded up");
+    check(parseHttpDate(httpDate(when)) == std::optional<std::time_t>(1700000000), "the written date reads back to the same second");
+
+    /* A GET with validators: the tag decides when the client offered one, the date only when it did not. */
+    const std::optional<std::string> modified("Wed, 01 Jan 2025 00:00:00 GMT");
+    const std::optional<std::string> no_header;
+    check(getNotModified(quoted, no_header, tag, modified), "a matching If-None-Match is answered 304");
+    check(!getNotModified(std::optional<std::string>("\"stale\""), no_header, tag, modified), "a stale If-None-Match returns the representation");
+    check(getNotModified(std::optional<std::string>("*"), no_header, tag, modified), "If-None-Match * is answered 304");
+    check(getNotModified(no_header, modified, tag, modified), "If-Modified-Since the modification time is answered 304");
+    check(getNotModified(std::optional<std::string>("Thu, 02 Jan 2025 00:00:00 GMT"), no_header, tag, modified) == false,
+          "a date is not taken for an entity tag");
+    check(getNotModified(no_header, std::optional<std::string>("Thu, 02 Jan 2025 00:00:00 GMT"), tag, modified),
+          "If-Modified-Since a later time is answered 304");
+    check(!getNotModified(no_header, std::optional<std::string>("Tue, 31 Dec 2024 23:59:59 GMT"), tag, modified),
+          "If-Modified-Since an earlier time returns the representation");
+    check(!getNotModified(std::optional<std::string>("\"stale\""), modified, tag, modified),
+          "a stale If-None-Match decides before a current If-Modified-Since is considered");
+    check(!getNotModified(no_header, modified, tag, no_header), "a resource with no modification time is never answered 304 on a date");
+    check(!getNotModified(no_header, std::optional<std::string>("not a date"), tag, modified), "an unreadable date is no condition");
+    check(!getNotModified(no_header, no_header, tag, modified), "a request without conditions returns the representation");
 
     printf("Test: ConditionalRequest Pass: %d Fail: %d\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;

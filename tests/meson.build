@@ -155,3 +155,10 @@ test_server_identification_exe = executable('test_server_identification', 'test_
     dependencies : [libmbsf_dep],
     install : false)
 test('test_server_identification', test_server_identification_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')
+
+# AnnouncementBundleRequestHandler::bundleSessionId(), which URL the bundle handler answers itself, see the test's own file comment.
+test_announcement_bundle_request_handler_exe = executable('test_announcement_bundle_request_handler', 'test_announcement_bundle_request_handler.cc',
+    include_directories : [libmbsf_libinc, libinc],
+    dependencies : [libmbsf_dep],
+    install : false)
+test('test_announcement_bundle_request_handler', test_announcement_bundle_request_handler_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')

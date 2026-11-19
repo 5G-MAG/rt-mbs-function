@@ -43,6 +43,7 @@
 
 #include "common.hh"
 #include "AnnouncementBundleIndexHandler.hh"
+#include "AnnouncementBundleRequestHandler.hh"
 #include "ServerIdentification.hh"
 #include "UserServiceDiscoveryHandler.hh"
 #include "App.hh"
@@ -902,7 +903,7 @@ void Context::createUserServAnnRequestHandler()
         // (left untouched; what else may depend on it has not been established).
         auto discovery_handler = std::shared_ptr<UserServiceDiscoveryHandler>(new UserServiceDiscoveryHandler);
         auto handler = std::shared_ptr<PathDelegatorHTTPRequestHandler>(new PathDelegatorHTTPRequestHandler({
-            {"/x-5gmag-service-announcements/v1/user-data-ingest-session/", std::static_pointer_cast<HTTPRequestHandler>(docroot_handler)},
+            {"/x-5gmag-service-announcements/v1/user-data-ingest-session/", std::shared_ptr<HTTPRequestHandler>(new AnnouncementBundleRequestHandler(docroot_handler, announce_index))},
             {"/3gpp-mbs-user-service-discovery/v1/", std::static_pointer_cast<HTTPRequestHandler>(discovery_handler)}
         }));
         m_userServAnnRequestHandler = std::static_pointer_cast<HTTPRequestHandler>(handler);

@@ -18,6 +18,8 @@
  * under the License.
  */
 
+#include <chrono>
+#include <format>
 #include <string>
 #include <optional>
 #include <sstream>
@@ -106,6 +108,31 @@ inline bool entityTagListMatches(std::string_view field_value, std::string_view 
         if (comma == std::string_view::npos) break;
         pos = comma + 1;
     }
+    return false;
+}
+
+/** The HTTP-date of a time point, in the IMF-fixdate form, for a Last-Modified header field. */
+inline std::string httpDate(const std::chrono::system_clock::time_point &when)
+{
+    return std::format("{:%a, %d %b %Y %H:%M:%S GMT}", std::chrono::floor<std::chrono::seconds>(when));
+}
+
+/** Whether a conditional GET is answered 304 Not Modified.
+ *
+ * The entity tag decides whenever the client offered If-None-Match, and If-Modified-Since is only looked at when it did
+ * not, the order UserServiceDiscoveryHandler applies to the MBS-5 bundle.
+ *
+ * \param if_none_match      The If-None-Match field value, when the request has one.
+ * \param if_modified_since  The If-Modified-Since field value, when the request has one.
+ * \param etag               The current entity-tag of the resource.
+ * \param last_modified      The Last-Modified value of the resource, when it has one.
+ */
+inline bool getNotModified(const std::optional<std::string> &if_none_match,
+                           const std::optional<std::string> &if_modified_since,
+                           std::string_view etag, const std::optional<std::string> &last_modified)
+{
+    if (if_none_match) return entityTagListMatches(*if_none_match, etag);
+    if (if_modified_since && last_modified) return notModifiedSince(*last_modified, *if_modified_since);
     return false;
 }
 
