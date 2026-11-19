@@ -147,3 +147,11 @@ test_availability_info_exe = executable('test_availability_info', 'test_availabi
     dependencies : [libmbsf_dep],
     install : false)
 test('test_availability_info', test_availability_info_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')
+
+# serverident::productIdentifier() and headerValue(), the Server response header of the co-located MBS AF, see the test's own
+# file comment.
+test_server_identification_exe = executable('test_server_identification', 'test_server_identification.cc',
+    include_directories : [libmbsf_libinc, libinc],
+    dependencies : [libmbsf_dep],
+    install : false)
+test('test_server_identification', test_server_identification_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')

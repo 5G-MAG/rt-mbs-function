@@ -43,6 +43,7 @@
 
 #include "common.hh"
 #include "AnnouncementBundleIndexHandler.hh"
+#include "ServerIdentification.hh"
 #include "UserServiceDiscoveryHandler.hh"
 #include "App.hh"
 #include "Open5GSNetworkFunction.hh"
@@ -856,6 +857,23 @@ void Context::parseUserServAnnSvrConfiguration(const std::string &pc_key, Open5G
     m_userServAnnAddresses.insert(addresses.begin(), addresses.end());
 }
 
+/* The Server response header of the co-located server.
+ *
+ * TS 26.517 V19.2.0 clause 8.2.3.3.1 puts the host name after a single hyphen in the product identifier and the release
+ * number as its version; clause 8.2.3.3.4 names the MBS AF "MBSAF". The host name is read once, when the first header
+ * is built.
+ */
+static std::string userServAnnServerHeader(const std::string &type)
+{
+    static const std::string host_name = []() {
+        std::string name = serverident::localHostName();
+        if (name.empty()) ogs_warn("The host name of this machine cannot be read, the Server header of the co-located server carries none");
+        return name;
+    }();
+    return serverident::headerValue(type, host_name,
+            std::format("{}; {}", HTTPServer::httpLibraryVersion(), HTTPServer::httpLibraryVersionComment()));
+}
+
 void Context::startUserServAnnServers() {
     createUserServAnnRequestHandler();
     if (m_userServAnnRequestHandler) {
@@ -863,7 +881,7 @@ void Context::startUserServAnnServers() {
             // new address so create new server
             auto *svr = new HTTPServer(sa, m_userServAnnRequestHandler);
             m_userServAnnServers.emplace_back(svr);
-            svr->serverName(std::format("MBSAF ({}; {})", HTTPServer::httpLibraryVersion(), HTTPServer::httpLibraryVersionComment()));
+            svr->serverName(userServAnnServerHeader("MBSAF"));
             ogs_debug("%s", std::format("Co-located MBS AF running at {}", svr->listenAddress()).c_str());
         }
     }

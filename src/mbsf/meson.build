@@ -151,6 +151,7 @@ libmbsf_dist_sources = files('''
     Open5GSYamlIter.hh
     QoSReq.cc
     QoSReq.hh
+    ServerIdentification.hh
     ServiceArea.cc
     ServiceArea.hh
     ServiceInfo.cc
