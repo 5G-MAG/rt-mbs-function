@@ -112,9 +112,11 @@ as a compile error rather than as a missing dependency.
 
 ### Testing other branches
 
-The wrap files in `subprojects/` pin the repositories this branch is built against, and they pin their
-`main` branches (`5mbs` for `open5gs`). Work that has not yet been merged into those branches is not in
-the pins, so a clean build against them as committed may not compile. To test other branches, adapt
+The wrap files in `subprojects/` pin the repositories this branch is built against: `open5gs` and
+`rt-5gc-service-consumers` at their `feature/mbs-broadcast-rel19` branches, and the 5G APIs at Release 19
+(`fiveg_api_release` 19 and `fiveg_api_approval` 113 in `meson_options.txt`). `rt-common-shared` is a git
+submodule recorded at a commit of its `feature/mbs-compliance-fixes` branch. Work that is on other branches
+is not in the pins, so a clean build against them as committed may not include it. To test other branches, adapt
 the pinned repositories: edit the `url` and `revision` lines of the matching `.wrap` file in
 `subprojects/` before running `meson setup`. For example, set `revision = development` in
 `subprojects/rt-5gc-service-consumers.wrap`, and `revision = 5mbs-development` in
