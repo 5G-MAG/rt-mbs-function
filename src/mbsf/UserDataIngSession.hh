@@ -537,6 +537,8 @@ private:
     std::shared_ptr<UserServiceAnnBundle> m_userServiceAnnBundle;
     std::shared_ptr<std::recursive_mutex> m_carouselObjectMutex;
     std::shared_ptr<CarouselObject> m_carouselObject;
+    // The MBS-1 URL of the bundle of a PASSED_BACK service, which needs no carousel object. Guarded by m_carouselObjectMutex.
+    std::optional<std::string> m_passedBackMbs1Url;
     bool m_userServiceAnnBundleAvailable;
     bool m_includedInCarouselObjectManifest;
     //std::shared_ptr<ObjManifest> m_carouselObjectManifest;

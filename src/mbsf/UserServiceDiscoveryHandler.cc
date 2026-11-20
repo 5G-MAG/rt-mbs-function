@@ -127,6 +127,8 @@ HTTPResponse UserServiceDiscoveryHandler::discover(const std::optional<std::stri
     std::vector<std::shared_ptr<UserService>> matches;
     for (const auto &[id, svc] : App::self().context()->UserServices) {
         if (!svc) continue;
+        // A service whose announcement is for the application provider only (PASSED_BACK, bundle at MBS-1) is not advertised at MBS-5.
+        if (svc->isServiceAnnModePassedBackOnly()) continue;
         if (service_class.has_value() && svc->serviceClass() != *service_class) continue;
         if (profile.has_value() && !hasConformanceProfile(svc, *profile)) continue;
         matches.push_back(svc);
@@ -158,6 +160,7 @@ HTTPResponse UserServiceDiscoveryHandler::retrieve(const std::string &external_s
     std::vector<std::shared_ptr<UserService>> matches;
     for (const auto &[id, svc] : App::self().context()->UserServices) {
         if (!svc) continue;
+        if (svc->isServiceAnnModePassedBackOnly()) continue;  // see discover()
         for (const auto &sid : svc->serviceIds()) {
             if (sid.has_value() && sid.value() == external_service_id) {
                 matches.push_back(svc);

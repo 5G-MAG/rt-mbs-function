@@ -1127,28 +1127,33 @@ bool UserService::requiresUserServiceAnnouncement()
     return false;
 }
 
-bool UserService::requiresUserServiceAnnouncementBundle()
+announcementmodes::Set UserService::announcementModes() const
 {
-    if(!m_MBSUserService) return false;
-    const reftools::mbsf::MBSUserService::ServAnnModesType &service_ann_modes =  m_MBSUserService->getServAnnModes();
-    for( const auto &service_ann_mode : service_ann_modes) {
+    announcementmodes::Set set;
+    if(!m_MBSUserService) return set;
+    for( const auto &service_ann_mode : m_MBSUserService->getServAnnModes()) {
         if (!service_ann_mode.has_value()) continue;
         switch (service_ann_mode.value()->getValue()) {
-        case reftools::mbsf::ServiceAnnouncementMode::VAL_VIA_MBS_5:
-        case reftools::mbsf::ServiceAnnouncementMode::VAL_VIA_MBS_DISTRIBUTION_SESSION:
-            return true;
-        // PASSED_BACK deliberately excluded: UserDataIngSession::sendNmbsfMbsUserDataIngestResponse()
-        // already has its own, separate, unconditional mechanism for it
-        // (userServiceAnnouncement(), gated on isServiceAnnModePassedBack() directly, operating on
-        // the in-memory UserServiceDescription with no dependency on this bundle). Including it here
-        // would additionally build an on-disk UserServiceAnnBundle nothing then serves, since MBS-5
-        // discovery (TS 26.517 V18.6.0 cl.9.2.1) is specific to services using VIA_MBS_5.
-        case reftools::mbsf::ServiceAnnouncementMode::VAL_PASSED_BACK:
-        default:
-            break;
+        case reftools::mbsf::ServiceAnnouncementMode::VAL_VIA_MBS_5: set.viaMbs5 = true; break;
+        case reftools::mbsf::ServiceAnnouncementMode::VAL_VIA_MBS_DISTRIBUTION_SESSION: set.viaDistributionSession = true; break;
+        case reftools::mbsf::ServiceAnnouncementMode::VAL_PASSED_BACK: set.passedBack = true; break;
+        default: break;
         }
     }
-    return false;
+    return set;
+}
+
+bool UserService::isServiceAnnModePassedBackOnly()
+{
+    return announcementmodes::passedBackOnly(announcementModes());
+}
+
+// TS 26.517 V19.2.0 clause 8A.2: the bundles of a PASSED_BACK service "are made available to the MBS Application Provider by the
+// MBSF at reference point MBS-1", so the bundle is written for that mode as for the other two. The in-memory USD that
+// UserDataIngSession::sendNmbsfMbsUserDataIngestResponse() returns for PASSED_BACK has no SDP part, which a client needs to activate.
+bool UserService::requiresUserServiceAnnouncementBundle()
+{
+    return announcementmodes::needsBundle(announcementModes());
 }
 
 MBSF_NAMESPACE_STOP

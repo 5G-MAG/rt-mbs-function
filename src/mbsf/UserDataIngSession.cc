@@ -4848,6 +4848,24 @@ void UserDataIngSession::userServiceAnnBundled()
     // and retrieval would answer 204 with the files already present. code-derived, no spec claim.
     userServiceAnnBundleAvailable(true);
 
+    // TS 26.517 V19.2.0 clause 8A.2: the bundle of a PASSED_BACK service is made available to the MBS Application Provider at MBS-1, and its URL is
+    // indicated in the statusAddInfo of the USER_SER_AD notification. The URL is the one of the co-located server and needs neither the announcement
+    // channel nor a carousel object, so it is set and the notification driven here.
+    const std::shared_ptr<UserService> &announced_service = mbsUserService();
+    if (announced_service && announced_service->isServiceAnnModePassedBack()) {
+        const std::string authority(App::self().context()->userServAnnServerAuthority());
+        if (!authority.empty()) {
+            {
+                std::lock_guard<decltype(m_carouselObjectMutex)::element_type> lock(*m_carouselObjectMutex);
+                m_passedBackMbs1Url = bundleurl::mbs1Url(authority, m_UserDataIngSessionId);
+            }
+            pushNotificationsEvent();
+        }
+        // Only the application provider is given this bundle: it is not put on the MBS-4-MC announcement channel (VIA_MBS_DISTRIBUTION_SESSION)
+        // and MBS-5 discovery (VIA_MBS_5) does not list it, see UserServiceDiscoveryHandler.
+        if (announced_service->isServiceAnnModePassedBackOnly()) return;
+    }
+
     std::shared_ptr<Open5GSSBINFInstance> nf_instance = nullptr;
 
     const std::shared_ptr<UserServiceAnnChannel> &ann_channel = App::self().context()->userServiceAnnouncementChannel();
@@ -4928,7 +4946,11 @@ void UserDataIngSession::resetCarouselObject()
 void UserDataIngSession::forEachMbs1AnnouncementUrl(std::function<void(const std::string &)> fn) const
 {
     std::lock_guard<decltype(m_carouselObjectMutex)::element_type> lock(*m_carouselObjectMutex);
-    if (!m_carouselObject) return;
+    if (!m_carouselObject) {
+        // A PASSED_BACK service has no carousel object when it is not on the announcement channel: its URL was set from the server's authority.
+        if (m_passedBackMbs1Url) fn(*m_passedBackMbs1Url);
+        return;
+    }
     const auto url = bundleurl::mbs1UrlFromObjectLocator(m_carouselObject->object()->getLocator());
     if (url) fn(*url);
 }

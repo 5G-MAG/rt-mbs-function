@@ -69,6 +69,16 @@ int main(int argc, char *argv[])
     check(!bundleurl::mbs1UrlFromObjectLocator("http://h/x-5gmag-service-announcements/v1/user-data-ingest-session/a/b"), "a nested path gives none");
     check(!bundleurl::mbs1UrlFromObjectLocator(""), "an empty string gives none");
 
+    /* The MBS-1 URL from the authority and the identifier alone, for a service that has no object locator (PASSED_BACK, clause 8A.2). */
+    check(bundleurl::mbs1Url("127.0.0.67:8888", "abc") ==
+              "http://127.0.0.67:8888/x-5gmag-service-announcements/v1/mbs-1/user-data-ingest-session/abc/",
+          "the MBS-1 URL is built from the authority and the Ingest Session identifier");
+    check(std::optional<std::string>(bundleurl::mbs1Url("127.0.0.67:8888", "abc")) == bundleurl::mbs1UrlFromObjectLocator(locator),
+          "and is the string that the object locator gives");
+    check(bundleurl::mbs1Url("[fd00::1]:8888", "9e3a") ==
+              "http://[fd00::1]:8888/x-5gmag-service-announcements/v1/mbs-1/user-data-ingest-session/9e3a/",
+          "an IPv6 authority is kept in it");
+
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }

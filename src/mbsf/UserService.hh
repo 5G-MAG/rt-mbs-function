@@ -30,6 +30,7 @@
 #include <vector>
 #include "openapi/model/MBSUserService.h"
 #include "common.hh"
+#include "AnnouncementModes.hh"
 #include "UserServiceDesc.hh"
 
 namespace fiveg_mag_reftools {
@@ -110,6 +111,11 @@ public:
 
     bool isServiceAnnModePassedBack();
     bool isServiceAnnModeViaMbs5();
+    // PASSED_BACK and neither VIA_MBS_5 nor VIA_MBS_DISTRIBUTION_SESSION: the bundle is for the MBS Application
+    // Provider at MBS-1 only, so it is not carried on the MBS-4-MC announcement channel and not served at MBS-5.
+    bool isServiceAnnModePassedBackOnly();
+    // The three announcement modes of the service as flags.
+    announcementmodes::Set announcementModes() const;
 
 
     static bool processEvent(Open5GSEvent &event);
@@ -133,9 +139,8 @@ public:
     // Broader than requiresUserServiceAnnouncement() above (which checks VIA_MBS_DISTRIBUTION_SESSION
     // only -- correctly, for its own callers, which gate the MBS-4-MC carousel channel specifically).
     // This checks whether an on-disk UserServiceAnnBundle needs to exist for VIA_MBS_5 (this MBSF's
-    // own co-located MBS AF, UserServiceDiscoveryHandler) or VIA_MBS_DISTRIBUTION_SESSION (MBS-4-MC
-    // carousel). PASSED_BACK is deliberately excluded here -- see the .cc file's own comment at this
-    // function's PASSED_BACK case for why.
+    // own co-located MBS AF, UserServiceDiscoveryHandler), VIA_MBS_DISTRIBUTION_SESSION (MBS-4-MC
+    // carousel) or PASSED_BACK (MBS-1, TS 26.517 V19.2.0 clause 8A.2).
     bool requiresUserServiceAnnouncementBundle();
     static bool canMbsfHandleServiceAnnouncementModes(const fiveg_mag_reftools::CJson &json, bool as_request);
     static bool checkAndSetUserServiceAnnouncementChannel(const fiveg_mag_reftools::CJson &json, bool as_request);

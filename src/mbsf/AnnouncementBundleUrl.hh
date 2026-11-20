@@ -51,6 +51,13 @@ inline std::string objectLocator(const std::string &authority, const std::string
     return std::format("http://{}{}{}", authority, objectLocatorPath(), ingest_session_id);
 }
 
+/** The MBS-1 URL of an Ingest Session's bundle, from the authority of the co-located server, as a directory URL. Same string as
+ * mbs1UrlFromObjectLocator() gives for objectLocator() of the same arguments. */
+inline std::string mbs1Url(const std::string &authority, const std::string &ingest_session_id)
+{
+    return std::format("http://{}{}{}/", authority, mbs1Path(), ingest_session_id);
+}
+
 /** The MBS-1 URL of the bundle that an object locator names, or nothing when the locator is not one of ours. */
 inline std::optional<std::string> mbs1UrlFromObjectLocator(std::string_view locator)
 {

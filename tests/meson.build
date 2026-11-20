@@ -170,6 +170,13 @@ test_announcement_bundle_url_exe = executable('test_announcement_bundle_url', 't
     install : false)
 test('test_announcement_bundle_url', test_announcement_bundle_url_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')
 
+# Which announcement modes need the bundle written, and which services are for the application provider only, see the test's own file comment.
+test_announcement_modes_exe = executable('test_announcement_modes', 'test_announcement_modes.cc',
+    include_directories : [libmbsf_libinc, libinc],
+    dependencies : [libmbsf_dep],
+    install : false)
+test('test_announcement_modes', test_announcement_modes_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')
+
 # announcedRepairBaseLocator(), the repair base locator announced for a Distribution Session, see the test's own file comment.
 test_object_repair_locator_exe = executable('test_object_repair_locator', 'test_object_repair_locator.cc',
     include_directories : [libmbsf_libinc, libinc],
