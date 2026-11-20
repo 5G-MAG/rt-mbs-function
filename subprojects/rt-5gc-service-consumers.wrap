@@ -1,7 +1,7 @@
 [wrap-git]
 directory = rt-5gc-service-consumers
 url = https://github.com/5G-MAG/rt-5gc-service-consumers.git
-revision = main
-# Pinned to main. src/mbsf/MBSNcgi.cc calls mb_smf_sc_ncgi_set_plmn_id_len, which the service consumers
-# carry on their development branch and which reaches main when that branch is merged. Until then,
-# build with revision = development.
+revision = development
+# Pinned to development. src/mbsf/MBSNcgi.cc calls mb_smf_sc_ncgi_set_plmn_id_len, which the service consumers
+# carry on their development branch and which reaches main when that branch is merged and released.
+# When it does, set revision = main.

@@ -1,8 +1,8 @@
 [wrap-git]
 directory = open5gs
 url = https://github.com/5G-MAG/open5gs.git
-revision = 5mbs
-# Pinned to 5mbs. The rt-5gc-service-consumers subproject parses red_mbs_service_area (open5gs
-# 6e9946c2f), which 5mbs-development carries and 5mbs does not until that branch is merged. Until then,
-# build with revision = 5mbs-development.
+revision = 5mbs-development
+# Pinned to 5mbs-development. The rt-5gc-service-consumers subproject parses red_mbs_service_area (open5gs
+# 6e9946c2f), which 5mbs-development carries and 5mbs does not until that branch is merged and released.
+# When it is, set revision = 5mbs.
 diff_files = open5gs.patch
