@@ -100,3 +100,11 @@ test_user_service_discovery_handler_exe = executable('test_user_service_discover
     dependencies : [libmbsf_dep],
     install : false)
 test('test_user_service_discovery_handler', test_user_service_discovery_handler_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')
+
+# servAnnPaths(), which of the MBS-5 API and the Announcement Channel each combination of Service
+# announcement modes advertises a service on, see the test's own file comment.
+test_serv_ann_mode_rules_exe = executable('test_serv_ann_mode_rules', 'test_serv_ann_mode_rules.cc',
+    include_directories : [libmbsf_libinc, libinc],
+    dependencies : [libmbsf_dep],
+    install : false)
+test('test_serv_ann_mode_rules', test_serv_ann_mode_rules_exe, suite: 'unit', timeout: 60, protocol: 'exitcode')

@@ -57,6 +57,7 @@
 #include "TimerFunc.hh"
 
 // Header include for this class
+#include "ServAnnModeRules.hh"
 #include "UserService.hh"
 
 using fiveg_mag_reftools::CJson;
@@ -1107,14 +1108,13 @@ bool UserService::checkAndSetUserServiceAnnouncementChannel(const fiveg_mag_reft
 bool UserService::requiresUserServiceAnnouncement()
 {
     if(!m_MBSUserService) return false;
-    const reftools::mbsf::MBSUserService::ServAnnModesType &service_ann_modes =  m_MBSUserService->getServAnnModes();
-    for( const auto &service_ann_mode : service_ann_modes) {
-        if (!service_ann_mode.has_value()) continue;
-        if (service_ann_mode.value()->getValue() == reftools::mbsf::ServiceAnnouncementMode::VAL_VIA_MBS_DISTRIBUTION_SESSION) {
-            return true;
-        }
-    }
-    return false;
+    return servAnnPaths(m_MBSUserService->getServAnnModes()).distributionSession;
+}
+
+bool UserService::isServiceAnnModeViaMbs5()
+{
+    if(!m_MBSUserService) return false;
+    return servAnnPaths(m_MBSUserService->getServAnnModes()).mbs5;
 }
 
 bool UserService::requiresUserServiceAnnouncementBundle()

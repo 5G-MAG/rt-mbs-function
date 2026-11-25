@@ -71,6 +71,7 @@ libmbsf_dist_sources = files('''
     CaseInsensitiveTraits.hh
     ConditionalRequest.hh
     ServTypeAttributeRules.hh
+    ServAnnModeRules.hh
     CivicAddr.cc
     CivicAddr.hh
     Context.cc
