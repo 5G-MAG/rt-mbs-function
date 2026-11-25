@@ -109,6 +109,9 @@ public:
     const std::string &hash() const {return m_hash;};
 
     bool isServiceAnnModePassedBack();
+    // True when VIA_MBS_5 is among the Service announcement modes: the announcement is advertised at
+    // MBS-5, so the User Service Description retrieval API may return this service.
+    bool isServiceAnnModeViaMbs5();
 
 
     static bool processEvent(Open5GSEvent &event);

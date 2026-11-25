@@ -127,6 +127,9 @@ HTTPResponse UserServiceDiscoveryHandler::discover(const std::optional<std::stri
     std::vector<std::shared_ptr<UserService>> matches;
     for (const auto &[id, svc] : App::self().context()->UserServices) {
         if (!svc) continue;
+        // TS 26.517 V19.3.0 clause 9.2.1: this API serves a service whose Service announcement modes
+        // indicate that it is advertised at MBS-5. A service provisioned only for another path is not.
+        if (!svc->isServiceAnnModeViaMbs5()) continue;
         if (service_class.has_value() && svc->serviceClass() != *service_class) continue;
         if (profile.has_value() && !hasConformanceProfile(svc, *profile)) continue;
         matches.push_back(svc);
@@ -158,6 +161,7 @@ HTTPResponse UserServiceDiscoveryHandler::retrieve(const std::string &external_s
     std::vector<std::shared_ptr<UserService>> matches;
     for (const auto &[id, svc] : App::self().context()->UserServices) {
         if (!svc) continue;
+        if (!svc->isServiceAnnModeViaMbs5()) continue;  // see discover()
         for (const auto &sid : svc->serviceIds()) {
             if (sid.has_value() && sid.value() == external_service_id) {
                 matches.push_back(svc);

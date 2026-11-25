@@ -55,6 +55,7 @@
 #include "Open5GSSBINFInstance.hh"
 #include "Open5GSSBIObject.hh"
 #include "UserDataIngSession.hh"
+#include "UserService.hh"
 
 #include "openapi/model/ObjectManifest.h"
 #include "openapi/model/ObjDistributionOperatingMode.h"
@@ -261,14 +262,28 @@ UserServiceAnnChannel &UserServiceAnnChannel::addUserDataIngSession(std::weak_pt
     return *this;
 }
 
+namespace {
+
+/* A session is carouselled when its bundle exists and its own service is provisioned for the
+ * Announcement Channel (VIA_MBS_DISTRIBUTION_SESSION). A bundle is also written for VIA_MBS_5, and
+ * that service is not advertised on the channel. The modes are read each time the carousel is built,
+ * so a change of modes takes effect on the next pass. */
+bool carouselled(const std::shared_ptr<UserDataIngSession> &session)
+{
+    if (!session || !session->isUserServiceAnnBundleAvailable()) return false;
+    const std::shared_ptr<UserService> &service = session->mbsUserService();
+    return service && service->requiresUserServiceAnnouncement();
+}
+
+}  // namespace
+
 std::size_t UserServiceAnnChannel::countUserDataIngSessions()
 {
     std::size_t count  = 0;
     m_userDataIngSessions.remove_if(&UserServiceAnnChannel::isExpired);
     for(const auto &ing_session : m_userDataIngSessions) {
         auto session = ing_session.lock();
-        if (!session) continue;
-        if (session->isUserServiceAnnBundleAvailable()) count++;
+        if (carouselled(session)) count++;
     }
     return count;
 }
@@ -279,8 +294,7 @@ bool UserServiceAnnChannel::userServiceAnnBundleAvailable()
     m_userDataIngSessions.remove_if(&UserServiceAnnChannel::isExpired);
     for(const auto &ing_session : m_userDataIngSessions) {
         auto session = ing_session.lock();
-        if(!session) continue;
-        if(session->isUserServiceAnnBundleAvailable()) {
+        if(carouselled(session)) {
             available = true;
             break;
         }
@@ -301,7 +315,7 @@ void UserServiceAnnChannel::sendCarouselRequest()
         //ogs_trace("Preparing carousel of a possible %zu sessions (after %zu expired sessions removed)", m_userDataIngSessions.size(), pre_expire_size - m_userDataIngSessions.size());
         for(const auto &ing_session : m_userDataIngSessions) {
             auto session = ing_session.lock();
-            if(!session || !session->isUserServiceAnnBundleAvailable()) continue;
+            if(!carouselled(session)) continue;
             carousel_objects.push_back(session->getCarouselObject());
             session->includedInCarouselObjectManifest(true);
         }
